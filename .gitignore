@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+.local/
+test-results/
+playwright-report/
+*.log
+*.pdf
+!tests/fixtures/*.pdf

@@ -1,0 +1,28 @@
+{
+  "name": "aireader", "version": "0.1.0", "private": true, "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "concurrently -k \"tsx watch apps/core/src/main.ts\" \"vite apps/web --host 127.0.0.1\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node scripts/build.mjs",
+    "desktop:portable": "pnpm build && electron-builder --win portable --x64 --publish never",
+    "start": "electron .",
+    "test:e2e": "playwright test"
+  },
+  "main": "dist/desktop/main.cjs",
+  "dependencies": { "pdfjs-dist": "5.4.54", "react": "19.1.1", "react-dom": "19.1.1", "ws": "8.18.3", "zod": "4.1.5" },
+  "devDependencies": {
+    "@playwright/test": "1.55.0", "@types/better-sqlite3": "7.6.13", "@types/node": "22.18.0", "@types/react": "19.1.12", "@types/react-dom": "19.1.9", "@types/ws": "8.18.1",
+    "concurrently": "9.2.1", "electron": "44.4.3", "electron-builder": "26.15.3", "esbuild": "0.25.9", "tsx": "4.20.5", "typescript": "5.9.2", "vite": "6.3.6", "vitest": "3.2.4", "pdf-lib": "1.17.1"
+  },
+  "pnpm": { "onlyBuiltDependencies": ["electron", "esbuild", "better-sqlite3"] },
+  "build": {
+    "appId": "ai.soloedge.aireader", "productName": "AIReader", "asar": true,
+    "directories": {"output": "release"},
+    "files": ["dist/**/*", "package.json"],
+    "asarUnpack": ["node_modules/better-sqlite3/**/*", "node_modules/@napi-rs/**/*"],
+    "win": {"target": [{"target": "portable", "arch": ["x64"]}], "artifactName": "AIReader-Portable-${version}-${arch}.${ext}"},
+    "portable": {"requestExecutionLevel": "user"}
+  }
+}
