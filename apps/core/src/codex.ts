@@ -382,6 +382,7 @@ export class CodexAdapter extends EventEmitter {
       model?: string;
       effort?: string;
       cwd?: string;
+      imagePaths?: string[];
     } = {},
   ) {
     await this.connect();
@@ -521,7 +522,13 @@ export class CodexAdapter extends EventEmitter {
         }
         void this.request("turn/start", {
           threadId: id,
-          input: [{ type: "text", text: prompt, text_elements: [] }],
+          input: [
+            { type: "text", text: prompt, text_elements: [] },
+            ...(options.imagePaths ?? []).map((path) => ({
+              type: "localImage",
+              path,
+            })),
+          ],
           approvalPolicy: "never",
           sandboxPolicy: { type: "readOnly", networkAccess: false },
           model: options.model || undefined,

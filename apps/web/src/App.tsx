@@ -17,6 +17,7 @@ import { PdfReader, type AnnotationMode } from "./PdfReader";
 import { NotesPanel, useBookNotes } from "./NotesPanel";
 import { ChatPanel, type SelectionAction } from "./ChatPanel";
 import { QuestionDraftStore } from "./QuestionDrafts";
+import { PanelResizer } from "./PanelResizer";
 import { BookCover } from "./BookCover";
 import { Icon } from "./Icon";
 import { Settings } from "./Settings";
@@ -40,6 +41,24 @@ export function App() {
   const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<SelectionAction>();
   const [questionDrafts] = useState(() => new QuestionDraftStore());
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const resize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  const maxPanelWidth = Math.round(
+    Math.max(
+      320,
+      Math.min(
+        1600,
+        viewportWidth <= 1180
+          ? viewportWidth * 0.9
+          : viewportWidth - 408 - (layout.navigation ? 240 : 0),
+      ),
+    ),
+  );
+  const panelWidth = Math.min(layout.panelWidth, maxPanelWidth);
   const clearSelection = useCallback(() => {
     setSelection(undefined);
     getSelection()?.removeAllRanges();
@@ -543,7 +562,7 @@ export function App() {
             className="reader-body"
             style={
               {
-                "--panel-width": layout.panelWidth + "px",
+                "--panel-width": panelWidth + "px",
               } as React.CSSProperties
             }
           >
@@ -741,43 +760,15 @@ export function App() {
             </section>
             {layout.panel !== "none" && (
               <>
-                <div
-                  className="splitter"
-                  role="separator"
-                  tabIndex={0}
-                  aria-label="调整侧栏宽度"
-                  aria-orientation="vertical"
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowLeft" || e.key === "ArrowRight")
-                      updateLayout({
-                        ...layout,
-                        panelWidth: Math.max(
-                          320,
-                          Math.min(
-                            560,
-                            layout.panelWidth +
-                              (e.key === "ArrowLeft" ? 20 : -20),
-                          ),
-                        ),
-                      });
-                  }}
-                  onPointerDown={(e) =>
-                    e.currentTarget.setPointerCapture(e.pointerId)
+                <PanelResizer
+                  width={panelWidth}
+                  maximum={maxPanelWidth}
+                  onChange={(panelWidth) =>
+                    setLayout((old) => ({ ...old, panelWidth }))
                   }
-                  onPointerMove={(e) => {
-                    if (e.buttons === 1) {
-                      const rect =
-                        e.currentTarget.parentElement!.getBoundingClientRect();
-                      setLayout((old) => ({
-                        ...old,
-                        panelWidth: Math.max(
-                          320,
-                          Math.min(560, rect.right - e.clientX),
-                        ),
-                      }));
-                    }
-                  }}
-                  onPointerUp={() => updateLayout(layout)}
+                  onCommit={(panelWidth) =>
+                    updateLayout({ ...layout, panelWidth })
+                  }
                 />
                 <div className="side-panel">
                   <header className="panel-header">

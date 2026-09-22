@@ -15,6 +15,7 @@ const paths = {
   note: "M14 3H5v18h14V8Zm0 0v5h5M8 12h8M8 16h6",
   settings: "M4 7h16M4 17h16M8 4v6M16 14v6",
   plus: "M12 5v14M5 12h14",
+  image: "M3 3h18v18H3ZM3 16l6-6 4 4 3-3 5 5M15 7h.01",
   close: "m6 6 12 12M6 18 18 6",
   bookmark: "M6 3h12v18l-6-4-6 4Z",
   more: "M5 12h.01M12 12h.01M19 12h.01",

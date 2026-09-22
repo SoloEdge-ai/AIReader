@@ -35,21 +35,23 @@ jobs:
         run: node scripts/model-control-smoke.mjs
       - name: Chat HTTP and UI acceptance
         run: node --import tsx scripts/chat-smoke.ts
+      - name: Screenshot input and panel resize acceptance
+        run: node --import tsx scripts/chat-attachments-smoke.ts
       - name: Annotation and save-recovery acceptance
         run: node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe
         env:
-          AIREADER_CI: '1'
+          AIREADER_CI: "1"
       - name: Selection toolbar acceptance
         run: node scripts/selection-smoke.mjs release/win-unpacked/AIReader.exe
         env:
-          AIREADER_CI: '1'
+          AIREADER_CI: "1"
       - name: Packaged desktop smoke test
         shell: pwsh
         run: |
           $portable = Get-ChildItem release/AIReader-Portable-*-x64.exe
           node scripts/desktop-smoke.mjs $portable.FullName
         env:
-          AIREADER_CI: '1'
+          AIREADER_CI: "1"
       - name: Checksums
         shell: pwsh
         run: |

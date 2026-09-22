@@ -12,6 +12,7 @@ import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import { ChatMessage } from "./ChatMessage";
 import { SelectionContext } from "./SelectionContext";
+import { ChatImageList } from "./ChatImageList";
 import type { QuestionDraft, QuestionDraftStore } from "./QuestionDrafts";
 export type SelectionAction = {
   name: string;
@@ -49,7 +50,11 @@ export function ChatPanel({
   const draft = useSyncExternalStore(savedDrafts.subscribe, () =>
     savedDrafts.get(draftKey),
   );
-  const { question, scope, attachment } = draft;
+  const { question, scope, attachment, images, preparing, imageError } = draft;
+  const imagePicker = useRef<HTMLInputElement>(null);
+  function addImages(files: File[]) {
+    if (session && files.length) void savedDrafts.addImages(draftKey, files);
+  }
   const [renaming, setRenaming] = useState(false),
     [title, setTitle] = useState("");
   const input = useRef<HTMLTextAreaElement>(null),
@@ -162,7 +167,8 @@ export function ChatPanel({
     (e) => e.reasoningEffort === ai.choice?.effort,
   );
   const canSubmit =
-    !!question.trim() &&
+    (!!question.trim() || !!images.length) &&
+    !preparing &&
     !!session &&
     !!valid &&
     !!ai.account.account &&
@@ -187,7 +193,8 @@ export function ChatPanel({
       };
       const turn = await post<ChatTurn>(`books/${book.id}/turns`, {
         reading,
-        question,
+        question: question.trim() || "请解释这些图片。",
+        images: images.map(({ name, dataUrl }) => ({ name, dataUrl })),
         sessionId: session,
         ...ai.choice,
       });
@@ -386,16 +393,57 @@ export function ChatPanel({
       {ai.choice && ai.models.length > 0 && !valid && (
         <p className="error">所选模型或强度已不可用，请重新选择。</p>
       )}
-      <div className="composer">
-        <SelectionContext
-          key={session}
-          attached={attachment}
-          candidate={selection}
-          disabled={!session || creating}
-          onAttach={attach}
-          onRemove={() => updateDraft({ attachment: undefined, scope: "auto" })}
-          onPick={onPickSelection}
-        />
+      <div
+        className="composer"
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          addImages(Array.from(event.dataTransfer.files));
+        }}
+      >
+        <div className="composer-materials">
+          <ChatImageList
+            images={images.map((image) => ({ ...image, url: image.dataUrl }))}
+            onRemove={(id) =>
+              updateDraft({
+                images: images.filter((image) => image.id !== id),
+                imageError: undefined,
+              })
+            }
+          />
+          {!!images.length && (
+            <p className="image-hint">
+              图片仅随本轮发送；未填写问题时默认“请解释这些图片。”
+            </p>
+          )}
+          {!!preparing && (
+            <p className="image-hint" role="status">
+              正在处理图片…
+            </p>
+          )}
+          {imageError && (
+            <p className="error" role="alert">
+              {imageError}
+            </p>
+          )}
+          <SelectionContext
+            key={session}
+            attached={attachment}
+            candidate={selection}
+            disabled={!session || creating}
+            onAttach={attach}
+            onRemove={() =>
+              updateDraft({ attachment: undefined, scope: "auto" })
+            }
+            onPick={onPickSelection}
+          />
+        </div>
         <div className="composer-scope">
           <Icon name="book" />
           <select
@@ -425,6 +473,13 @@ export function ChatPanel({
           value={question}
           disabled={!session || creating}
           onChange={(e) => setQuestion(e.target.value)}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files);
+            if (files.length) {
+              event.preventDefault();
+              addImages(files);
+            }
+          }}
           onKeyDown={(e) => {
             if (
               e.key === "Enter" &&
@@ -437,6 +492,27 @@ export function ChatPanel({
           }}
         />
         <div className="composer-actions">
+          <input
+            ref={imagePicker}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            hidden
+            aria-label="选择图片"
+            onChange={(event) => {
+              addImages(Array.from(event.target.files ?? []));
+              event.target.value = "";
+            }}
+          />
+          <button
+            className="add-image"
+            aria-label="添加图片"
+            title="添加图片（也可粘贴截图）"
+            disabled={!session || creating || !!preparing || images.length >= 4}
+            onClick={() => imagePicker.current?.click()}
+          >
+            <Icon name="image" />
+          </button>
           <ModelPicker />
           {running ? (
             <button
