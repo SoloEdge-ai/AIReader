@@ -20,7 +20,11 @@ for (let i = 0; i < 8; i++) {
 const fixture = resolve(".local/annotations-fixture.pdf");
 await writeFile(fixture, await pdf.save());
 const app = await electron.launch({
-  args: [".", `--force-device-scale-factor=${process.argv[2] ?? 1}`],
+  executablePath: process.argv[3] ? resolve(process.argv[3]) : undefined,
+  args: [
+    ...(process.argv[3] ? [] : ["."]),
+    `--force-device-scale-factor=${process.argv[2] ?? 1}`,
+  ],
   env: {
     ...process.env,
     ELECTRON_RUN_AS_NODE: undefined,
@@ -29,6 +33,9 @@ const app = await electron.launch({
 });
 try {
   const page = await app.firstWindow();
+  // Missed startup events must not leave a fully parsed document stuck in "parsing".
+  await page.routeWebSocket("**/events", (socket) => socket.close());
+  await page.reload();
   // Electron handles this with its native close confirmation, not a Chromium dialog.
   page.on("dialog", () => {});
   const errors = [];
@@ -117,7 +124,10 @@ try {
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("3");
   await page.getByLabel("批注工具").selectOption("region");
-  await expect(page.locator('#page-3')).toHaveAttribute('data-render-ready','true');
+  await expect(page.locator("#page-3")).toHaveAttribute(
+    "data-render-ready",
+    "true",
+  );
   const box = await page.locator("#page-3").boundingBox();
   await page.mouse.move(box.x + 80, box.y + 80);
   await page.mouse.down();
@@ -225,6 +235,16 @@ try {
   );
 } catch (error) {
   console.error(error);
+  const window = await app.firstWindow();
+  console.error(
+    "Reader failure state",
+    await window
+      .evaluate(async () => ({
+        visible: document.body.innerText,
+        books: await fetch("/api/books").then((r) => r.json()),
+      }))
+      .catch(() => "Window unavailable"),
+  );
   throw error;
 } finally {
   await app

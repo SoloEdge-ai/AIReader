@@ -122,6 +122,31 @@ export function App() {
   }, [prefs.theme]);
   useEffect(() => setPageInput(String(page)), [page]);
   useEffect(() => {
+    if (!active || !book || !["queued", "parsing"].includes(book.status))
+      return;
+    let live = true,
+      updating = false;
+    const refresh = async () => {
+      if (!live || updating) return;
+      updating = true;
+      try {
+        const value = await api<Book>(`books/${active}`);
+        if (live)
+          setBooks((old) => old.map((b) => (b.id === value.id ? value : b)));
+      } catch {
+        /* The event stream or the next poll can recover a transient disconnect. */
+      } finally {
+        updating = false;
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 1500);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [active, book?.status]);
+  useEffect(() => {
     let live = true;
     setSelection(undefined);
     setAction(undefined);

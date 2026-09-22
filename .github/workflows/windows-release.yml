@@ -32,7 +32,7 @@ jobs:
           $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
       - run: pnpm desktop:portable
       - name: Annotation and save-recovery acceptance
-        run: node scripts/annotations-smoke.mjs
+        run: node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe
         env:
           AIREADER_CI: '1'
       - name: Packaged desktop smoke test
