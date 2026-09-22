@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile, rename } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { Worker } from "node:worker_threads";
+import { spawn, type ChildProcess } from "node:child_process";
 import type {
   Book,
   Bookmark,
@@ -11,9 +11,10 @@ import type {
 } from "../../../packages/protocol/src/index";
 import { Storage } from "./storage";
 import { tokens } from "./tokenize";
+import type { ParseMessage } from "./pdf-worker";
 export class Library {
   readonly store: Storage;
-  private workers = new Map<string, Worker>();
+  private workers = new Map<string, ChildProcess>();
   private closed = false;
   constructor(
     readonly directory: string,
@@ -101,16 +102,15 @@ export class Library {
       this.save(book);
       return;
     }
-    const worker = new Worker(compiled, {
-      workerData: {
-        path: this.file(book.id),
-        bookId: book.id,
-        fingerprint: book.fingerprint,
-        indexVersion: book.indexVersion,
-      },
+    // PDF.js 5.x can fault the entire host when imported in a Windows thread.
+    // A process boundary contains native faults without blocking the Core loop.
+    const worker = spawn(process.execPath, [compiled], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      windowsHide: true,
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
     });
     this.workers.set(book.id, worker);
-    worker.on("message", (message) => {
+    worker.on("message", (message: ParseMessage) => {
       if (this.closed) return;
       const latest = this.book(book.id);
       if (message.type === "metadata") {
@@ -149,15 +149,31 @@ export class Library {
       if (message.type === "done") latest.status = "ready";
       this.save(latest);
     });
-    worker.on("error", (error) => {
+    const failed = (message: string) => {
       if (!this.closed) {
         const latest = this.book(book.id);
+        if (latest.status !== "parsing") return;
         latest.status = "error";
-        latest.error = error.message;
+        latest.error = message;
         this.save(latest);
       }
+    };
+    worker.on("error", (error) => failed(error.message));
+    worker.on("exit", (code) => {
+      this.workers.delete(book.id);
+      failed(`PDF 解析进程意外结束（${code ?? "已中止"}），请重试解析。`);
     });
-    worker.on("exit", () => this.workers.delete(book.id));
+    worker.send(
+      {
+        path: this.file(book.id),
+        bookId: book.id,
+        fingerprint: book.fingerprint,
+        indexVersion: book.indexVersion,
+      },
+      (error) => {
+        if (error) failed(error.message);
+      },
+    );
   }
   async waitForBook(id: string) {
     while (["queued", "parsing"].includes(this.book(id).status))
@@ -215,7 +231,7 @@ export class Library {
   }
   close() {
     this.closed = true;
-    for (const worker of this.workers.values()) void worker.terminate();
+    for (const worker of this.workers.values()) worker.kill();
     this.workers.clear();
     this.store.close();
   }

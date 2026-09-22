@@ -1,11 +1,24 @@
-import { parentPort, workerData } from "node:worker_threads";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Chapter, Passage } from "../../../packages/protocol/src/index";
 const require = createRequire(import.meta.url);
-async function parse() {
+interface ParseInput {
+  path: string;
+  bookId: string;
+  fingerprint: string;
+  indexVersion: number;
+}
+export type ParseMessage =
+  | { type: "metadata"; pages: number; chapters: Chapter[]; labels: string[] }
+  | { type: "page"; page: number; passages: Passage[] }
+  | { type: "error"; error: string }
+  | { type: "done" };
+function report(message: ParseMessage) {
+  process.send?.(message);
+}
+async function parse(workerData: ParseInput) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
   const pdf = await pdfjs.getDocument({
@@ -77,7 +90,7 @@ async function parse() {
           pdf.numPages + 1) - 1,
       );
     });
-  parentPort!.postMessage({
+  report({
     type: "metadata",
     pages: pdf.numPages,
     labels,
@@ -127,15 +140,23 @@ async function parse() {
       if (text.length >= 1800 && (item.hasEOL || text.length > 2600)) flush();
     }
     flush();
-    parentPort!.postMessage({ type: "page", page: pageNo, passages });
+    report({ type: "page", page: pageNo, passages });
     page.cleanup();
   }
   await pdf.destroy();
-  parentPort!.postMessage({ type: "done" });
+  report({ type: "done" });
 }
-parse().catch((error) =>
-  parentPort!.postMessage({
-    type: "error",
-    error: error instanceof Error ? error.message : String(error),
-  }),
-);
+// If Core exits, this parser must not continue as an orphan process.
+process.once("disconnect", () => process.exit(0));
+process.once("message", (input: ParseInput) => {
+  void parse(input)
+    .catch((error) =>
+      report({
+        type: "error",
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    )
+    .finally(() => {
+      if (process.connected) process.disconnect();
+    });
+});
