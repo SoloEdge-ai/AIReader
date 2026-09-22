@@ -12,21 +12,21 @@ export class Storage {
     const version = Number(
       this.db.prepare("PRAGMA user_version").get()!.user_version,
     );
-    if (version > 2) {
+    if (version > 3) {
       this.db.close();
       throw new Error("数据库来自较新版本，请更新 AIReader。");
     }
-    if (version < 2) {
+    if (version < 3) {
       if (existed) {
         this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-        copyFileSync(path, path + ".before-v2.bak");
+        copyFileSync(path, path + ".before-v3.bak");
       }
       this.db
         .exec(`CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,book_id TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(kind,id));
         CREATE TABLE IF NOT EXISTS passages(id TEXT PRIMARY KEY,book_id TEXT NOT NULL,page INTEGER NOT NULL,text TEXT NOT NULL,value TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS passages_book ON passages(book_id,page);
         CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(id UNINDEXED,book_id UNINDEXED,tokens);
-        PRAGMA user_version=2;`);
+        PRAGMA user_version=3;`);
     }
     this.db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
   }

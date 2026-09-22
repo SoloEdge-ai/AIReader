@@ -40,7 +40,7 @@ export function BookCover({ id }: { id: string }) {
       dead = true;
       observer.disconnect();
       render?.cancel();
-      void task?.destroy();
+      void task?.destroy().catch(() => {});
     };
   }, [id]);
   return (

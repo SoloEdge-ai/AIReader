@@ -335,7 +335,7 @@ export function ChatPanel({
             <button
               className="primary"
               disabled={
-                !valid || !ai.account.account || !question.trim() || !session
+                sending || !valid || !ai.account.account || !question.trim() || !session
               }
               onClick={() => void ask()}
             >

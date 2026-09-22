@@ -17,6 +17,7 @@ import {
   type ModelSelection,
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
+import { Notes } from "./notes";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export async function body(req: IncomingMessage, limit = 1024 * 1024) {
@@ -49,6 +50,7 @@ export function createCore(directory: string, webRoot: string) {
         client.send(JSON.stringify(event));
   };
   const library = new Library(directory, emit);
+  const notes = new Notes(library);
   library.resume();
   const runtime = new RuntimeManager(directory, (data) =>
     emit({ type: "runtime", data }),
@@ -242,6 +244,57 @@ export function createCore(directory: string, webRoot: string) {
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];
           const book = library.book(id);
+          if (parts[3] === "annotations" || parts[3] === "notes") {
+            const kind = parts[3] === "annotations" ? "annotation" : "note";
+            if (parts[4]) {
+              if (req.method === "DELETE")
+                send(res, notes.remove(id, parts[4], kind));
+              else if (req.method === "POST" && parts[5] === "restore")
+                send(res, notes.remove(id, parts[4], kind, true));
+              else if (req.method === "POST")
+                send(
+                  res,
+                  kind === "annotation"
+                    ? notes.updateAnnotation(id, parts[4], await jsonBody(req))
+                    : notes.updateNote(id, parts[4], await jsonBody(req)),
+                );
+              else throw new Error("不支持的操作");
+            } else if (req.method === "POST")
+              send(
+                res,
+                kind === "annotation"
+                  ? await notes.createAnnotation(
+                      id,
+                      JSON.parse(
+                        (await body(req, 12 * 1024 * 1024)).toString(),
+                      ),
+                    )
+                  : notes.createNote(id),
+                201,
+              );
+            else
+              send(
+                res,
+                kind === "annotation" ? notes.annotations(id) : notes.list(id),
+              );
+            return;
+          }
+          if (
+            parts[3] === "annotation-assets" &&
+            parts[4] &&
+            req.method === "GET"
+          ) {
+            const file = notes.asset(id, parts[4]);
+            res.writeHead(200, {
+              "Content-Type": "image/png",
+              "X-Content-Type-Options": "nosniff",
+              "Cache-Control": "private, max-age=3600",
+            });
+            createReadStream(file)
+              .on("error", () => res.destroy())
+              .pipe(res);
+            return;
+          }
           if (parts[3] === "preferences") {
             if (req.method === "POST")
               library.store.put(
@@ -343,6 +396,12 @@ export function createCore(directory: string, webRoot: string) {
               const value = z
                 .object({ action: z.enum(["pause", "cancel", "resume"]) })
                 .parse(await jsonBody(req));
+              if (value.action === "resume") {
+                const job = indexer.list(id).find((j) => j.id === parts[4]);
+                if (!job?.model || !job.effort)
+                  throw new Error("旧索引任务未记录模型，请创建新的索引任务");
+                await selection({ model: job.model, effort: job.effort });
+              }
               send(res, indexer.control(id, parts[4], value.action));
               return;
             }

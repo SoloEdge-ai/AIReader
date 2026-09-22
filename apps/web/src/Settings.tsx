@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ReaderPreferences } from "../../../packages/protocol/src";
 import { Icon } from "./Icon";
 export function Settings({
@@ -11,6 +12,12 @@ export function Settings({
   onClose: () => void;
   children?: React.ReactNode;
 }) {
+  const dialog = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => previous?.focus();
+  }, []);
   return (
     <div
       className="modal-shade"
@@ -19,12 +26,29 @@ export function Settings({
       }}
     >
       <section
+        ref={dialog}
         className="settings-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="设置"
         onKeyDown={(e) => {
           if (e.key === "Escape") onClose();
+          if (e.key === "Tab") {
+            const elements = Array.from(
+              e.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href],summary,[tabindex="0"]',
+              ),
+            ).filter((el) => el.getClientRects().length);
+            const first = elements[0],
+              last = elements.at(-1);
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last?.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first?.focus();
+            }
+          }
         }}
       >
         <header>

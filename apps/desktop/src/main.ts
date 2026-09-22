@@ -46,8 +46,7 @@ app.whenReady().then(() => {
       try {
         const target = new URL(url);
         if (
-          target.protocol === "https:" &&
-          ["auth.openai.com", "chatgpt.com"].includes(target.hostname)
+          ["https:", "http:", "mailto:"].includes(target.protocol)
         )
           void shell.openExternal(url);
       } catch {}

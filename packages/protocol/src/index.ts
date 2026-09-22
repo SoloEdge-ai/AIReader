@@ -48,6 +48,9 @@ export interface Book {
   indexVersion: number;
 }
 export const ReaderPreferencesSchema = z.object({
+  rotation: z
+    .union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)])
+    .default(0),
   theme: z.enum(["system", "light", "dark"]).default("system"),
   navigation: z.boolean().default(false),
   panel: z.enum(["none", "chat", "notes"]).default("none"),
@@ -159,4 +162,65 @@ export interface AccountState {
   account?: { type: string; email?: string | null; planType?: string } | null;
   error?: string;
   login?: { loginId: string; authUrl: string } | null;
+}
+export const PdfAnchorSchema = z.object({
+  page: z.number().int().positive(),
+  rects: z
+    .array(
+      z.tuple([
+        z.number().finite().min(-200000).max(200000),
+        z.number().finite().min(-200000).max(200000),
+        z.number().finite().min(-200000).max(200000),
+        z.number().finite().min(-200000).max(200000),
+      ]),
+    )
+    .min(1)
+    .max(500),
+});
+export type PdfAnchor = z.infer<typeof PdfAnchorSchema>;
+export const AnnotationInputSchema = z.object({
+  kind: z.enum(["highlight", "underline", "strike", "sticky", "region"]),
+  color: z.enum(["yellow", "green", "blue", "pink"]).default("yellow"),
+  quote: z.string().max(20000).default(""),
+  anchors: z.array(PdfAnchorSchema).min(1).max(50),
+  image: z
+    .string()
+    .max(12 * 1024 * 1024)
+    .optional(),
+});
+export interface RichNode {
+  type: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  content?: RichNode[];
+  marks?: { type: string; attrs?: Record<string, unknown> }[];
+}
+export interface Annotation
+  extends Omit<z.infer<typeof AnnotationInputSchema>, "image"> {
+  id: string;
+  bookId: string;
+  fingerprint: string;
+  noteId: string;
+  assetId?: string;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+  deletedAt?: string;
+}
+export interface Note {
+  id: string;
+  bookId: string;
+  annotationId?: string;
+  title: string;
+  document: RichNode;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+  deletedAt?: string;
+}
+export interface ReadingSelection {
+  text: string;
+  page: number;
+  anchors: PdfAnchor[];
+  screen: { x: number; y: number };
 }
