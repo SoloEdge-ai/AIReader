@@ -1,0 +1,52 @@
+import {createServer,IncomingMessage,ServerResponse} from 'node:http';
+import {readFile,stat} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {resolve,extname,relative,isAbsolute} from 'node:path';
+import {randomBytes} from 'node:crypto';
+import {WebSocketServer,WebSocket} from 'ws';
+import {z} from 'zod';
+import {Library} from './library';
+import type {CoreEvent} from '../../../packages/protocol/src/index';
+export async function body(req:IncomingMessage,limit=1024*1024){const chunks:Buffer[]=[];let length=0;for await(const chunk of req){length+=chunk.length;if(length>limit)throw new Error('文件或请求过大');chunks.push(Buffer.from(chunk));}return Buffer.concat(chunks);}
+export async function jsonBody(req:IncomingMessage){return JSON.parse((await body(req)).toString());}
+export function send(res:ServerResponse,value:unknown,status=200){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}).end(JSON.stringify(value));}
+export function createCore(directory:string,webRoot:string){
+ const token=randomBytes(32).toString('hex');const sockets=new WebSocketServer({noServer:true});
+ const emit=(event:CoreEvent)=>{for(const client of sockets.clients)if(client.readyState===WebSocket.OPEN)client.send(JSON.stringify(event));};
+ const library=new Library(directory,emit);library.resume();
+ const authenticated=(req:IncomingMessage)=>req.headers.cookie?.split(';').some(x=>x.trim()===`aireader=${token}`);
+ const allowedOrigin=(req:IncomingMessage)=>req.headers.origin===`http://${req.headers.host}`||(!process.env.AIREADER_WEB&&req.headers.origin==='http://127.0.0.1:5173');
+ const server=createServer(async(req,res)=>{
+  try{
+   if(!req.headers.host?.match(/^127\.0\.0\.1:\d+$/)){send(res,{error:'Invalid host'},403);return;}
+   if(req.headers.origin&&!allowedOrigin(req)){send(res,{error:'Invalid origin'},403);return;}
+   if(allowedOrigin(req)){res.setHeader('Access-Control-Allow-Origin',req.headers.origin!);res.setHeader('Access-Control-Allow-Credentials','true');res.setHeader('Vary','Origin');}
+   if(req.method==='OPTIONS'){res.setHeader('Access-Control-Allow-Headers','Content-Type, X-Filename');res.setHeader('Access-Control-Allow-Methods','GET, POST, DELETE');res.writeHead(204).end();return;}
+   const url=new URL(req.url??'/','http://localhost');const parts=url.pathname.split('/').filter(Boolean);
+   if(url.pathname==='/api/session'&&req.method==='POST'){if(!allowedOrigin(req)){send(res,{error:'Origin required'},403);return;}res.setHeader('Set-Cookie',`aireader=${token}; HttpOnly; SameSite=Strict; Path=/`);send(res,{ok:true});return;}
+   if(parts[0]==='api'){
+    if(!authenticated(req)||(req.method!=='GET'&&!allowedOrigin(req))){send(res,{error:'Session required'},401);return;}
+    if(parts[1]==='health'){send(res,{ok:true});return;}
+    if(parts[1]==='books'&&parts.length===2){if(req.method==='GET'){send(res,library.books());return;}if(req.method==='POST'){send(res,await library.import(await body(req,256*1024*1024),decodeURIComponent(String(req.headers['x-filename']??'Document.pdf')).slice(0,300)),201);return;}}
+    if(parts[1]==='books'&&parts[2]){
+     const id=parts[2];const book=library.book(id);
+     if(parts.length===3){send(res,book);return;}
+     if(parts[3]==='file'&&req.method==='GET'){const file=library.file(id);const size=(await stat(file)).size;res.writeHead(200,{'Content-Type':'application/pdf','Content-Length':size,'Cache-Control':'private, max-age=60'});createReadStream(file).pipe(res);return;}
+     if(parts[3]==='search'){send(res,library.search(id,(url.searchParams.get('q')??'').slice(0,1000)));return;}
+     if(parts[3]==='passages'){send(res,library.passages(id,url.searchParams.has('page')?Number(url.searchParams.get('page')):undefined));return;}
+     if(parts[3]==='progress'&&req.method==='POST'){const data=z.object({page:z.number().int().min(1).max(Math.max(book.pages,1))}).parse(await jsonBody(req));library.progress(id,data.page);send(res,{ok:true});return;}
+     if(parts[3]==='bookmarks'){
+      if(req.method==='POST'){const data=z.object({page:z.number().int().min(1).max(Math.max(book.pages,1)),note:z.string().max(1000)}).parse(await jsonBody(req));send(res,library.addBookmark(id,data.page,data.note));return;}
+      if(req.method==='DELETE'){const mark=library.bookmarks(id).find(x=>x.id===parts[4]);if(mark)library.store.remove('bookmark',mark.id);send(res,{ok:true});return;}
+      send(res,library.bookmarks(id));return;
+     }
+    }send(res,{error:'接口不存在'},404);return;
+   }
+   const root=resolve(webRoot);const file=resolve(root,'.'+(url.pathname==='/'?'/index.html':decodeURIComponent(url.pathname)));const rel=relative(root,file);if(rel.startsWith('..')||isAbsolute(rel)){res.writeHead(403).end();return;}
+   const content=await readFile(file);res.setHeader('Content-Type',({'.html':'text/html; charset=utf-8','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.woff2':'font/woff2'} as Record<string,string>)[extname(file)]??'application/octet-stream');
+   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");res.setHeader('X-Content-Type-Options','nosniff');res.end(content);
+  }catch(error){if(!res.headersSent)send(res,{error:error instanceof Error?error.message:String(error)},400);else res.destroy();}
+ });
+ server.on('upgrade',(req,socket,head)=>{if(req.url!=='/events'||!allowedOrigin(req)||!authenticated(req)){socket.destroy();return;}sockets.handleUpgrade(req,socket,head,client=>sockets.emit('connection',client,req));});
+ return{server,library,emit,close(){for(const client of sockets.clients)client.terminate();sockets.close();server.close();library.close();}};
+}
