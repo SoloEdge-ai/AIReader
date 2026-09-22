@@ -1,0 +1,92 @@
+import { _electron as electron, chromium } from "@playwright/test";
+import { spawn } from "node:child_process";
+import { resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { PDFDocument, StandardFonts } from "pdf-lib";
+await mkdir(".local/screenshots", { recursive: true });
+const fixture = resolve(".local/desktop-fixture.pdf");
+const pdf = await PDFDocument.create();
+const font = await pdf.embedFont(StandardFonts.Helvetica);
+pdf
+  .addPage()
+  .drawText("AIReader portable startup and source indexing fixture.", {
+    font,
+    x: 30,
+    y: 700,
+  });
+await writeFile(fixture, await pdf.save());
+const env = {
+  ...process.env,
+  ELECTRON_RUN_AS_NODE: undefined,
+  AIREADER_DATA: resolve(".local/desktop-library"),
+};
+const portable = process.argv[2]?.includes("Portable-");
+let app;
+let browser;
+let portableProcess;
+if (portable) {
+  // NSIS forwards command-line flags but not the inspector pipe Electron.launch expects.
+  portableProcess = spawn(
+    resolve(process.argv[2]),
+    ["--remote-debugging-port=9337"],
+    {
+      env,
+      windowsHide: true,
+      stdio: "ignore",
+    },
+  );
+  let connected = false;
+  for (let attempt = 0; attempt < 90; attempt++) {
+    if (portableProcess.exitCode !== null)
+      throw new Error(`Portable exited: ${portableProcess.exitCode}`);
+    try {
+      const response = await fetch("http://127.0.0.1:9337/json/version");
+      if (response.ok) {
+        connected = true;
+        break;
+      }
+    } catch {}
+    await new Promise((done) => setTimeout(done, 1000));
+  }
+  if (!connected) {
+    portableProcess.kill();
+    throw new Error("Portable did not expose its test endpoint");
+  }
+  browser = await chromium.connectOverCDP("http://127.0.0.1:9337");
+} else {
+  app = await electron.launch({
+    args: process.argv[2]?.endsWith(".exe") ? [] : [process.argv[2] ?? "."],
+    executablePath: process.argv[2]?.endsWith(".exe")
+      ? resolve(process.argv[2])
+      : undefined,
+    env,
+  });
+}
+try {
+  const page = app
+    ? await app.firstWindow()
+    : (browser.contexts()[0].pages()[0] ??
+      (await browser.contexts()[0].waitForEvent("page")));
+  await page.getByText("留出时间，读懂一本书。").waitFor({ timeout: 15000 });
+  await page
+    .locator("input[type=file]")
+    .setInputFiles(process.argv[3] ?? fixture);
+  await page.locator(".textLayer span").first().waitFor({ timeout: 20000 });
+  await page
+    .getByText("文本索引完成", { exact: true })
+    .waitFor({ timeout: 30000 });
+  await page.screenshot({ path: ".local/screenshots/desktop.png" });
+  console.log(
+    JSON.stringify({
+      title: await page.title(),
+      pages: await page.locator(".pdf-page").count(),
+    }),
+  );
+} finally {
+  if (app) await app.close();
+  if (browser) {
+    const session = await browser.newBrowserCDPSession();
+    await session.send("Browser.close").catch(() => {});
+    await browser.close();
+  }
+}

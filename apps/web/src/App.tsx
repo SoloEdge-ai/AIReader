@@ -1,28 +1,423 @@
-import {useCallback,useEffect,useRef,useState} from 'react';
-import type {Book,Bookmark,Passage,SourceAnchor,CoreEvent} from '../../../packages/protocol/src';
-import {api,post,base} from './api';
-import {PdfReader} from './PdfReader';
-import {ChatPanel} from './ChatPanel';
-export function App(){
- const [action,setAction]=useState<{name:string;nonce:number}>();
- const [books,setBooks]=useState<Book[]>([]);const [active,setActive]=useState<string>();const book=books.find(b=>b.id===active);const [page,setPage]=useState(1);const [zoom,setZoom]=useState(1.15);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [nav,setNav]=useState('目录');const [query,setQuery]=useState('');const [hits,setHits]=useState<Passage[]>([]);const [marks,setMarks]=useState<Bookmark[]>([]);const [selection,setSelection]=useState<{text:string;page:number}>();const [highlight,setHighlight]=useState<SourceAnchor>();const input=useRef<HTMLInputElement>(null);const saveTimer=useRef<ReturnType<typeof setTimeout>>(undefined);
- const refresh=()=>api<Book[]>('books').then(setBooks);
- useEffect(()=>{let socket:WebSocket;void post('session',{}).then(refresh).then(()=>{socket=new WebSocket((base||location.origin).replace('http:','ws:')+'/events');socket.onmessage=event=>{const value=JSON.parse(event.data) as CoreEvent;if(value.type==='book')setBooks(old=>{const b=value.data as Book;return [...old.filter(x=>x.id!==b.id),b];});};}).catch(e=>setError(e.message));return()=>socket?.close();},[]);
- useEffect(()=>{setSelection(undefined);setHits([]);setQuery('');setHighlight(undefined);if(active)void api<Bookmark[]>('books/'+active+'/bookmarks').then(setMarks);return()=>clearTimeout(saveTimer.current);},[active]);
- const onPage=useCallback((number:number)=>{setPage(number);clearTimeout(saveTimer.current);if(active)saveTimer.current=setTimeout(()=>void post('books/'+active+'/progress',{page:number}).catch(()=>{}),600);},[active]);
- const jump=(number:number,anchor?:SourceAnchor)=>{document.getElementById('page-'+number)?.scrollIntoView({behavior:'smooth',block:'start'});setPage(number);setHighlight(anchor);if(anchor)setTimeout(()=>setHighlight(undefined),4500);};
- async function upload(file:File){setBusy(true);setError('');try{const b=await api<Book>('books',{method:'POST',headers:{'Content-Type':'application/pdf','X-Filename':encodeURIComponent(file.name)},body:file});await refresh();setPage(b.progress);setActive(b.id);}catch(e){setError(String(e));}finally{setBusy(false);}}
- return <><input ref={input} hidden type="file" accept="application/pdf" onChange={e=>{if(e.target.files?.[0])void upload(e.target.files[0]);e.target.value='';}}/>{!book?<main className="library" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(e.dataTransfer.files[0])void upload(e.dataTransfer.files[0]);}}>
-  <header className="library-top"><span className="brand">◫ AIReader</span><span className="muted">本地优先 · Windows 11</span></header><p className="eyebrow">YOUR READING SPACE</p><h1>留出时间，读懂一本书。</h1><p className="subtle">从一段原文出发，让每个问题都有出处。</p><button className="primary" disabled={busy} onClick={()=>input.current?.click()}>{busy?'正在导入…':'＋ 导入 PDF'}</button>{error&&<p className="error">{error}</p>}<h2>我的书库 <small>{books.length}</small></h2>
-  {books.length?<div className="book-grid">{books.map(b=><button className="book-card" key={b.id} onClick={()=>{setPage(b.progress);setActive(b.id);}}><div className="book-cover"><span>PDF</span><b>{b.title.slice(0,36)}</b><i>AIReader Library</i></div><strong>{b.title}</strong><span className="muted">{b.pages||'—'} 页 · {b.status==='ready'?'阅读至第 '+b.progress+' 页':b.status==='error'?'解析失败':'正在建立索引'}</span></button>)}</div>:<section className="empty"><span className="empty-icon">▤</span><h3>你的第一本书，从这里开始</h3><p>将 PDF 拖到这里，或点击上方导入。<br/>书籍、书签和阅读进度保存在本机。</p></section>}
- </main>:<div className="reader">
-  <header className="toolbar"><button onClick={()=>setActive(undefined)}>‹ 书库</button><strong title={book.title}>{book.title}</strong><span className="page-control"><input aria-label="页码" type="number" min={1} max={book.pages} value={page} onChange={e=>jump(Number(e.target.value))}/> / {book.pages||'—'}</span><button title="缩小" onClick={()=>setZoom(z=>Math.max(.5,z-.1))}>−</button><span>{Math.round(zoom*100)}%</span><button title="放大" onClick={()=>setZoom(z=>Math.min(2.5,z+.1))}>＋</button><button onClick={()=>{void post<Bookmark>('books/'+active+'/bookmarks',{page,note:'第 '+page+' 页'}).then(m=>setMarks(old=>[...old,m]));}}>☆ 书签</button></header>
-  <div className="reader-body"><aside className="navigation"><div className="nav-tabs">{['目录','书签','搜索'].map(tab=><button className={nav===tab?'chosen':''} key={tab} onClick={()=>setNav(tab)}>{tab}</button>)}</div>
-  {nav==='目录'&&book.chapters.map(ch=><button key={ch.id} onClick={()=>jump(ch.page)}>{ch.title}<small>{book.labels[ch.page-1]??ch.page}</small></button>)}
-  {nav==='书签'&&marks.map(mark=><div className="bookmark" key={mark.id}><button onClick={()=>jump(mark.page)}>{mark.note}</button><button aria-label="删除书签" onClick={()=>void api('books/'+active+'/bookmarks/'+mark.id,{method:'DELETE'}).then(()=>setMarks(m=>m.filter(x=>x.id!==mark.id)))}>×</button></div>)}
-  {nav==='搜索'&&<><form onSubmit={e=>{e.preventDefault();void api<Passage[]>('books/'+active+'/search?q='+encodeURIComponent(query)).then(setHits);}}><input aria-label="书内搜索" placeholder="搜索书内文字" value={query} onChange={e=>setQuery(e.target.value)}/><button>搜索</button></form>{hits.map(hit=><button className="search-hit" key={hit.id} onClick={()=>jump(hit.page,hit.anchor)}><small>第 {hit.anchor.label} 页</small>{hit.text.slice(0,140)}…</button>)}</>}
-  </aside><section className="reading"><PdfReader key={active} id={active!} initialPage={book.progress} zoom={zoom} onPage={onPage} onSelection={(text,p)=>setSelection({text,page:p})} highlight={highlight}/>{selection&&<div className="selection-bar"><span>已选择 {selection.text.length} 字</span>{['解释','总结','翻译','提问'].map(name=><button key={name} onClick={()=>setAction({name,nonce:Date.now()})}>{name}</button>)}<button onClick={()=>setSelection(undefined)}>×</button></div>}</section>
-  <ChatPanel key={active} book={book} page={page} selection={selection} action={action} onCitation={jump}/></div>
-  <footer><span>{book.status==='ready'?'文本索引完成':book.status==='error'?'解析失败：'+book.error:`正在解析 ${book.parsedPages} / ${book.pages} 页`}</span><span>{book.textPages} 页含可提取文字{book.status==='ready'&&book.textPages<book.pages?' · 部分页面为扫描或无文字内容':''}</span><span>数据保存在本机</span></footer>
- </div>}</>;
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  Book,
+  Bookmark,
+  Passage,
+  SourceAnchor,
+  CoreEvent,
+} from "../../../packages/protocol/src";
+import { api, post, base } from "./api";
+import { PdfReader } from "./PdfReader";
+import { ChatPanel } from "./ChatPanel";
+export function App() {
+  const [action, setAction] = useState<{ name: string; nonce: number }>();
+  const [navVisible, setNavVisible] = useState(true);
+  const [chatWidth, setChatWidth] = useState(30);
+  const [books, setBooks] = useState<Book[]>([]);
+  const [active, setActive] = useState<string>();
+  const book = books.find((b) => b.id === active);
+  const [page, setPage] = useState(1);
+  const [zoom, setZoom] = useState(1.15);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [nav, setNav] = useState("目录");
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<Passage[]>([]);
+  const [marks, setMarks] = useState<Bookmark[]>([]);
+  const [selection, setSelection] = useState<{ text: string; page: number }>();
+  const [highlight, setHighlight] = useState<SourceAnchor>();
+  const input = useRef<HTMLInputElement>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const currentBook = useRef<string>(undefined);
+  currentBook.current = active;
+  const searchSequence = useRef(0);
+  const search = async () => {
+    const id = active;
+    const request = ++searchSequence.current;
+    try {
+      const results = await api<Passage[]>(
+        "books/" + id + "/search?q=" + encodeURIComponent(query),
+      );
+      if (currentBook.current === id && request === searchSequence.current)
+        setHits(results);
+    } catch (e) {
+      if (currentBook.current === id) setError(String(e));
+    }
+  };
+  const refresh = () => api<Book[]>("books").then(setBooks);
+  useEffect(() => {
+    let socket: WebSocket;
+    void post("session", {})
+      .then(refresh)
+      .then(() => {
+        socket = new WebSocket(
+          (base || location.origin).replace("http:", "ws:") + "/events",
+        );
+        socket.onmessage = (event) => {
+          const value = JSON.parse(event.data) as CoreEvent;
+          if (value.type === "book")
+            setBooks((old) => {
+              const b = value.data as Book;
+              return [...old.filter((x) => x.id !== b.id), b];
+            });
+        };
+      })
+      .catch((e) => setError(e.message));
+    return () => socket?.close();
+  }, []);
+  useEffect(() => {
+    let live = true;
+    setSelection(undefined);
+    setAction(undefined);
+    setMarks([]);
+    setHits([]);
+    setQuery("");
+    setHighlight(undefined);
+    if (active)
+      void api<Bookmark[]>("books/" + active + "/bookmarks")
+        .then((result) => {
+          if (live) setMarks(result);
+        })
+        .catch((e) => {
+          if (live) setError(String(e));
+        });
+    return () => {
+      live = false;
+      clearTimeout(saveTimer.current);
+    };
+  }, [active]);
+  const onPage = useCallback(
+    (number: number) => {
+      setPage(number);
+      clearTimeout(saveTimer.current);
+      if (active)
+        saveTimer.current = setTimeout(
+          () =>
+            void post("books/" + active + "/progress", { page: number }).catch(
+              () => {},
+            ),
+          600,
+        );
+    },
+    [active],
+  );
+  const jump = (number: number, anchor?: SourceAnchor) => {
+    if (anchor && anchor.bookId !== currentBook.current) return;
+    document
+      .getElementById("page-" + number)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setPage(number);
+    setHighlight(anchor);
+    if (anchor) setTimeout(() => setHighlight(undefined), 4500);
+  };
+  async function upload(file: File) {
+    setBusy(true);
+    setError("");
+    try {
+      const b = await api<Book>("books", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/pdf",
+          "X-Filename": encodeURIComponent(file.name),
+        },
+        body: file,
+      });
+      await refresh();
+      setPage(b.progress);
+      setActive(b.id);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <input
+        ref={input}
+        hidden
+        type="file"
+        accept="application/pdf"
+        onChange={(e) => {
+          if (e.target.files?.[0]) void upload(e.target.files[0]);
+          e.target.value = "";
+        }}
+      />
+      {!book ? (
+        <main
+          className="library"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files[0]) void upload(e.dataTransfer.files[0]);
+          }}
+        >
+          <header className="library-top">
+            <span className="brand">◫ AIReader</span>
+            <span className="muted">本地优先 · Windows 11</span>
+          </header>
+          <p className="eyebrow">YOUR READING SPACE</p>
+          <h1>留出时间，读懂一本书。</h1>
+          <p className="subtle">从一段原文出发，让每个问题都有出处。</p>
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+          >
+            {busy ? "正在导入…" : "＋ 导入 PDF"}
+          </button>
+          {error && <p className="error">{error}</p>}
+          <h2>
+            我的书库 <small>{books.length}</small>
+          </h2>
+          {books.length ? (
+            <div className="book-grid">
+              {books.map((b) => (
+                <button
+                  className="book-card"
+                  key={b.id}
+                  onClick={() => {
+                    setPage(b.progress);
+                    setActive(b.id);
+                  }}
+                >
+                  <div className="book-cover">
+                    <span>PDF</span>
+                    <b>{b.title.slice(0, 36)}</b>
+                    <i>AIReader Library</i>
+                  </div>
+                  <strong>{b.title}</strong>
+                  <span className="muted">
+                    {b.pages || "—"} 页 ·{" "}
+                    {b.status === "ready"
+                      ? "阅读至第 " + b.progress + " 页"
+                      : b.status === "error"
+                        ? "解析失败"
+                        : "正在建立索引"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <section className="empty">
+              <span className="empty-icon">▤</span>
+              <h3>你的第一本书，从这里开始</h3>
+              <p>
+                将 PDF 拖到这里，或点击上方导入。
+                <br />
+                书籍、书签和阅读进度保存在本机。
+              </p>
+            </section>
+          )}
+        </main>
+      ) : (
+        <div className="reader">
+          <header className="toolbar">
+            <button onClick={() => setActive(undefined)}>‹ 书库</button>
+            <button onClick={() => setNavVisible((v) => !v)}>☰</button>
+            <strong title={book.title}>{book.title}</strong>
+            <span className="page-control">
+              <input
+                aria-label="页码"
+                type="number"
+                min={1}
+                max={book.pages}
+                value={page}
+                onChange={(e) => jump(Number(e.target.value))}
+              />{" "}
+              / {book.pages || "—"}
+            </span>
+            <button
+              title="缩小"
+              onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+            >
+              −
+            </button>
+            <span>{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={() =>
+                setZoom(
+                  Math.max(
+                    0.5,
+                    ((document.querySelector(".reading")?.clientWidth ?? 700) -
+                      56) /
+                      595,
+                  ),
+                )
+              }
+            >
+              适宽
+            </button>
+            <button
+              title="放大"
+              onClick={() => setZoom((z) => Math.min(2.5, z + 0.1))}
+            >
+              ＋
+            </button>
+            <button
+              onClick={() => {
+                void post<Bookmark>("books/" + active + "/bookmarks", {
+                  page,
+                  note: "第 " + page + " 页",
+                }).then((m) => {
+                  if (currentBook.current === m.bookId)
+                    setMarks((old) => [...old, m]);
+                });
+              }}
+            >
+              ☆ 书签
+            </button>
+          </header>
+          <div
+            className="reader-body"
+            style={
+              {
+                "--chat-width": chatWidth + "%",
+              } as import("react").CSSProperties
+            }
+          >
+            <aside className="navigation" hidden={!navVisible}>
+              <div className="nav-tabs">
+                {["目录", "书签", "搜索"].map((tab) => (
+                  <button
+                    className={nav === tab ? "chosen" : ""}
+                    key={tab}
+                    onClick={() => setNav(tab)}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+              {nav === "目录" &&
+                book.chapters.map((ch) => (
+                  <button key={ch.id} onClick={() => jump(ch.page)}>
+                    {ch.title}
+                    <small>{book.labels[ch.page - 1] ?? ch.page}</small>
+                  </button>
+                ))}
+              {nav === "书签" &&
+                marks.map((mark) => (
+                  <div className="bookmark" key={mark.id}>
+                    <button onClick={() => jump(mark.page)}>{mark.note}</button>
+                    <button
+                      aria-label="删除书签"
+                      onClick={() =>
+                        void api("books/" + active + "/bookmarks/" + mark.id, {
+                          method: "DELETE",
+                        }).then(() =>
+                          setMarks((m) => m.filter((x) => x.id !== mark.id)),
+                        )
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              {nav === "搜索" && (
+                <>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void search();
+                    }}
+                  >
+                    <input
+                      aria-label="书内搜索"
+                      placeholder="搜索书内文字"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                    <button>搜索</button>
+                  </form>
+                  {hits.map((hit) => (
+                    <button
+                      className="search-hit"
+                      key={hit.id}
+                      onClick={() => jump(hit.page, hit.anchor)}
+                    >
+                      <small>第 {hit.anchor.label} 页</small>
+                      {hit.text.slice(0, 140)}…
+                    </button>
+                  ))}
+                </>
+              )}
+            </aside>
+            <section className="reading">
+              <PdfReader
+                key={active}
+                id={active!}
+                initialPage={book.progress}
+                zoom={zoom}
+                onPage={onPage}
+                onSelection={(text, p) => setSelection({ text, page: p })}
+                highlight={highlight}
+              />
+              {selection && (
+                <div className="selection-bar">
+                  <span>已选择 {selection.text.length} 字</span>
+                  {["解释", "总结", "翻译", "提问"].map((name) => (
+                    <button
+                      key={name}
+                      onClick={() => setAction({ name, nonce: Date.now() })}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                  <button onClick={() => setSelection(undefined)}>×</button>
+                </div>
+              )}
+            </section>
+            <div
+              className="splitter"
+              role="separator"
+              aria-label="调整聊天区域宽度"
+              aria-orientation="vertical"
+              onPointerDown={(e) =>
+                e.currentTarget.setPointerCapture(e.pointerId)
+              }
+              onPointerMove={(e) => {
+                if (e.buttons === 1) {
+                  const rect =
+                    e.currentTarget.parentElement!.getBoundingClientRect();
+                  setChatWidth(
+                    Math.max(
+                      25,
+                      Math.min(
+                        50,
+                        ((rect.right - e.clientX) / rect.width) * 100,
+                      ),
+                    ),
+                  );
+                }
+              }}
+            />
+            <ChatPanel
+              key={active}
+              book={book}
+              page={page}
+              selection={selection}
+              action={action}
+              onCitation={jump}
+            />
+          </div>
+          <footer>
+            <span>
+              {book.status === "ready"
+                ? "文本索引完成"
+                : book.status === "error"
+                  ? "解析失败：" + book.error
+                  : `正在解析 ${book.parsedPages} / ${book.pages} 页`}
+            </span>
+            <span>
+              {book.textPages} 页含可提取文字
+              {book.status === "ready" && book.textPages < book.pages
+                ? " · 部分页面为扫描或无文字内容"
+                : ""}
+            </span>
+            <span>数据保存在本机</span>
+          </footer>
+        </div>
+      )}
+    </>
+  );
 }
