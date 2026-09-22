@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type {
   Book,
   ChatTurn,
@@ -12,21 +12,12 @@ import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import { ChatMessage } from "./ChatMessage";
 import { SelectionContext } from "./SelectionContext";
-export type QuestionDraft = {
-  question: string;
-  scope: ReadingSnapshot["scope"];
-  attachment?: ReadingSelection;
-};
+import type { QuestionDraft, QuestionDraftStore } from "./QuestionDrafts";
 export type SelectionAction = {
   name: string;
   nonce: number;
   selection: ReadingSelection;
 };
-const emptyDraft = (): QuestionDraft => ({
-  question: "",
-  scope: "auto",
-  attachment: undefined,
-});
 type Session = { id: string; title: string; updatedAt: string };
 export function ChatPanel({
   book,
@@ -43,21 +34,22 @@ export function ChatPanel({
   page: number;
   selection?: ReadingSelection;
   action?: SelectionAction;
-  savedDrafts: Map<string, QuestionDraft>;
+  savedDrafts: QuestionDraftStore;
   onActionConsumed: () => void;
   onClearSelection: () => void;
   onPickSelection: () => void;
   onCitation: (page: number, anchor: SourceAnchor) => void;
 }) {
-  const ai = useAi(),
-    [draft, setDraft] = useState<QuestionDraft>(emptyDraft);
-  const { question, scope, attachment } = draft;
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
+  const ai = useAi();
   const [session, setSession] = useState(""),
     [sessions, setSessions] = useState<Session[]>([]),
     [turns, setTurns] = useState<ChatTurn[]>([]),
     [error, setError] = useState("");
+  const draftKey = book.id + ":" + session;
+  const draft = useSyncExternalStore(savedDrafts.subscribe, () =>
+    savedDrafts.get(draftKey),
+  );
+  const { question, scope, attachment } = draft;
   const [renaming, setRenaming] = useState(false),
     [title, setTitle] = useState("");
   const input = useRef<HTMLTextAreaElement>(null),
@@ -70,11 +62,8 @@ export function ChatPanel({
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   currentSession.current = session;
   function updateDraft(patch: Partial<QuestionDraft>) {
-    const next = { ...draftRef.current, ...patch };
-    draftRef.current = next;
     if (currentSession.current)
-      savedDrafts.set(book.id + ":" + currentSession.current, next);
-    setDraft(next);
+      savedDrafts.update(book.id + ":" + currentSession.current, patch);
   }
   const setQuestion = (question: string) => updateDraft({ question });
   function setScope(scope: ReadingSnapshot["scope"]) {
@@ -98,9 +87,6 @@ export function ChatPanel({
     setSession(id);
     setRenaming(false);
     followBottom.current = true;
-    const next = savedDrafts.get(book.id + ":" + id) ?? emptyDraft();
-    draftRef.current = next;
-    setDraft(next);
     setTurns([]);
     setError("");
   }
@@ -190,7 +176,7 @@ export function ChatPanel({
     submitting.current = true;
     setSending(true);
     const requestedSession = session;
-    const submittedDraft = draftRef.current;
+    const submittedDraft = draft;
     setError("");
     try {
       const reading = {
@@ -205,11 +191,11 @@ export function ChatPanel({
         sessionId: session,
         ...ai.choice,
       });
+      savedDrafts.clearIfUnchanged(draftKey, submittedDraft);
       if (currentSession.current === requestedSession) {
         setTurns((old) =>
           old.some((t) => t.id === turn.id) ? old : [...old, turn],
         );
-        if (draftRef.current === submittedDraft) updateDraft(emptyDraft());
       }
       if (book.status === "ready")
         void post(`books/${book.id}/index`, {

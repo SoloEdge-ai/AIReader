@@ -15,11 +15,8 @@ import type { z } from "zod";
 import { api, post, base } from "./api";
 import { PdfReader, type AnnotationMode } from "./PdfReader";
 import { NotesPanel, useBookNotes } from "./NotesPanel";
-import {
-  ChatPanel,
-  type QuestionDraft,
-  type SelectionAction,
-} from "./ChatPanel";
+import { ChatPanel, type SelectionAction } from "./ChatPanel";
+import { QuestionDraftStore } from "./QuestionDrafts";
 import { BookCover } from "./BookCover";
 import { Icon } from "./Icon";
 import { Settings } from "./Settings";
@@ -42,7 +39,7 @@ export function App() {
     [marks, setMarks] = useState<Bookmark[]>([]);
   const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<SelectionAction>();
-  const questionDrafts = useRef(new Map<string, QuestionDraft>());
+  const [questionDrafts] = useState(() => new QuestionDraftStore());
   const clearSelection = useCallback(() => {
     setSelection(undefined);
     getSelection()?.removeAllRanges();
@@ -815,7 +812,7 @@ export function App() {
                       page={page}
                       selection={selection}
                       action={action}
-                      savedDrafts={questionDrafts.current}
+                      savedDrafts={questionDrafts}
                       onActionConsumed={() => setAction(undefined)}
                       onClearSelection={clearSelection}
                       onPickSelection={() => {

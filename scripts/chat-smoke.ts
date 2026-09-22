@@ -257,6 +257,68 @@ try {
   await expect(
     page.locator(".turn").last().locator(".reasoning-summary"),
   ).toContainText("本轮未返回思考摘要");
+  // Delay only delivery of a real Core response, including remount before delivery.
+  for (const navigation of ["sidebar", "session", "newer-draft"]) {
+    await selectPassage();
+    await page.getByRole("button", { name: "添加到问题", exact: true }).click();
+    await input.fill("Delayed " + navigation);
+    let release!: () => void;
+    let received!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const accepted = new Promise<void>((resolve) => (received = resolve));
+    await page.route("**/api/books/*/turns", async (route) => {
+      const response = await route.fetch();
+      received();
+      await gate;
+      await route.fulfill({ response });
+    });
+    try {
+      await page.getByRole("button", { name: "发送问题", exact: true }).click();
+      await accepted;
+      if (navigation === "session") {
+        await page
+          .getByRole("button", { name: "历史会话", exact: true })
+          .click();
+        await page.getByRole("button", { name: "新会话", exact: true }).click();
+        await input.fill("另一会话的草稿");
+      } else {
+        await page
+          .getByRole("button", { name: "收起侧栏", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "问答", exact: true })
+          .first()
+          .click();
+        await expect(input).toHaveValue("Delayed " + navigation);
+        if (navigation === "newer-draft") await input.fill("发送期间的新草稿");
+      }
+      const delivered = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          /\/books\/[^/]+\/turns$/.test(new URL(response.url()).pathname),
+      );
+      release();
+      await delivered;
+      if (navigation === "session") {
+        await expect(input).toHaveValue("另一会话的草稿");
+        await page
+          .getByRole("button", { name: "历史会话", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "缓存笔记", exact: true })
+          .click();
+      }
+      await expect(input).toHaveValue(
+        navigation === "newer-draft" ? "发送期间的新草稿" : "",
+      );
+      await expect(page.locator(".question-attachment")).toHaveCount(
+        navigation === "newer-draft" ? 1 : 0,
+      );
+    } finally {
+      release();
+      await page.unroute("**/api/books/*/turns");
+    }
+  }
   expect(errors).toEqual([]);
   console.log(
     "Chat HTTP/UI: signed-out, model paging/effort, validated citation, copy, rename/history, cancellation, frozen config and reload passed.",
