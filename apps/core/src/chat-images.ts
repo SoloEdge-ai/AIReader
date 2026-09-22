@@ -30,8 +30,6 @@ function decode(input: ChatImageInput) {
   if (
     !width ||
     !height ||
-    width > 8192 ||
-    height > 8192 ||
     width * height > MAX_CHAT_IMAGE_PIXELS ||
     bytes[24] !== 8 ||
     ![2, 6].includes(bytes[25]) ||

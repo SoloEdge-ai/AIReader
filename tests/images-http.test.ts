@@ -50,7 +50,9 @@ test("chat sends actual images, preserves them across restart, and scopes access
     pdf.addPage().drawText("Image question fixture");
     const book = await (await api("books", await pdf.save())).json();
     await expect
-      .poll(async () => (await (await api(`books/${book.id}`)).json()).status)
+      .poll(async () => (await (await api(`books/${book.id}`)).json()).status, {
+        timeout: 10000,
+      })
       .toBe("ready");
     const session = await (await api(`books/${book.id}/sessions`, {})).json();
     const png = new PNG({ width: 2, height: 3 });
@@ -87,6 +89,12 @@ test("chat sends actual images, preserves them across restart, and scopes access
     expect([...decoded.data.subarray(0, 4)]).toEqual([255, 0, 0, 255]);
     pdf.addPage();
     const other = await (await api("books", await pdf.save())).json();
+    await expect
+      .poll(
+        async () => (await (await api(`books/${other.id}`)).json()).status,
+        { timeout: 10000 },
+      )
+      .toBe("ready");
     expect(
       (await api(`books/${other.id}/chat-images/${turn.images[0].id}`)).status,
     ).toBe(400);
@@ -109,6 +117,20 @@ test("chat sends actual images, preserves them across restart, and scopes access
       .poll(async () => (await turns())[1].answer, { timeout: 5000 })
       .toBe("Images received: 0; ");
     expect((await turns())[1].context.recent).toContain("图片未随历史重发");
+    const longPng = PNG.sync.write(new PNG({ width: 16, height: 9000 }));
+    const longResponse = await api(`books/${book.id}/turns`, {
+      ...request,
+      images: [
+        {
+          name: "长截图.png",
+          dataUrl: "data:image/png;base64," + longPng.toString("base64"),
+        },
+      ],
+    });
+    expect(longResponse.status).toBe(202);
+    await expect
+      .poll(async () => (await turns())[2].answer, { timeout: 5000 })
+      .toBe("Images received: 1; 16x9000:0,0,0,0");
     core!.close();
     api = await serve();
     expect((await turns())[0].images).toEqual(turn.images);

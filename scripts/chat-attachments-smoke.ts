@@ -1,5 +1,6 @@
 import { chromium, expect } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
+import { PNG } from "pngjs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createCore } from "../apps/core/src/server";
@@ -226,6 +227,14 @@ try {
     page.getByRole("button", { name: "发送问题", exact: true }),
   ).toBeInViewport();
   await page.screenshot({ path: ".local/screenshots/chat-images-narrow.png" });
+  for (let i = 0; i < 4; i++)
+    await page.locator(".composer .image-remove").first().click();
+  await picker.setInputFiles({
+    name: "长截图.png",
+    mimeType: "image/png",
+    buffer: PNG.sync.write(new PNG({ width: 16, height: 9000 })),
+  });
+  await expect(page.locator(".composer .image-attachment")).toHaveCount(1);
   console.log(
     "Real clipboard image/text paste, preview/removal, invalid-file recovery, draft/history persistence, actual model image input, desktop/drawer resize and width persistence passed.",
   );
