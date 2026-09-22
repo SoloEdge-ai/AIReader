@@ -13,13 +13,15 @@ same Windows PDF.js 5.x worker-thread issue. Longer test waits did not fix it.
 - Load the backend PDF parser in an independent hidden Node-mode child process,
   not a worker thread in Core's address space. Renderer privileges stay unchanged.
 - Core supplies the source path and book identity through its private IPC channel;
-  metadata, passages, errors and completion retain their existing meanings.
+  metadata, passages, errors and completion retain their existing meanings. The
+  parser awaits every IPC send, applying backpressure so dense or long documents
+  cannot lose their final pages before the process disconnects.
 - A parser process ending before completion marks only that book as failed,
   instead of leaving it permanently parsing or stopping Core.
 - Closing Core stops its parsers; loss of the parent IPC connection also exits
   the parser. Interrupted parsing remains resumable by the existing startup path.
 - Verify at the real Core HTTP/PDF boundary with 40 consecutive generated PDF
-  imports, search after each import, and a damaged PDF that leaves Core available.
+  imports, a dense 20-page final-page search, and a damaged PDF that leaves Core available.
   Repeat locally and retain the test in CI; no parser or database mocks.
 - Run all existing tests, renderer smoke tests and packaged desktop acceptance.
   Delivery remains a protected-main PR, squash merge and portable EXE.

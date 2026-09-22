@@ -16,7 +16,15 @@ export type ParseMessage =
   | { type: "error"; error: string }
   | { type: "done" };
 function report(message: ParseMessage) {
-  process.send?.(message);
+  return new Promise<void>((resolve, reject) => {
+    if (!process.send || !process.connected) {
+      reject(new Error("Core IPC 已断开"));
+      return;
+    }
+    process.send(message, (error: Error | null) =>
+      error ? reject(error) : resolve(),
+    );
+  });
 }
 async function parse(workerData: ParseInput) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -90,7 +98,7 @@ async function parse(workerData: ParseInput) {
           pdf.numPages + 1) - 1,
       );
     });
-  report({
+  await report({
     type: "metadata",
     pages: pdf.numPages,
     labels,
@@ -140,22 +148,23 @@ async function parse(workerData: ParseInput) {
       if (text.length >= 1800 && (item.hasEOL || text.length > 2600)) flush();
     }
     flush();
-    report({ type: "page", page: pageNo, passages });
+    await report({ type: "page", page: pageNo, passages });
     page.cleanup();
   }
   await pdf.destroy();
-  report({ type: "done" });
+  await report({ type: "done" });
 }
 // If Core exits, this parser must not continue as an orphan process.
 process.once("disconnect", () => process.exit(0));
 process.once("message", (input: ParseInput) => {
   void parse(input)
-    .catch((error) =>
-      report({
+    .catch(async (error) => {
+      if (!process.connected) return;
+      await report({
         type: "error",
         error: error instanceof Error ? error.message : String(error),
-      }),
-    )
+      });
+    })
     .finally(() => {
       if (process.connected) process.disconnect();
     });

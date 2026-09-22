@@ -158,7 +158,10 @@ export class Library {
         this.save(latest);
       }
     };
-    worker.on("error", (error) => failed(error.message));
+    worker.on("error", (error) => {
+      this.workers.delete(book.id);
+      failed(error.message);
+    });
     worker.on("exit", (code) => {
       this.workers.delete(book.id);
       failed(`PDF 解析进程意外结束（${code ?? "已中止"}），请重试解析。`);

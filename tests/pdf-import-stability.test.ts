@@ -48,6 +48,51 @@ test("repeated PDF imports keep Core available and each book searchable", async 
       expect(results[0].anchor).toMatchObject({ bookId: book.id, page: 1 });
       expect((await fetch(base + "/api/health", { headers })).status).toBe(200);
     }
+    const dense = await PDFDocument.create();
+    for (let page = 1; page <= 20; page++) {
+      const pdfPage = dense.addPage([612, 792]);
+      for (let line = 0; line < 100; line++)
+        pdfPage.drawText(`Dense parser payload page ${page} row ${line}`, {
+          x: 20,
+          y: 770 - line * 7,
+          size: 6,
+        });
+      if (page === 20)
+        pdfPage.drawText("IPC_BACKPRESSURE_FINAL_PAGE", {
+          x: 20,
+          y: 20,
+          size: 6,
+        });
+    }
+    const denseBook = await (
+      await fetch(base + "/api/books", {
+        method: "POST",
+        headers,
+        body: Buffer.from(await dense.save()),
+      })
+    ).json();
+    await expect
+      .poll(
+        async () => {
+          const response = await fetch(base + `/api/books/${denseBook.id}`, {
+            headers,
+          });
+          return (await response.json()).status;
+        },
+        { timeout: 20000 },
+      )
+      .toBe("ready");
+    const denseResults = await (
+      await fetch(
+        base +
+          `/api/books/${denseBook.id}/search?q=IPC_BACKPRESSURE_FINAL_PAGE`,
+        { headers },
+      )
+    ).json();
+    expect(denseResults[0].anchor).toMatchObject({
+      bookId: denseBook.id,
+      page: 20,
+    });
     const broken = await (
       await fetch(base + "/api/books", {
         method: "POST",
