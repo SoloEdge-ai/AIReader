@@ -6,8 +6,6 @@ import type {
   SourceAnchor,
 } from "../../../packages/protocol/src";
 import { api, post } from "./api";
-import { IndexPanel } from "./IndexPanel";
-import { ToolPanel } from "./ToolPanel";
 export function ChatPanel({
   book,
   page,
@@ -214,13 +212,7 @@ export function ChatPanel({
       <div className="messages">
         {!turns.length && (
           <div className="chat-welcome">
-            <p className="eyebrow">READ WITH UNDERSTANDING</p>
-            <h2>一起读懂。</h2>
-            <p>
-              选中一段文字，或针对当前页面提问。
-              <br />
-              从原文出发，带着依据继续阅读。
-            </p>
+            <p>选中原文，或针对当前页面提问。</p>
           </div>
         )}
         {turns.map((turn) => (
@@ -251,11 +243,6 @@ export function ChatPanel({
           </article>
         ))}
       </div>
-      <IndexPanel book={book} page={page} />
-      <ToolPanel
-        bookId={book.id}
-        turn={turns.filter((t) => t.status === "complete").at(-1)}
-      />
       <details className="index-panel">
         <summary>会话学习目标</summary>
         <input

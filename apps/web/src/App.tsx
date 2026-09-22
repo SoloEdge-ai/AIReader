@@ -1,70 +1,91 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  Book,
-  Bookmark,
-  Passage,
-  SourceAnchor,
-  CoreEvent,
+import {
+  ReaderPreferencesSchema,
+  type ReaderPreferences,
+  type Book,
+  type Bookmark,
+  type Passage,
+  type SourceAnchor,
+  type CoreEvent,
 } from "../../../packages/protocol/src";
 import { api, post, base } from "./api";
 import { PdfReader } from "./PdfReader";
 import { ChatPanel } from "./ChatPanel";
+import { BookCover } from "./BookCover";
+import { Icon } from "./Icon";
+import { Settings } from "./Settings";
+import { IndexPanel } from "./IndexPanel";
+import { ToolPanel } from "./ToolPanel";
 export function App() {
-  const [action, setAction] = useState<{ name: string; nonce: number }>();
-  const [navVisible, setNavVisible] = useState(true);
-  const [chatWidth, setChatWidth] = useState(30);
-  const [books, setBooks] = useState<Book[]>([]);
-  const [active, setActive] = useState<string>();
+  const [books, setBooks] = useState<Book[]>([]),
+    [active, setActive] = useState<string>();
+  const [prefs, setPrefs] = useState(() => ReaderPreferencesSchema.parse({})),
+    [layout, setLayout] = useState(() => ReaderPreferencesSchema.parse({}));
+  const [settings, setSettings] = useState(false),
+    [bookMenu, setBookMenu] = useState(false),
+    [filter, setFilter] = useState("");
+  const [page, setPage] = useState(1),
+    [pageInput, setPageInput] = useState("1"),
+    [nav, setNav] = useState("目录");
+  const [query, setQuery] = useState(""),
+    [hits, setHits] = useState<Passage[]>([]),
+    [marks, setMarks] = useState<Bookmark[]>([]);
+  const [selection, setSelection] = useState<{ text: string; page: number }>(),
+    [action, setAction] = useState<{ name: string; nonce: number }>();
+  const [highlight, setHighlight] = useState<SourceAnchor>(),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null),
+    current = useRef(active),
+    sequence = useRef(0),
+    saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  current.current = active;
   const book = books.find((b) => b.id === active);
-  const [page, setPage] = useState(1);
-  const [zoom, setZoom] = useState(1.15);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [nav, setNav] = useState("目录");
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<Passage[]>([]);
-  const [marks, setMarks] = useState<Bookmark[]>([]);
-  const [selection, setSelection] = useState<{ text: string; page: number }>();
-  const [highlight, setHighlight] = useState<SourceAnchor>();
-  const input = useRef<HTMLInputElement>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const currentBook = useRef<string>(undefined);
-  currentBook.current = active;
-  const searchSequence = useRef(0);
-  const search = async () => {
-    const id = active;
-    const request = ++searchSequence.current;
-    try {
-      const results = await api<Passage[]>(
-        "books/" + id + "/search?q=" + encodeURIComponent(query),
-      );
-      if (currentBook.current === id && request === searchSequence.current)
-        setHits(results);
-    } catch (e) {
-      if (currentBook.current === id) setError(String(e));
-    }
-  };
-  const refresh = () => api<Book[]>("books").then(setBooks);
   useEffect(() => {
     let socket: WebSocket;
+    let live = true;
     void post("session", {})
-      .then(refresh)
-      .then(() => {
+      .then(async () => {
+        const [list, p] = await Promise.all([
+          api<Book[]>("books"),
+          api<ReaderPreferences>("preferences"),
+        ]);
+        if (!live) return;
+        setBooks(list);
+        setPrefs(p);
         socket = new WebSocket(
           (base || location.origin).replace("http:", "ws:") + "/events",
         );
-        socket.onmessage = (event) => {
-          const value = JSON.parse(event.data) as CoreEvent;
-          if (value.type === "book")
+        socket.onmessage = (e) => {
+          const event = JSON.parse(e.data) as CoreEvent;
+          if (event.type === "book")
             setBooks((old) => {
-              const b = value.data as Book;
+              const b = event.data as Book;
               return [...old.filter((x) => x.id !== b.id), b];
             });
         };
       })
       .catch((e) => setError(e.message));
-    return () => socket?.close();
+    return () => {
+      live = false;
+      socket?.close();
+    };
   }, []);
+  useEffect(() => {
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const update = () => {
+      document.documentElement.dataset.theme =
+        prefs.theme === "system"
+          ? media.matches
+            ? "dark"
+            : "light"
+          : prefs.theme;
+    };
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [prefs.theme]);
+  useEffect(() => setPageInput(String(page)), [page]);
   useEffect(() => {
     let live = true;
     setSelection(undefined);
@@ -73,43 +94,81 @@ export function App() {
     setHits([]);
     setQuery("");
     setHighlight(undefined);
+    setBookMenu(false);
     if (active)
-      void api<Bookmark[]>("books/" + active + "/bookmarks")
-        .then((result) => {
-          if (live) setMarks(result);
+      void api<Bookmark[]>(`books/${active}/bookmarks`)
+        .then((v) => {
+          if (live) setMarks(v);
         })
-        .catch((e) => {
-          if (live) setError(String(e));
-        });
+        .catch((e) => setError(e.message));
     return () => {
       live = false;
       clearTimeout(saveTimer.current);
     };
   }, [active]);
   const onPage = useCallback(
-    (number: number) => {
-      setPage(number);
+    (n: number) => {
+      setPage(n);
       clearTimeout(saveTimer.current);
       if (active)
         saveTimer.current = setTimeout(
           () =>
-            void post("books/" + active + "/progress", { page: number }).catch(
-              () => {},
+            void post(`books/${active}/progress`, { page: n }).catch((e) =>
+              setError(e.message),
             ),
-          600,
+          400,
         );
     },
     [active],
   );
-  const jump = (number: number, anchor?: SourceAnchor) => {
-    if (anchor && anchor.bookId !== currentBook.current) return;
-    document
-      .getElementById("page-" + number)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setPage(number);
-    setHighlight(anchor);
-    if (anchor) setTimeout(() => setHighlight(undefined), 4500);
+  const updateLayout = (p: ReaderPreferences) => {
+    setLayout(p);
+    if (active)
+      void post(`books/${active}/preferences`, p).catch((e) =>
+        setError(e.message),
+      );
   };
+  const updatePrefs = (p: ReaderPreferences) => {
+    setPrefs(p);
+    void post("preferences", p).catch((e) => setError(e.message));
+  };
+  async function openBook(b: Book) {
+    try {
+      const p = await api<ReaderPreferences>(`books/${b.id}/preferences`);
+      setLayout(p);
+      setPage(b.progress);
+      setActive(b.id);
+      await post(`books/${b.id}/open`, {});
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  const jump = (n: number, anchor?: SourceAnchor) => {
+    if (
+      !book ||
+      !Number.isFinite(n) ||
+      n < 1 ||
+      n > book.pages ||
+      (anchor && anchor.bookId !== active)
+    )
+      return;
+    document.getElementById("page-" + n)?.scrollIntoView({ block: "start" });
+    setPage(n);
+    setHighlight(anchor);
+  };
+  async function search() {
+    const id = active,
+      request = ++sequence.current;
+    try {
+      const values = await api<Passage[]>(
+        `books/${id}/search?q=${encodeURIComponent(query)}`,
+      );
+      if (current.current === id && sequence.current === request)
+        setHits(values);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   async function upload(file: File) {
     setBusy(true);
     setError("");
@@ -122,15 +181,28 @@ export function App() {
         },
         body: file,
       });
-      await refresh();
-      setPage(b.progress);
-      setActive(b.id);
+      setBooks(await api<Book[]>("books"));
+      await openBook(b);
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
     }
   }
+  const togglePanel = () =>
+    updateLayout({
+      ...layout,
+      panel: layout.panel === "none" ? "chat" : "none",
+    });
+  const visibleBooks = [...books]
+    .filter((b) =>
+      b.title.toLocaleLowerCase().includes(filter.toLocaleLowerCase()),
+    )
+    .sort((a, b) =>
+      (b.lastOpenedAt ?? b.createdAt).localeCompare(
+        a.lastOpenedAt ?? a.createdAt,
+      ),
+    );
   return (
     <>
       <input
@@ -152,271 +224,441 @@ export function App() {
             if (e.dataTransfer.files[0]) void upload(e.dataTransfer.files[0]);
           }}
         >
-          <header className="library-top">
-            <span className="brand">◫ AIReader</span>
-            <span className="muted">本地优先 · Windows 11</span>
+          <header className="app-header">
+            <span className="brand">
+              <Icon name="book" />
+              AIReader
+            </span>
+            <button aria-label="设置" onClick={() => setSettings(true)}>
+              <Icon name="settings" />
+            </button>
           </header>
-          <p className="eyebrow">YOUR READING SPACE</p>
-          <h1>留出时间，读懂一本书。</h1>
-          <p className="subtle">从一段原文出发，让每个问题都有出处。</p>
-          <button
-            className="primary"
-            disabled={busy}
-            onClick={() => input.current?.click()}
-          >
-            {busy ? "正在导入…" : "＋ 导入 PDF"}
-          </button>
-          {error && <p className="error">{error}</p>}
-          <h2>
-            我的书库 <small>{books.length}</small>
-          </h2>
-          {books.length ? (
+          <div className="library-heading">
+            <div>
+              <h1>书库</h1>
+              <p className="muted">
+                {books.length ? `${books.length} 本 · 最近阅读` : ""}
+              </p>
+            </div>
+            <div className="library-actions">
+              <label className="search-box">
+                <Icon name="search" />
+                <input
+                  aria-label="搜索书库"
+                  placeholder="搜索书籍"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                />
+              </label>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() => input.current?.click()}
+              >
+                <Icon name="plus" />
+                {busy ? "导入中…" : "导入 PDF"}
+              </button>
+            </div>
+          </div>
+          {visibleBooks.length ? (
             <div className="book-grid">
-              {books.map((b) => (
+              {visibleBooks.map((b) => (
                 <button
                   className="book-card"
                   key={b.id}
-                  onClick={() => {
-                    setPage(b.progress);
-                    setActive(b.id);
-                  }}
+                  onClick={() => void openBook(b)}
                 >
                   <div className="book-cover">
-                    <span>PDF</span>
-                    <b>{b.title.slice(0, 36)}</b>
-                    <i>AIReader Library</i>
+                    <BookCover id={b.id} />
                   </div>
-                  <strong>{b.title}</strong>
+                  <strong title={b.title}>{b.title}</strong>
                   <span className="muted">
                     {b.pages || "—"} 页 ·{" "}
-                    {b.status === "ready"
-                      ? "阅读至第 " + b.progress + " 页"
-                      : b.status === "error"
-                        ? "解析失败"
-                        : "正在建立索引"}
+                    {b.status === "error"
+                      ? "无法解析"
+                      : b.progress > 1
+                        ? `第 ${b.progress} 页`
+                        : "尚未阅读"}
                   </span>
+                  <progress
+                    value={b.progress > 1 ? b.progress : 0}
+                    max={b.pages || 1}
+                  />
                 </button>
               ))}
             </div>
           ) : (
-            <section className="empty">
-              <span className="empty-icon">▤</span>
-              <h3>你的第一本书，从这里开始</h3>
-              <p>
-                将 PDF 拖到这里，或点击上方导入。
-                <br />
-                书籍、书签和阅读进度保存在本机。
-              </p>
-            </section>
+            <div className="empty">
+              <Icon name="book" />
+              <p>{filter ? "没有匹配的书籍" : "拖入 PDF，或点击导入"}</p>
+            </div>
           )}
         </main>
       ) : (
-        <div className="reader">
+        <div className="reader" data-book-status={book.status}>
           <header className="toolbar">
-            <button onClick={() => setActive(undefined)}>‹ 书库</button>
-            <button onClick={() => setNavVisible((v) => !v)}>☰</button>
-            <strong title={book.title}>{book.title}</strong>
-            <span className="page-control">
-              <input
-                aria-label="页码"
-                type="number"
-                min={1}
-                max={book.pages}
-                value={page}
-                onChange={(e) => jump(Number(e.target.value))}
-              />{" "}
-              / {book.pages || "—"}
-            </span>
             <button
-              title="缩小"
-              onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
-            >
-              −
-            </button>
-            <span>{Math.round(zoom * 100)}%</span>
-            <button
-              onClick={() =>
-                setZoom(
-                  Math.max(
-                    0.5,
-                    ((document.querySelector(".reading")?.clientWidth ?? 700) -
-                      56) /
-                      595,
-                  ),
-                )
-              }
-            >
-              适宽
-            </button>
-            <button
-              title="放大"
-              onClick={() => setZoom((z) => Math.min(2.5, z + 0.1))}
-            >
-              ＋
-            </button>
-            <button
+              aria-label="返回书库"
               onClick={() => {
-                void post<Bookmark>("books/" + active + "/bookmarks", {
-                  page,
-                  note: "第 " + page + " 页",
-                }).then((m) => {
-                  if (currentBook.current === m.bookId)
-                    setMarks((old) => [...old, m]);
+                void post(`books/${book.id}/progress`, { page });
+                setActive(undefined);
+                void api<Book[]>("books").then(setBooks);
+              }}
+            >
+              <Icon name="back" />
+            </button>
+            <button
+              aria-label="目录"
+              aria-pressed={layout.navigation && nav === "目录"}
+              onClick={() => {
+                setNav("目录");
+                updateLayout({
+                  ...layout,
+                  navigation: !layout.navigation || nav !== "目录",
                 });
               }}
             >
-              ☆ 书签
+              <Icon name="menu" />
+            </button>
+            <button
+              aria-label="书内搜索"
+              onClick={() => {
+                setNav("搜索");
+                updateLayout({ ...layout, navigation: true });
+              }}
+            >
+              <Icon name="search" />
+            </button>
+            <strong title={book.title}>{book.title}</strong>
+            <form
+              className="page-control"
+              onSubmit={(e) => {
+                e.preventDefault();
+                jump(Number(pageInput));
+              }}
+            >
+              <input
+                aria-label="页码"
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                onBlur={() => {
+                  jump(Number(pageInput));
+                }}
+              />
+              <span>/ {book.pages || "—"}</span>
+            </form>
+            <div className="zoom-controls">
+              <button
+                aria-label="缩小"
+                onClick={() =>
+                  updateLayout({
+                    ...layout,
+                    zoom: Math.max(0.4, layout.zoom - 0.1),
+                  })
+                }
+              >
+                −
+              </button>
+              <button
+                title="适合宽度"
+                onClick={() => {
+                  const width =
+                    document.querySelector(".reading")?.clientWidth ?? 800;
+                  const natural =
+                    (document
+                      .querySelector(".pdf-page")
+                      ?.getBoundingClientRect().width ?? 655) / layout.zoom;
+                  updateLayout({
+                    ...layout,
+                    zoom: Math.max(0.4, Math.min(3, (width - 64) / natural)),
+                  });
+                }}
+              >
+                {Math.round(layout.zoom * 100)}%
+              </button>
+              <button
+                aria-label="放大"
+                onClick={() =>
+                  updateLayout({
+                    ...layout,
+                    zoom: Math.min(3, layout.zoom + 0.1),
+                  })
+                }
+              >
+                +
+              </button>
+            </div>
+            <button
+              aria-label="添加书签"
+              onClick={() =>
+                void post<Bookmark>(`books/${active}/bookmarks`, {
+                  page,
+                  note: `第 ${page} 页`,
+                })
+                  .then((m) => {
+                    if (current.current === m.bookId)
+                      setMarks((old) => [...old, m]);
+                  })
+                  .catch((e) => setError(e.message))
+              }
+            >
+              <Icon name="bookmark" />
+            </button>
+            <button
+              aria-label="问答"
+              aria-pressed={layout.panel !== "none"}
+              onClick={togglePanel}
+            >
+              <Icon name="chat" />
+            </button>
+            <button
+              aria-label="书籍菜单"
+              onClick={() => setBookMenu(!bookMenu)}
+            >
+              <Icon name="more" />
+            </button>
+            <button aria-label="设置" onClick={() => setSettings(true)}>
+              <Icon name="settings" />
             </button>
           </header>
           <div
             className="reader-body"
             style={
               {
-                "--chat-width": chatWidth + "%",
-              } as import("react").CSSProperties
+                "--panel-width": layout.panelWidth + "px",
+              } as React.CSSProperties
             }
           >
-            <aside className="navigation" hidden={!navVisible}>
-              <div className="nav-tabs">
-                {["目录", "书签", "搜索"].map((tab) => (
-                  <button
-                    className={nav === tab ? "chosen" : ""}
-                    key={tab}
-                    onClick={() => setNav(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-              {nav === "目录" &&
-                book.chapters.map((ch) => (
-                  <button key={ch.id} onClick={() => jump(ch.page)}>
-                    {ch.title}
-                    <small>{book.labels[ch.page - 1] ?? ch.page}</small>
-                  </button>
-                ))}
-              {nav === "书签" &&
-                marks.map((mark) => (
-                  <div className="bookmark" key={mark.id}>
-                    <button onClick={() => jump(mark.page)}>{mark.note}</button>
+            {layout.navigation && (
+              <aside className="navigation">
+                <div className="nav-tabs">
+                  {["目录", "书签", "搜索"].map((name) => (
                     <button
-                      aria-label="删除书签"
-                      onClick={() =>
-                        void api("books/" + active + "/bookmarks/" + mark.id, {
-                          method: "DELETE",
-                        }).then(() =>
-                          setMarks((m) => m.filter((x) => x.id !== mark.id)),
-                        )
-                      }
+                      className={nav === name ? "chosen" : ""}
+                      key={name}
+                      onClick={() => setNav(name)}
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              {nav === "搜索" && (
-                <>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void search();
-                    }}
-                  >
-                    <input
-                      aria-label="书内搜索"
-                      placeholder="搜索书内文字"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
-                    <button>搜索</button>
-                  </form>
-                  {hits.map((hit) => (
-                    <button
-                      className="search-hit"
-                      key={hit.id}
-                      onClick={() => jump(hit.page, hit.anchor)}
-                    >
-                      <small>第 {hit.anchor.label} 页</small>
-                      {hit.text.slice(0, 140)}…
+                      {name}
                     </button>
                   ))}
-                </>
-              )}
-            </aside>
+                  <button
+                    aria-label="收起目录"
+                    onClick={() =>
+                      updateLayout({ ...layout, navigation: false })
+                    }
+                  >
+                    <Icon name="close" />
+                  </button>
+                </div>
+                {nav === "目录" &&
+                  (book.chapters.length ? (
+                    book.chapters.map((ch) => (
+                      <button
+                        className="toc-item"
+                        key={ch.id}
+                        style={{
+                          paddingLeft: 12 + Math.min(ch.depth ?? 0, 4) * 12,
+                        }}
+                        onClick={() => jump(ch.page)}
+                      >
+                        <span>{ch.title}</span>
+                        <small>{book.labels[ch.page - 1] ?? ch.page}</small>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="muted panel-empty">此文档没有目录</p>
+                  ))}
+                {nav === "书签" &&
+                  (marks.length ? (
+                    marks.map((m) => (
+                      <div className="bookmark" key={m.id}>
+                        <button onClick={() => jump(m.page)}>{m.note}</button>
+                        <button
+                          aria-label="删除书签"
+                          onClick={() =>
+                            void api(`books/${active}/bookmarks/${m.id}`, {
+                              method: "DELETE",
+                            }).then(() => {
+                              if (current.current === m.bookId)
+                                setMarks((old) =>
+                                  old.filter((x) => x.id !== m.id),
+                                );
+                            })
+                          }
+                        >
+                          <Icon name="close" />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="muted panel-empty">还没有书签</p>
+                  ))}
+                {nav === "搜索" && (
+                  <>
+                    <form
+                      className="book-search"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void search();
+                      }}
+                    >
+                      <input
+                        aria-label="书内搜索文字"
+                        placeholder="搜索原文"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                      />
+                      <button aria-label="查找">
+                        <Icon name="search" />
+                      </button>
+                    </form>
+                    {hits.map((hit) => (
+                      <button
+                        className="search-hit"
+                        key={hit.id}
+                        onClick={() => jump(hit.page, hit.anchor)}
+                      >
+                        <small>第 {hit.anchor.label} 页</small>
+                        {hit.text.slice(0, 160)}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </aside>
+            )}
             <section className="reading">
               <PdfReader
                 key={active}
                 id={active!}
                 initialPage={book.progress}
-                zoom={zoom}
+                zoom={layout.zoom}
                 onPage={onPage}
                 onSelection={(text, p) => setSelection({ text, page: p })}
                 highlight={highlight}
               />
               {selection && (
                 <div className="selection-bar">
-                  <span>已选择 {selection.text.length} 字</span>
+                  <span>{selection.text.length} 字</span>
                   {["解释", "总结", "翻译", "提问"].map((name) => (
                     <button
                       key={name}
-                      onClick={() => setAction({ name, nonce: Date.now() })}
+                      onClick={() => {
+                        updateLayout({ ...layout, panel: "chat" });
+                        setAction({ name, nonce: Date.now() });
+                      }}
                     >
                       {name}
                     </button>
                   ))}
-                  <button onClick={() => setSelection(undefined)}>×</button>
+                  <button
+                    aria-label="取消选区"
+                    onClick={() => setSelection(undefined)}
+                  >
+                    <Icon name="close" />
+                  </button>
                 </div>
               )}
             </section>
-            <div
-              className="splitter"
-              role="separator"
-              aria-label="调整聊天区域宽度"
-              aria-orientation="vertical"
-              onPointerDown={(e) =>
-                e.currentTarget.setPointerCapture(e.pointerId)
-              }
-              onPointerMove={(e) => {
-                if (e.buttons === 1) {
-                  const rect =
-                    e.currentTarget.parentElement!.getBoundingClientRect();
-                  setChatWidth(
-                    Math.max(
-                      25,
-                      Math.min(
-                        50,
-                        ((rect.right - e.clientX) / rect.width) * 100,
-                      ),
-                    ),
-                  );
-                }
-              }}
-            />
-            <ChatPanel
-              key={active}
-              book={book}
-              page={page}
-              selection={selection}
-              action={action}
-              onCitation={jump}
-            />
+            {layout.panel !== "none" && (
+              <>
+                <div
+                  className="splitter"
+                  role="separator"
+                  tabIndex={0}
+                  aria-label="调整侧栏宽度"
+                  aria-orientation="vertical"
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowLeft" || e.key === "ArrowRight")
+                      updateLayout({
+                        ...layout,
+                        panelWidth: Math.max(
+                          320,
+                          Math.min(
+                            560,
+                            layout.panelWidth +
+                              (e.key === "ArrowLeft" ? 20 : -20),
+                          ),
+                        ),
+                      });
+                  }}
+                  onPointerDown={(e) =>
+                    e.currentTarget.setPointerCapture(e.pointerId)
+                  }
+                  onPointerMove={(e) => {
+                    if (e.buttons === 1) {
+                      const rect =
+                        e.currentTarget.parentElement!.getBoundingClientRect();
+                      setLayout((old) => ({
+                        ...old,
+                        panelWidth: Math.max(
+                          320,
+                          Math.min(560, rect.right - e.clientX),
+                        ),
+                      }));
+                    }
+                  }}
+                  onPointerUp={() => updateLayout(layout)}
+                />
+                <div className="side-panel">
+                  <header className="panel-header">
+                    <strong>问答</strong>
+                    <button aria-label="收起侧栏" onClick={togglePanel}>
+                      <Icon name="close" />
+                    </button>
+                  </header>
+                  <ChatPanel
+                    key={active}
+                    book={book}
+                    page={page}
+                    selection={selection}
+                    action={action}
+                    onCitation={jump}
+                  />
+                </div>
+              </>
+            )}
           </div>
-          <footer>
-            <span>
-              {book.status === "ready"
-                ? "文本索引完成"
-                : book.status === "error"
-                  ? "解析失败：" + book.error
-                  : `正在解析 ${book.parsedPages} / ${book.pages} 页`}
-            </span>
-            <span>
-              {book.textPages} 页含可提取文字
-              {book.status === "ready" && book.textPages < book.pages
-                ? " · 部分页面为扫描或无文字内容"
-                : ""}
-            </span>
-            <span>数据保存在本机</span>
-          </footer>
+          {book.status !== "ready" && (
+            <div className="document-status" role="status">
+              {book.status === "error"
+                ? `无法解析：${book.error}`
+                : `正在准备文档 ${book.parsedPages} / ${book.pages || "—"}`}
+            </div>
+          )}
+          {bookMenu && (
+            <div className="book-menu">
+              <header>
+                <strong>文档</strong>
+                <button
+                  aria-label="关闭文档菜单"
+                  onClick={() => setBookMenu(false)}
+                >
+                  <Icon name="close" />
+                </button>
+              </header>
+              <p>
+                {book.textPages} / {book.pages} 页含可检索文字
+              </p>
+              <IndexPanel book={book} page={page} />
+              {prefs.experimentalTools && <ToolPanel bookId={book.id} />}
+            </div>
+          )}
         </div>
+      )}
+      {error && (
+        <div className="error-toast" role="alert">
+          {error}
+          <button aria-label="关闭提示" onClick={() => setError("")}>
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
+      {settings && (
+        <Settings
+          prefs={prefs}
+          onChange={updatePrefs}
+          onClose={() => setSettings(false)}
+        />
       )}
     </>
   );

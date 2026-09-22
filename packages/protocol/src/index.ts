@@ -32,6 +32,7 @@ export interface Chapter {
   inferred: boolean;
 }
 export interface Book {
+  lastOpenedAt?: string;
   id: string;
   fingerprint: string;
   title: string;
@@ -46,6 +47,15 @@ export interface Book {
   labels: string[];
   indexVersion: number;
 }
+export const ReaderPreferencesSchema = z.object({
+  theme: z.enum(["system", "light", "dark"]).default("system"),
+  navigation: z.boolean().default(false),
+  panel: z.enum(["none", "chat", "notes"]).default("none"),
+  panelWidth: z.number().min(320).max(560).default(400),
+  zoom: z.number().min(0.4).max(3).default(1.1),
+  experimentalTools: z.boolean().default(false),
+});
+export type ReaderPreferences = z.infer<typeof ReaderPreferencesSchema>;
 export interface Bookmark {
   id: string;
   bookId: string;

@@ -39,7 +39,11 @@ export class Library {
   books() {
     return this.store
       .list<Book>("book")
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      .sort((a, b) =>
+        (b.lastOpenedAt ?? b.createdAt).localeCompare(
+          a.lastOpenedAt ?? a.createdAt,
+        ),
+      );
   }
   book(id: string) {
     const book = this.store.get<Book>("book", id);

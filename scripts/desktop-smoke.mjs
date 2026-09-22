@@ -67,15 +67,25 @@ try {
     ? await app.firstWindow()
     : (browser.contexts()[0].pages()[0] ??
       (await browser.contexts()[0].waitForEvent("page")));
-  await page.getByText("留出时间，读懂一本书。").waitFor({ timeout: 15000 });
+  await page
+    .getByRole("heading", { name: "书库", exact: true })
+    .waitFor({ timeout: 15000 });
   await page
     .locator("input[type=file]")
     .setInputFiles(process.argv[3] ?? fixture);
   await page.locator(".textLayer span").first().waitFor({ timeout: 20000 });
-  await page
-    .getByText("文本索引完成", { exact: true })
-    .waitFor({ timeout: 30000 });
+  await page.locator('[data-book-status="ready"]').waitFor({ timeout: 30000 });
   await page.screenshot({ path: ".local/screenshots/desktop.png" });
+  await page.getByRole("button", { name: "问答", exact: true }).click();
+  await page.locator(".side-panel").waitFor();
+  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByLabel("主题", { exact: true }).selectOption("dark");
+  await page.getByRole("button", { name: "关闭设置" }).click();
+  await page.screenshot({ path: ".local/screenshots/desktop-dark.png" });
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByLabel("主题", { exact: true }).selectOption("light");
+  await page.getByRole("button", { name: "关闭设置" }).click();
   console.log(
     JSON.stringify({
       title: await page.title(),

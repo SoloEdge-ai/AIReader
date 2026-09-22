@@ -10,7 +10,10 @@ import { CodexAdapter } from "./codex";
 import { ChatService } from "./chat";
 import { IndexService } from "./indexer";
 import { BookTools } from "./tools";
-import { ReadingSnapshotSchema } from "../../../packages/protocol/src";
+import {
+  ReadingSnapshotSchema,
+  ReaderPreferencesSchema,
+} from "../../../packages/protocol/src";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export async function body(req: IncomingMessage, limit = 1024 * 1024) {
@@ -110,6 +113,22 @@ export function createCore(directory: string, webRoot: string) {
           send(res, { ok: true });
           return;
         }
+        if (parts[1] === "preferences") {
+          if (req.method === "POST")
+            library.store.put(
+              "setting",
+              "reader",
+              "",
+              ReaderPreferencesSchema.parse(await jsonBody(req)),
+            );
+          send(
+            res,
+            ReaderPreferencesSchema.parse(
+              library.store.get("setting", "reader") ?? {},
+            ),
+          );
+          return;
+        }
         if (parts[1] === "ai") {
           if (parts[2] === "status") {
             send(res, codex.info);
@@ -176,6 +195,28 @@ export function createCore(directory: string, webRoot: string) {
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];
           const book = library.book(id);
+          if (parts[3] === "preferences") {
+            if (req.method === "POST")
+              library.store.put(
+                "reader",
+                id,
+                id,
+                ReaderPreferencesSchema.parse(await jsonBody(req)),
+              );
+            send(
+              res,
+              ReaderPreferencesSchema.parse(
+                library.store.get("reader", id) ?? {},
+              ),
+            );
+            return;
+          }
+          if (parts[3] === "open" && req.method === "POST") {
+            book.lastOpenedAt = new Date().toISOString();
+            library.store.put("book", id, id, book);
+            send(res, book);
+            return;
+          }
           if (parts.length === 3) {
             send(res, book);
             return;
