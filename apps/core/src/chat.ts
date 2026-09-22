@@ -4,6 +4,54 @@ import { Library } from "./library";
 import { CodexAdapter } from "./codex";
 import { buildContext, renderPrompt, validateCitations } from "./context";
 export class ChatService {
+  sessions(bookId: string) {
+    const map = new Map<
+      string,
+      { id: string; title: string; updatedAt: string }
+    >();
+    for (const turn of this.list(bookId))
+      map.set(turn.sessionId, {
+        id: turn.sessionId,
+        title: map.get(turn.sessionId)?.title ?? turn.question.slice(0, 60),
+        updatedAt: turn.createdAt,
+      });
+    for (const session of this.library.store.list<{
+      id: string;
+      title: string;
+      updatedAt: string;
+    }>("session", bookId)) {
+      const previous = map.get(session.id);
+      map.set(session.id, {
+        ...session,
+        updatedAt: previous?.updatedAt ?? session.updatedAt,
+      });
+    }
+    return [...map.values()].sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt),
+    );
+  }
+  createSession(bookId: string) {
+    this.library.book(bookId);
+    const session = {
+      id: randomUUID(),
+      title: "新会话",
+      updatedAt: new Date().toISOString(),
+    };
+    this.library.store.put(
+      "session",
+      bookId + ":" + session.id,
+      bookId,
+      session,
+    );
+    return session;
+  }
+  renameSession(bookId: string, id: string, title: string) {
+    const session = this.sessions(bookId).find((s) => s.id === id);
+    if (!session) throw new Error("会话不存在");
+    session.title = title;
+    this.library.store.put("session", bookId + ":" + id, bookId, session);
+    return session;
+  }
   private running = new Map<string, AbortController>();
   private closed = false;
   constructor(
@@ -29,14 +77,22 @@ export class ChatService {
     question: string,
     sessionId: string,
     model?: string,
+    effort?: string,
   ) {
     if (
       this.list(reading.bookId, sessionId).some((t) => t.status === "running")
     )
       throw new Error("请先停止当前回答。");
     const context = buildContext(this.library, reading, question, sessionId);
+    const session = this.sessions(reading.bookId).find(
+      (s) => s.id === sessionId,
+    );
+    if (session?.title === "新会话")
+      this.renameSession(reading.bookId, sessionId, question.slice(0, 60));
     const turn: ChatTurn = {
       id: randomUUID(),
+      model,
+      effort,
       bookId: reading.bookId,
       sessionId,
       question,
@@ -54,6 +110,7 @@ export class ChatService {
       .answer(renderPrompt(context, question), {
         signal: control.signal,
         model,
+        effort,
         onText: (text) => {
           if (turn.status === "running") {
             turn.answer = text;

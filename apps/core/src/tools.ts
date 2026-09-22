@@ -162,6 +162,9 @@ export class BookTools {
   }
   close() {
     this.closed = true;
+    this.stopAll();
+  }
+  stopAll() {
     for (const processId of this.active.values())
       void this.codex.stopCommand(processId);
   }

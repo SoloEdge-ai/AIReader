@@ -1,4 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import type {
   Book,
   ChatTurn,
@@ -6,6 +11,8 @@ import type {
   SourceAnchor,
 } from "../../../packages/protocol/src";
 import { api, post } from "./api";
+import { useAi, ModelPicker, AccountControls } from "./AiState";
+type Session = { id: string; title: string; updatedAt: string };
 export function ChatPanel({
   book,
   page,
@@ -19,221 +26,251 @@ export function ChatPanel({
   action?: { name: string; nonce: number };
   onCitation: (page: number, anchor: SourceAnchor) => void;
 }) {
-  const [goal, setGoal] = useState("");
-  const [question, setQuestion] = useState("");
-  const [scope, setScope] = useState<ReadingSnapshot["scope"]>("auto");
-  const [session, setSession] = useState(
-    () => localStorage.getItem("session-" + book.id) ?? crypto.randomUUID(),
-  );
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
-  const [account, setAccount] = useState<any>({ connected: false });
-  const [error, setError] = useState("");
-  const [model, setModel] = useState("");
-  const [models, setModels] = useState<any[]>([]);
-  const [settings, setSettings] = useState(false);
-  const [path, setPath] = useState("");
-  const refresh = () =>
-    api<ChatTurn[]>("books/" + book.id + "/turns?session=" + session).then(
-      setTurns,
-    );
+  const ai = useAi(),
+    [question, setQuestion] = useState(""),
+    [scope, setScope] = useState<ReadingSnapshot["scope"]>("auto");
+  const [session, setSession] = useState(""),
+    [sessions, setSessions] = useState<Session[]>([]),
+    [turns, setTurns] = useState<ChatTurn[]>([]),
+    [error, setError] = useState("");
+  const [renaming, setRenaming] = useState(false),
+    [title, setTitle] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null),
+    messages = useRef<HTMLDivElement>(null);
+  const currentSession=useRef(session), drafts=useRef(new Map<string,string>()), submitting=useRef(false);
+  const [sending,setSending]=useState(false);
+  currentSession.current=session;
+  useEffect(()=>()=>{currentSession.current="";},[]);
+  function switchSession(id:string){drafts.current.set(session,question);currentSession.current=id;setSession(id);setQuestion(drafts.current.get(id)??"");setTurns([]);setError("");}
   useEffect(() => {
-    localStorage.setItem("session-" + book.id, session);
-    let active = true;
-    const update = () =>
-      void api<ChatTurn[]>("books/" + book.id + "/turns?session=" + session)
-        .then((t) => {
-          if (active) setTurns(t);
-        })
-        .catch(() => {});
-    update();
-    const timer = setInterval(update, 1000);
+    let live = true;
+    void api<Session[]>(`books/${book.id}/sessions`)
+      .then(async (list) => {
+        if (!list.length)
+          list = [await post<Session>(`books/${book.id}/sessions`, {})];
+        if (live) {
+          setSessions(list);
+          const previous = localStorage.getItem("session-" + book.id);
+          setSession(
+            list.some((s) => s.id === previous) ? previous! : list[0].id,
+          );
+        }
+      })
+      .catch((e) => {
+        if (live) setError(e.message);
+      });
     return () => {
-      active = false;
+      live = false;
+    };
+  }, [book.id]);
+  useEffect(() => {
+    if (!session) return;
+    localStorage.setItem("session-" + book.id, session);
+    let live = true;
+    let updating = false;
+    const tick = async () => {
+      if (updating) return;
+      updating = true;
+      try {
+        const [values, list] = await Promise.all([
+          api<ChatTurn[]>(
+            `books/${book.id}/turns?session=${encodeURIComponent(session)}`,
+          ),
+          api<Session[]>(`books/${book.id}/sessions`),
+        ]);
+        if (live) {
+          setTurns(values);
+          setSessions(list);
+        }
+      } catch (e) {
+        if (live) setError(String(e));
+      } finally {
+        updating = false;
+      }
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), 1000);
+    return () => {
+      live = false;
       clearInterval(timer);
     };
   }, [book.id, session]);
   useEffect(() => {
-    let active = true;
-    const update = () =>
-      void api("ai/status").then((a) => {
-        if (active) setAccount(a);
-      });
-    update();
-    const timer = setInterval(update, 4000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, []);
-  useEffect(() => {
     if (action) {
       setScope("selection");
       setQuestion(action.name === "提问" ? "" : `请${action.name}选中的原文。`);
+      input.current?.focus();
     }
   }, [action?.nonce]);
-  async function connect() {
-    setError("");
-    try {
-      setAccount(await post("ai/connect", {}));
-      setModels(await api<any[]>("ai/models"));
-    } catch (e) {
-      setError(String(e));
-    }
-  }
+  const running = turns.find((t) => t.status === "running");
+  const chosen = ai.models.find((m) => m.model === ai.choice?.model);
+  const valid = chosen?.supportedReasoningEfforts.some(
+    (e) => e.reasoningEffort === ai.choice?.effort,
+  );
   async function ask() {
-    if (!question.trim()) return;
+    if (!question.trim() || !session || !valid || !ai.account.account || submitting.current) return;
+    submitting.current=true;setSending(true);
+    const requestedSession=session;
     setError("");
     try {
       const reading = {
         bookId: book.id,
-        page: selection?.page ?? page,
+        page: scope === "selection" ? (selection?.page ?? page) : page,
         selection: selection?.text ?? "",
         scope,
       };
-      await post("books/" + book.id + "/turns", {
+      const turn = await post<ChatTurn>(`books/${book.id}/turns`, {
         reading,
         question,
         sessionId: session,
-        model: model || undefined,
+        ...ai.choice,
       });
+      if(currentSession.current===requestedSession){
+        setTurns((old) => old.some(t=>t.id===turn.id)?old:[...old, turn]);
+        setQuestion(old=>old===question?"":old);
+      }
       if (book.status === "ready")
-        void post("books/" + book.id + "/index", {
+        void post(`books/${book.id}/index`, {
           page: reading.page,
           full: false,
+          model: turn.model,
+          effort: turn.effort,
         }).catch(() => {});
-      setQuestion("");
-      await refresh();
+      requestAnimationFrame(() =>
+        messages.current?.scrollTo({ top: messages.current.scrollHeight }),
+      );
     } catch (e) {
-      setError(String(e));
-    }
+      if(currentSession.current===requestedSession)setError(String(e));
+    }finally{submitting.current=false;setSending(false);}
   }
-  const running = turns.find((t) => t.status === "running");
-  function answer(turn: ChatTurn) {
-    return turn.answer.split(/(\[\[[^\]]+\]\])/g).map((part, i) => {
-      if (part.startsWith("[[")) {
-        const cite = turn.citations.find(
-          (c) => c.passageId === part.slice(2, -2),
-        );
-        return cite ? (
-          <button
-            className="citation"
-            key={i}
-            onClick={() => onCitation(cite.page, cite)}
-          >
-            p.{cite.label}
-          </button>
-        ) : (
-          <span key={i}>
-            {turn.status === "running" ? "〔引用校验中〕" : "〔未验证引用〕"}
-          </span>
-        );
-      }
-      return <span key={i}>{part}</span>;
+  const markdown = (turn: ChatTurn) =>
+    turn.answer.replace(/\[\[([^\]]+)\]\]/g, (_, id: string) => {
+      const anchor = turn.citations.find((c) => c.passageId === id);
+      return anchor
+        ? `[${anchor.label}](#source-${encodeURIComponent(id)})`
+        : turn.status === "running"
+          ? "〔引用校验中〕"
+          : "〔未验证引用〕";
     });
-  }
   return (
     <aside className="chat">
       <div className="chat-heading">
-        <strong>阅读助手</strong>
-        <button onClick={() => setSettings((v) => !v)}>设置</button>
-        <button
-          onClick={() => {
-            if (!running) {
-              setTurns([]);
-              setSession(crypto.randomUUID());
-            }
+        <select
+          aria-label="历史会话"
+          value={session}
+          onChange={(e) => {
+            switchSession(e.target.value);
           }}
-          disabled={!!running}
         >
-          新会话
-        </button>
-      </div>
-      {settings && (
-        <div className="ai-settings">
-          <p>{account.connected ? account.version : "尚未连接 Codex"}</p>
-          <input
-            placeholder="Codex 原生 EXE 绝对路径（可选）"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-          />
-          <button
-            onClick={() =>
-              void post("ai/path", { path })
-                .then(connect)
-                .catch((e) => setError(String(e)))
-            }
-          >
-            保存并连接
-          </button>
-          <button
-            onClick={() => void post("ai/disconnect", {}).then(setAccount)}
-          >
-            断开
-          </button>
-          {models.length > 0 && (
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="">Codex 默认模型</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.model ?? m.id}>
-                  {m.displayName ?? m.id}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      )}
-      {!account.connected ? (
-        <button className="connect" onClick={() => void connect()}>
-          连接本机 Codex
-        </button>
-      ) : !account.account ? (
+          {sessions.map((s) => (
+            <option value={s.id} key={s.id}>
+              {s.title}
+            </option>
+          ))}
+        </select>
         <button
+          title="重命名会话"
+          onClick={() => {
+            setTitle(sessions.find((s) => s.id === session)?.title ?? "");
+            setRenaming(!renaming);
+          }}
+        >
+          重命名
+        </button>
+        <button
+          disabled={!!running}
           onClick={() =>
-            void post<any>("ai/login", {})
-              .then((result) => {
-                if (result.authUrl) {
-                  const target = new URL(result.authUrl);
-                  if (
-                    target.protocol === "https:" &&
-                    (target.hostname === "auth.openai.com" ||
-                      target.hostname.endsWith(".openai.com"))
-                  )
-                    window.open(target.href, "_blank", "noopener");
-                }
-              })
-              .catch((e) => setError(String(e)))
+            void post<Session>(`books/${book.id}/sessions`, {}).then((s) => {
+              setSessions((old) => [s, ...old]);
+              switchSession(s.id);
+            })
           }
         >
-          通过 ChatGPT 登录
+          新建
         </button>
-      ) : (
-        <p className="connection">● 已连接 ChatGPT · 复用本机登录</p>
+      </div>
+      {renaming && (
+        <form
+          className="rename-session"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void post(`books/${book.id}/sessions/${session}`, { title })
+              .then(() => setRenaming(false))
+              .catch((e) => setError(e.message));
+          }}
+        >
+          <input
+            aria-label="会话名称"
+            value={title}
+            maxLength={100}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <button disabled={!title.trim()}>保存</button>
+        </form>
       )}
-      <div className="messages">
-        {!turns.length && (
-          <div className="chat-welcome">
-            <p>选中原文，或针对当前页面提问。</p>
-          </div>
+      {!ai.account.account && (
+        <div className="chat-account">
+          <AccountControls />
+        </div>
+      )}
+      <div className="messages" ref={messages}>
+        {!turns.length && ai.account.account && (
+          <p className="chat-welcome">选中原文，或针对当前页面提问。</p>
         )}
         {turns.map((turn) => (
           <article className="turn" key={turn.id}>
             <div className="question">{turn.question}</div>
-            <div className="answer">{answer(turn) || "正在阅读原文…"}</div>
+            <div className="answer markdown">
+              <ReactMarkdown
+                skipHtml
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[
+                  [rehypeKatex, { throwOnError: false, trust: false }],
+                ]}
+                components={{
+                  img: () => null,
+                  a: ({ href, children }) => {
+                    if (href?.startsWith("#source-")) {
+                      const anchor = turn.citations.find(
+                        (c) => "#source-"+encodeURIComponent(c.passageId) === href,
+                      );
+                      return anchor ? (
+                        <button
+                          className="citation"
+                          onClick={() => onCitation(anchor.page, anchor)}
+                        >
+                          第 {anchor.label} 页
+                        </button>
+                      ) : (
+                        <span>{children}</span>
+                      );
+                    }
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {children}
+                      </a>
+                    );
+                  },
+                }}
+              >
+                {markdown(turn) || "正在查找相关原文…"}
+              </ReactMarkdown>
+            </div>
             {turn.error && <p className="error">{turn.error}</p>}
             <details>
-              <summary>
-                本轮上下文 · 约 {turn.context.estimatedTokens.toLocaleString()}{" "}
-                tokens
-              </summary>
+              <summary>来源与详情</summary>
+              <p>
+                {turn.model ?? "模型未记录"} · {turn.effort ?? "强度未记录"} ·
+                约 {turn.context.estimatedTokens.toLocaleString()} tokens
+              </p>
               <p>{turn.context.coverage}</p>
-              <p>发送时位于第 {turn.context.reading.page} 页</p>
               {turn.context.evidence.map((p) => (
                 <button
                   className="evidence"
                   key={p.id}
                   onClick={() => onCitation(p.page, p.anchor)}
                 >
-                  p.{p.anchor.label} · {p.text.slice(0, 160)}
+                  第 {p.anchor.label} 页 · {p.text.slice(0, 160)}
                 </button>
               ))}
               {turn.usage !== undefined && (
@@ -243,47 +280,33 @@ export function ChatPanel({
           </article>
         ))}
       </div>
-      <details className="index-panel">
-        <summary>会话学习目标</summary>
-        <input
-          value={goal}
-          maxLength={600}
-          onChange={(e) => setGoal(e.target.value)}
-          placeholder="例如：理解推理优化，偏好代码示例"
-        />
-        <button
-          onClick={() =>
-            void post("books/" + book.id + "/memory", {
-              sessionId: session,
-              goal,
-            }).catch((e) => setError(String(e)))
-          }
-        >
-          保存目标
-        </button>
-      </details>
       {selection && (
-        <blockquote title={selection.text}>
+        <blockquote>
           选区 · 第 {selection.page} 页<br />
-          {selection.text.slice(0, 160)}
-          {selection.text.length > 160 ? "…" : ""}
+          {selection.text.slice(0, 140)}
         </blockquote>
       )}
-      {error && <p className="error">{error}</p>}
+      {(error || ai.error) && <p className="error">{error || ai.error}</p>}
+      {ai.choice && ai.models.length > 0 && !valid && (
+        <p className="error">所选模型或强度已不可用，请重新选择。</p>
+      )}
       <div className="composer">
         <select
           aria-label="提问范围"
           value={scope}
           onChange={(e) => setScope(e.target.value as ReadingSnapshot["scope"])}
         >
-          <option value="auto">自动 · 结合阅读位置</option>
-          <option value="selection">当前选区</option>
+          <option value="auto">当前阅读位置</option>
+          <option value="selection" disabled={!selection}>
+            选中原文
+          </option>
           <option value="chapter">当前章节</option>
           <option value="book">整本书</option>
         </select>
         <textarea
+          ref={input}
           aria-label="问题"
-          placeholder="这里为什么这样设计？"
+          placeholder="输入问题…"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => {
@@ -297,23 +320,23 @@ export function ChatPanel({
             }
           }}
         />
+        <ModelPicker />
         <div>
-          <small>原文按需发送至 AI 服务</small>
+          <small>Shift + Enter 换行</small>
           {running ? (
             <button
               onClick={() =>
-                void post(
-                  "books/" + book.id + "/turns/" + running.id + "/cancel",
-                  {},
-                )
+                void post(`books/${book.id}/turns/${running.id}/cancel`, {})
               }
             >
-              停止生成
+              停止
             </button>
           ) : (
             <button
               className="primary"
-              disabled={!account.connected || !question.trim()}
+              disabled={
+                !valid || !ai.account.account || !question.trim() || !session
+              }
               onClick={() => void ask()}
             >
               发送 ↑
