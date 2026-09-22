@@ -31,6 +31,13 @@ jobs:
           $manifest.version = '0.1.${{ github.run_number }}'
           $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
       - run: pnpm desktop:portable
+      - name: Packaged desktop smoke test
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem release/AIReader-Portable-*-x64.exe
+          node scripts/desktop-smoke.mjs $portable.FullName
+        env:
+          AIREADER_CI: '1'
       - name: Checksums
         shell: pwsh
         run: |

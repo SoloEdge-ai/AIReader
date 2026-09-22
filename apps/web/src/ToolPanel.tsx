@@ -1,0 +1,121 @@
+import { useState } from "react";
+import type { ChatTurn } from "../../../packages/protocol/src";
+import { api, post, base } from "./api";
+export function ToolPanel({
+  bookId,
+  turn,
+}: {
+  bookId: string;
+  turn?: ChatTurn;
+}) {
+  const [status, setStatus] = useState({
+    available: false,
+    reason: "执行仅限本书工作区。",
+  });
+  const [script, setScript] = useState("");
+  const [task, setTask] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [output, setOutput] = useState("");
+  const [files, setFiles] = useState<string[]>([]);
+  async function check() {
+    setBusy(true);
+    try {
+      setStatus(await post("books/" + bookId + "/tools/verify", {}));
+      const result = await api<{ files: string[] }>(
+        "books/" + bookId + "/tools",
+      );
+      setFiles(result.files);
+    } catch (e) {
+      setStatus({ available: false, reason: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function run() {
+    if (!turn) return;
+    setBusy(true);
+    try {
+      const result = await post<any>("books/" + bookId + "/tools/run", {
+        turnId: turn.id,
+        script,
+      });
+      setOutput(result.output);
+      setFiles(result.files ?? []);
+    } catch (e) {
+      setOutput(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <details className="index-panel">
+      <summary>书籍工作区 · 编程工具</summary>
+      <p>{status.reason}</p>
+      <button disabled={busy} onClick={() => void check()}>
+        验证工具环境
+      </button>
+      {status.available && (
+        <>
+          <input
+            placeholder="例如：统计 evidence.txt 中的术语频率"
+            value={task}
+            onChange={(e) => setTask(e.target.value)}
+          />
+          <button
+            disabled={busy || !task}
+            onClick={() => {
+              setBusy(true);
+              void post<{ script: string }>(
+                "books/" + bookId + "/tools/draft",
+                { task },
+              )
+                .then((r) => setScript(r.script))
+                .catch((e) => setOutput(String(e)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            生成脚本
+          </button>
+          <textarea
+            aria-label="工具脚本"
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+          />
+          <button
+            disabled={busy || !turn || !script}
+            onClick={() => void run()}
+          >
+            运行 · 本轮 {turn?.tools.length ?? 0}/8
+          </button>
+          {busy && turn && (
+            <button
+              onClick={() =>
+                void post("books/" + bookId + "/tools/stop", {
+                  turnId: turn.id,
+                })
+              }
+            >
+              停止执行
+            </button>
+          )}
+        </>
+      )}
+      <pre>{output}</pre>
+      {files.map((file) => (
+        <a
+          key={file}
+          href={
+            base +
+            "/api/books/" +
+            bookId +
+            "/generated?name=" +
+            encodeURIComponent(file)
+          }
+          download
+        >
+          {file} · 生成材料
+        </a>
+      ))}
+    </details>
+  );
+}
