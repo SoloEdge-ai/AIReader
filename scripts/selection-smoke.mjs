@@ -7,14 +7,12 @@ await mkdir(".local", { recursive: true });
 const data = await mkdtemp(resolve(".local/selection-acceptance-"));
 const pdf = await PDFDocument.create();
 const font = await pdf.embedFont(StandardFonts.Helvetica);
-pdf
-  .addPage([500, 700])
-  .drawText("A selected passage for reading actions.", {
-    font,
-    x: 40,
-    y: 600,
-    size: 16,
-  });
+pdf.addPage([500, 700]).drawText("A selected passage for reading actions.", {
+  font,
+  x: 40,
+  y: 600,
+  size: 16,
+});
 const fixture = resolve(data, "selection.pdf");
 await writeFile(fixture, await pdf.save());
 const app = await electron.launch({
@@ -30,9 +28,12 @@ try {
   const text = page.locator("#page-1 .textLayer span").first();
   await text.waitFor();
   const toolbar = page.locator(".selection-bar");
-  async function selectPassage() {
+  async function selectPassage(startFraction = 0) {
     const box = await text.boundingBox();
-    await page.mouse.move(box.x + 2, box.y + box.height / 2);
+    await page.mouse.move(
+      box.x + box.width * startFraction + 2,
+      box.y + box.height / 2,
+    );
     await page.mouse.down();
     await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, {
       steps: 12,
@@ -50,6 +51,27 @@ try {
   await selectPassage();
   await page.locator(".toolbar strong").click();
   await expect(toolbar).toHaveCount(0);
+
+  await page.getByRole("button", { name: "问答", exact: true }).first().click();
+  await selectPassage();
+  await page.getByLabel("提问范围", { exact: true }).selectOption("selection");
+  await page.getByLabel("问题", { exact: true }).fill("直接使用选中的原文");
+  await expect(page.locator('option[value="selection"]')).toBeEnabled();
+  await expect(page.locator(".chat > blockquote")).toContainText(
+    "A selected passage",
+  );
+  await expect(toolbar).toHaveCount(0);
+  // The selected scope stays active when choosing a different passage.
+  await selectPassage(0.5);
+  await page.getByLabel("问题", { exact: true }).fill("换一个选区继续提问");
+  await expect(page.locator('option[value="selection"]')).toBeEnabled();
+  await expect(page.locator(".chat > blockquote")).toContainText(
+    "reading actions",
+  );
+  await expect(page.locator(".chat > blockquote")).not.toContainText(
+    "A selected passage",
+  );
+  await page.getByRole("button", { name: "收起侧栏" }).click();
 
   await selectPassage();
   await toolbar.getByRole("button", { name: "解释", exact: true }).click();

@@ -812,6 +812,9 @@ export function App() {
                       page={page}
                       selection={questionSelection ?? selection}
                       action={action}
+                      onUseSelection={() =>
+                        setQuestionSelection(selection ?? questionSelection)
+                      }
                       onCitation={jump}
                     />
                   )}

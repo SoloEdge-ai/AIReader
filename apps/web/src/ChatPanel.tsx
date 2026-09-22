@@ -16,12 +16,14 @@ export function ChatPanel({
   page,
   selection,
   action,
+  onUseSelection,
   onCitation,
 }: {
   book: Book;
   page: number;
   selection?: { text: string; page: number };
   action?: { name: string; nonce: number };
+  onUseSelection: () => void;
   onCitation: (page: number, anchor: SourceAnchor) => void;
 }) {
   const ai = useAi(),
@@ -365,9 +367,10 @@ export function ChatPanel({
           <select
             aria-label="提问范围"
             value={scope}
-            onChange={(e) =>
-              setScope(e.target.value as ReadingSnapshot["scope"])
-            }
+            onChange={(e) => {
+              if (e.target.value === "selection") onUseSelection();
+              setScope(e.target.value as ReadingSnapshot["scope"]);
+            }}
           >
             <option value="auto">当前阅读位置</option>
             <option value="selection" disabled={!selection}>
@@ -385,6 +388,9 @@ export function ChatPanel({
           aria-label="问题"
           placeholder="继续追问，或选中原文提问…"
           value={question}
+          onFocus={() => {
+            if (scope === "selection" && selection) onUseSelection();
+          }}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => {
             if (
