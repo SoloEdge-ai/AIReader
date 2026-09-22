@@ -88,9 +88,10 @@ function Page({
     canvas = useRef<HTMLCanvasElement>(null),
     text = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false),
-    [ready, setReady] = useState(false),
+    [renderedView, setRenderedView] = useState<View>(),
     [drag, setDrag] = useState<Rect>();
   const start = useRef<[number, number] | undefined>(undefined);
+  const ready = renderedView === view;
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([e]) => setVisible(e.isIntersecting),
@@ -103,7 +104,7 @@ function Page({
     let cancelled = false;
     let render: ReturnType<pdfjs.PDFPageProxy["render"]> | undefined,
       layer: pdfjs.TextLayer | undefined;
-    setReady(false);
+    setRenderedView(undefined);
     if (!visible) {
       canvas.current!.width = 0;
       canvas.current!.height = 0;
@@ -123,7 +124,7 @@ function Page({
       });
       await render.promise;
       if (cancelled) return;
-      setReady(true);
+      setRenderedView(view);
       const content = await proxy.getTextContent();
       if (cancelled) return;
       text.current!.replaceChildren();
@@ -219,10 +220,10 @@ function Page({
       {mode !== "select" && (
         <div
           className="annotation-capture"
-          aria-busy={!ready}
+          aria-busy={mode === "region" && !ready}
           title={ready ? "在页面上拖动或点击添加批注" : "页面绘制中，请稍候"}
           onPointerDown={(e) => {
-            if (!ready) return;
+            if (mode === "region" && !ready) return;
             e.preventDefault();
             start.current = point(e);
             e.currentTarget.setPointerCapture(e.pointerId);
