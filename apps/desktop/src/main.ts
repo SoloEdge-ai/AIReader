@@ -35,6 +35,7 @@ app.whenReady().then(() => {
       minWidth: 960,
       minHeight: 640,
       title: "AIReader",
+      icon: join(__dirname, "app.ico"),
       backgroundColor: "#f5f3ee",
       webPreferences: {
         contextIsolation: true,

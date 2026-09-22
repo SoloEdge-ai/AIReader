@@ -41,7 +41,11 @@ export function send(res: ServerResponse, value: unknown, status = 200) {
     })
     .end(JSON.stringify(value));
 }
-export function createCore(directory: string, webRoot: string) {
+export function createCore(
+  directory: string,
+  webRoot: string,
+  testLaunch?: ConstructorParameters<typeof CodexAdapter>[2],
+) {
   const token = randomBytes(32).toString("hex");
   const sockets = new WebSocketServer({ noServer: true });
   const emit = (event: CoreEvent) => {
@@ -55,8 +59,10 @@ export function createCore(directory: string, webRoot: string) {
   const runtime = new RuntimeManager(directory, (data) =>
     emit({ type: "runtime", data }),
   );
-  const codex = new CodexAdapter(join(directory, "control"), () =>
-    runtime.executable(),
+  const codex = new CodexAdapter(
+    join(directory, "control"),
+    () => runtime.executable(),
+    testLaunch,
   );
   const chat = new ChatService(library, codex);
   const indexer = new IndexService(library, codex);
