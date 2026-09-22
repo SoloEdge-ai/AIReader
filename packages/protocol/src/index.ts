@@ -63,6 +63,8 @@ export interface Bookmark {
   note: string;
 }
 export interface IndexJob {
+  model?: string;
+  effort?: string;
   id: string;
   bookId: string;
   kind: "semantic";
@@ -100,6 +102,8 @@ export interface ToolRun {
   files?: string[];
 }
 export interface ChatTurn {
+  model?: string;
+  effort?: string;
   id: string;
   bookId: string;
   sessionId: string;
@@ -114,8 +118,45 @@ export interface ChatTurn {
   usage?: unknown;
 }
 export interface CoreEvent {
-  type: "book" | "turn" | "index" | "account";
+  type:
+    | "book"
+    | "turn"
+    | "index"
+    | "account"
+    | "runtime"
+    | "annotation"
+    | "note";
   bookId?: string;
   taskId?: string;
   data?: unknown;
+}
+export interface ModelOption {
+  id: string;
+  model: string;
+  displayName: string;
+  isDefault?: boolean;
+  supportedReasoningEfforts: {
+    reasoningEffort: string;
+    description?: string;
+  }[];
+  defaultReasoningEffort: string;
+}
+export const ModelSelectionSchema = z.object({
+  model: z.string().min(1).max(100),
+  effort: z.string().min(1).max(30),
+});
+export type ModelSelection = z.infer<typeof ModelSelectionSchema>;
+export interface AiRuntimeStatus {
+  status: "missing" | "downloading" | "verifying" | "ready" | "error";
+  version: string;
+  received?: number;
+  total?: number;
+  error?: string;
+}
+export interface AccountState {
+  connected: boolean;
+  version?: string;
+  account?: { type: string; email?: string | null; planType?: string } | null;
+  error?: string;
+  login?: { loginId: string; authUrl: string } | null;
 }

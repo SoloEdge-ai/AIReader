@@ -14,6 +14,7 @@ import { ChatPanel } from "./ChatPanel";
 import { BookCover } from "./BookCover";
 import { Icon } from "./Icon";
 import { Settings } from "./Settings";
+import { AccountControls } from "./AiState";
 import { IndexPanel } from "./IndexPanel";
 import { ToolPanel } from "./ToolPanel";
 export function App() {
@@ -658,7 +659,9 @@ export function App() {
           prefs={prefs}
           onChange={updatePrefs}
           onClose={() => setSettings(false)}
-        />
+        >
+          <AccountControls />
+        </Settings>
       )}
     </>
   );

@@ -13,7 +13,10 @@ import { BookTools } from "./tools";
 import {
   ReadingSnapshotSchema,
   ReaderPreferencesSchema,
+  ModelSelectionSchema,
+  type ModelSelection,
 } from "../../../packages/protocol/src";
+import { RuntimeManager } from "./runtime";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export async function body(req: IncomingMessage, limit = 1024 * 1024) {
@@ -47,14 +50,40 @@ export function createCore(directory: string, webRoot: string) {
   };
   const library = new Library(directory, emit);
   library.resume();
-  let codex = new CodexAdapter(
-    join(directory, "control"),
-    library.store.get<{ path: string }>("setting", "codex")?.path,
+  const runtime = new RuntimeManager(directory, (data) =>
+    emit({ type: "runtime", data }),
   );
-  let chat = new ChatService(library, codex);
-  let indexer = new IndexService(library, codex);
-  indexer.resume();
-  let bookTools = new BookTools(library, codex);
+  const codex = new CodexAdapter(join(directory, "control"), () =>
+    runtime.executable(),
+  );
+  const chat = new ChatService(library, codex);
+  const indexer = new IndexService(library, codex);
+  indexer.pauseAll();
+  const bookTools = new BookTools(library, codex);
+  codex.on("account", (data) => emit({ type: "account", data }));
+  codex.on("disconnected", () => emit({ type: "account", data: codex.info }));
+  let closed = false;
+  void runtime.inspect().then((state) => {
+    if (!closed && state.status === "ready")
+      void codex.connect().catch(() => {});
+  });
+  async function selection(value?: ModelSelection) {
+    await codex.connect();
+    if (!codex.info.account) throw new Error("请先登录 ChatGPT");
+    const chosen =
+      value ?? library.store.get<ModelSelection>("setting", "model");
+    if (!chosen) throw new Error("请先选择模型和思考强度");
+    const models = await codex.models(),
+      model = models.find((m) => m.model === chosen.model);
+    if (
+      !model ||
+      !model.supportedReasoningEfforts.some(
+        (e) => e.reasoningEffort === chosen.effort,
+      )
+    )
+      throw new Error("所选模型或思考强度已不可用，请重新选择");
+    return chosen;
+  }
   const authenticated = (req: IncomingMessage) =>
     req.headers.cookie
       ?.split(";")
@@ -130,46 +159,64 @@ export function createCore(directory: string, webRoot: string) {
           return;
         }
         if (parts[1] === "ai") {
-          if (parts[2] === "status") {
+          const endpoint = parts[2];
+          if (endpoint === "status") {
             send(res, codex.info);
             return;
           }
-          if (req.method === "POST" && parts[2] === "connect") {
+          if (endpoint === "runtime") {
+            if (req.method === "POST" && parts[3] === "cancel")
+              await runtime.cancel();
+            else if (req.method === "POST") {
+              chat.cancelAll();
+              indexer.pauseAll();
+              bookTools.stopAll();
+              await codex.disconnect();
+              void runtime.prepare();
+            }
+            send(res, runtime.state);
+            return;
+          }
+          if (endpoint === "selection") {
+            if (req.method === "POST") {
+              const choice = await selection(
+                ModelSelectionSchema.parse(await jsonBody(req)),
+              );
+              library.store.put("setting", "model", "", choice);
+            }
+            send(res, library.store.get("setting", "model") ?? null);
+            return;
+          }
+          if (endpoint === "models") {
+            send(res, await codex.models());
+            return;
+          }
+          if (req.method === "POST" && endpoint === "connect") {
             await codex.connect();
             send(res, codex.info);
             return;
           }
-          if (req.method === "POST" && parts[2] === "disconnect") {
-            chat.cancelAll();
-            codex.disconnect();
-            send(res, codex.info);
-            return;
-          }
-          if (req.method === "POST" && parts[2] === "login") {
+          if (req.method === "POST" && endpoint === "login") {
             send(res, await codex.login());
             return;
           }
-          if (parts[2] === "models") {
-            send(res, await codex.models());
+          if (req.method === "POST" && endpoint === "login-cancel") {
+            await codex.cancelLogin();
+            send(res, codex.info);
             return;
           }
-          if (req.method === "POST" && parts[2] === "path") {
-            const value = z
-              .object({ path: z.string().max(1000) })
-              .parse(await jsonBody(req));
-            bookTools.close();
-            indexer.close();
-            chat.close();
-            codex.disconnect();
-            library.store.put("setting", "codex", "", value);
-            codex = new CodexAdapter(
-              join(directory, "control"),
-              value.path || undefined,
-            );
-            chat = new ChatService(library, codex);
-            indexer = new IndexService(library, codex);
-            bookTools = new BookTools(library, codex);
-            send(res, { ok: true });
+          if (
+            req.method === "POST" &&
+            (endpoint === "logout" || endpoint === "disconnect")
+          ) {
+            chat.cancelAll();
+            indexer.pauseAll();
+            bookTools.stopAll();
+            if (endpoint === "logout") {
+              await codex.logout();
+              library.store.remove("setting", "model");
+            } else await codex.disconnect();
+            send(res, codex.info);
             return;
           }
         }
@@ -304,9 +351,23 @@ export function createCore(directory: string, webRoot: string) {
                 .object({
                   page: z.number().int().positive(),
                   full: z.boolean().default(false),
+                  model: z.string().max(100).optional(),
+                  effort: z.string().max(30).optional(),
                 })
                 .parse(await jsonBody(req));
-              send(res, indexer.start(id, value.page, value.full));
+              const chosen = await selection(
+                value.model ? ModelSelectionSchema.parse(value) : undefined,
+              );
+              send(
+                res,
+                indexer.start(
+                  id,
+                  value.page,
+                  value.full,
+                  chosen.model,
+                  chosen.effort,
+                ),
+              );
               return;
             }
           }
@@ -337,6 +398,7 @@ export function createCore(directory: string, webRoot: string) {
                   question: z.string().min(1).max(6000),
                   sessionId: z.string().min(1).max(100),
                   model: z.string().max(100).optional(),
+                  effort: z.string().max(30).optional(),
                 })
                 .parse(await jsonBody(req));
               if (
@@ -344,13 +406,20 @@ export function createCore(directory: string, webRoot: string) {
                 value.reading.page > book.pages
               )
                 throw new Error("阅读位置与书籍不匹配");
+              const chosen = await selection(
+                ModelSelectionSchema.parse({
+                  model: value.model,
+                  effort: value.effort,
+                }),
+              );
               send(
                 res,
                 chat.start(
                   value.reading,
                   value.question,
                   value.sessionId,
-                  value.model,
+                  chosen.model,
+                  chosen.effort,
                 ),
                 202,
               );
@@ -360,6 +429,23 @@ export function createCore(directory: string, webRoot: string) {
               res,
               chat.list(id, url.searchParams.get("session") ?? undefined),
             );
+            return;
+          }
+          if (parts[3] === "sessions") {
+            if (req.method === "POST") {
+              if (parts[4])
+                send(
+                  res,
+                  chat.renameSession(
+                    id,
+                    parts[4],
+                    z
+                      .object({ title: z.string().trim().min(1).max(100) })
+                      .parse(await jsonBody(req)).title,
+                  ),
+                );
+              else send(res, chat.createSession(id));
+            } else send(res, chat.sessions(id));
             return;
           }
           if (parts[3] === "file" && req.method === "GET") {
@@ -488,6 +574,8 @@ export function createCore(directory: string, webRoot: string) {
     library,
     emit,
     close() {
+      closed = true;
+      void runtime.cancel();
       bookTools.close();
       indexer.close();
       chat.close();

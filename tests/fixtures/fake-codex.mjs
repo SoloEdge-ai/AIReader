@@ -24,6 +24,23 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         account: { type: "chatgpt", email: "fixture@example.invalid" },
       },
     });
+  else if (method === "model/list")
+    send({
+      id,
+      result: {
+        data: [
+          {
+            id: p.cursor ? "fixture-b" : "fixture-a",
+            model: p.cursor ? "fixture-b" : "fixture-a",
+            displayName: "Fixture",
+            supportedReasoningEfforts: [{ reasoningEffort: "high" }],
+            defaultReasoningEffort: "high",
+            isDefault: !p.cursor,
+          },
+        ],
+        nextCursor: p.cursor ? null : "next",
+      },
+    });
   else if (method === "thread/start") {
     const threadId = "thread-" + ++sequence;
     threads.set(threadId, p);
@@ -36,9 +53,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const timer = setTimeout(
       () => {
         const cite = prompt.match(/\[\[([^\]]+:\d+:\d+)\]\]/)?.[1];
-        const text = prompt.includes("严格 JSON")
-          ? JSON.stringify({ summary: "Fixture summary", concepts: ["memory"] })
-          : `Thread ${p.threadId}: supported statement ${cite ? "[[" + cite + "]]" : ""} [[fake:999:0]]`;
+        const text =
+          prompt === "CONFIG"
+            ? `${p.model}/${p.effort} isolated=${process.env.CODEX_HOME?.includes("codex-home") && !process.env.OPENAI_API_KEY}`
+            : prompt.includes("严格 JSON")
+              ? JSON.stringify({
+                  summary: "Fixture summary",
+                  concepts: ["memory"],
+                })
+              : `Thread ${p.threadId}: supported statement ${cite ? "[[" + cite + "]]" : ""} [[fake:999:0]]`;
         notify("item/agentMessage/delta", {
           threadId: p.threadId,
           delta: text,

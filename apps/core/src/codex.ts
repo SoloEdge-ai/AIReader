@@ -1,7 +1,8 @@
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, chmod } from "node:fs/promises";
+import type { AccountState, ModelOption } from "../../../packages/protocol/src";
 import { join, dirname, isAbsolute } from "node:path";
 import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
@@ -92,16 +93,10 @@ export class CodexAdapter extends EventEmitter {
   >();
   private starting?: Promise<void>;
   private threadConfig: Record<string, unknown> = {};
-  info: {
-    connected: boolean;
-    version?: string;
-    account?: unknown;
-    error?: string;
-    path?: string;
-  } = { connected: false };
+  info: AccountState = { connected: false };
   constructor(
     readonly directory: string,
-    readonly custom?: string,
+    readonly custom?: string | (() => Promise<string>),
     private readonly testLaunch?: {
       path: string;
       version: string;
@@ -119,8 +114,36 @@ export class CodexAdapter extends EventEmitter {
     return this.starting;
   }
   private async start() {
-    const found = this.testLaunch ?? (await detectCodex(this.custom));
+    const found =
+      this.testLaunch ??
+      (await detectCodex(
+        typeof this.custom === "function" ? await this.custom() : this.custom,
+      ));
     await mkdir(this.directory, { recursive: true });
+    const credentials = join(this.directory, "codex-home");
+    await mkdir(credentials, { recursive: true, mode: 0o700 });
+    if (process.platform === "win32") {
+      const system = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
+      const identity = await exec(
+        join(system, "whoami.exe"),
+        ["/user", "/fo", "csv", "/nh"],
+        { windowsHide: true },
+      );
+      const sid = identity.stdout.match(/S-1-\d+(?:-\d+)+/)?.[0];
+      if (!sid) throw new Error("无法确认凭证目录的当前用户权限");
+      await exec(
+        join(system, "icacls.exe"),
+        [
+          credentials,
+          "/inheritance:r",
+          "/grant:r",
+          `*${sid}:(OI)(CI)F`,
+          "*S-1-5-18:(OI)(CI)F",
+          "*S-1-5-32-544:(OI)(CI)F",
+        ],
+        { windowsHide: true },
+      );
+    } else await chmod(credentials, 0o700);
     const args = [
       ...(this.testLaunch?.args ?? []),
       "app-server",
@@ -132,6 +155,8 @@ export class CodexAdapter extends EventEmitter {
       "project_doc_max_bytes=0",
       "-c",
       'shell_environment_policy.inherit="none"',
+      "-c",
+      'cli_auth_credentials_store="file"',
     ];
     for (const feature of disabledFeatures)
       args.push("-c", `features.${feature}=false`);
@@ -144,7 +169,16 @@ export class CodexAdapter extends EventEmitter {
       cwd: this.directory,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
-      env: { ...process.env },
+      env: {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([key]) =>
+            /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|USERPROFILE|LOCALAPPDATA|APPDATA|HOMEDRIVE|HOMEPATH|PROGRAMDATA|PROGRAMFILES|PROGRAMFILES\(X86\)|HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|SSL_CERT_FILE|SSL_CERT_DIR)$/i.test(
+              key,
+            ),
+          ),
+        ),
+        CODEX_HOME: credentials,
+      },
     });
     this.child = child;
     createInterface({ input: child.stdout! }).on("line", (line) => {
@@ -176,7 +210,6 @@ export class CodexAdapter extends EventEmitter {
       this.info = {
         connected: true,
         version: found.version,
-        path: found.path,
         account: account.account,
       };
     } catch (error) {
@@ -212,13 +245,20 @@ export class CodexAdapter extends EventEmitter {
     if (
       message.method === "account/updated" ||
       message.method === "account/login/completed"
-    )
+    ) {
+      if (message.method === "account/login/completed") {
+        this.info.login = null;
+        this.info.error = message.params?.success
+          ? undefined
+          : (message.params?.error ?? "登录未完成");
+      }
       void this.request("account/read", { refreshToken: false })
         .then((r) => {
           this.info.account = r.account;
           this.emit("account", this.info);
         })
         .catch(() => {});
+    }
   }
   request(method: string, params: unknown, timeout = 30000): Promise<any> {
     return new Promise((resolve, reject) => {
@@ -257,16 +297,54 @@ export class CodexAdapter extends EventEmitter {
       setTimeout(resolve, 2500).unref();
     });
     child?.kill();
-    this.fail(new Error("已断开 AIReader 连接，现有 Codex 登录保持不变。"));
+    this.fail(new Error("AIReader 连接已关闭。"));
     return stopped;
   }
   async login() {
     await this.connect();
-    return this.request("account/login/start", { type: "chatgpt" });
+    if (this.info.login) return this.info.login;
+    const result = await this.request("account/login/start", {
+      type: "chatgpt",
+    });
+    this.info.login = result;
+    this.info.error = undefined;
+    this.emit("account", this.info);
+    return result;
+  }
+  async cancelLogin() {
+    if (this.info.login)
+      await this.request("account/login/cancel", {
+        loginId: this.info.login.loginId,
+      });
+    this.info.login = null;
+    this.emit("account", this.info);
+  }
+  async logout() {
+    await this.connect();
+    await this.cancelLogin();
+    await this.request("account/logout", {});
+    this.info.account = null;
+    this.info.error = undefined;
+    this.emit("account", this.info);
   }
   async models() {
     await this.connect();
-    return (await this.request("model/list", {})).data;
+    const models: ModelOption[] = [];
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    do {
+      const result = await this.request("model/list", {
+        cursor,
+        limit: 50,
+        includeHidden: false,
+      });
+      models.push(...result.data.filter((m: any) => !m.hidden));
+      cursor = result.nextCursor ?? undefined;
+      if (cursor && seen.has(cursor))
+        throw new Error("模型目录分页重复，请重试");
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+    return models;
   }
   async command(command: string[], cwd: string, processId: string) {
     await this.connect();
@@ -301,6 +379,7 @@ export class CodexAdapter extends EventEmitter {
       signal?: AbortSignal;
       onText?: (text: string) => void;
       model?: string;
+      effort?: string;
       cwd?: string;
     } = {},
   ) {
@@ -389,6 +468,7 @@ export class CodexAdapter extends EventEmitter {
         approvalPolicy: "never",
         sandboxPolicy: { type: "readOnly", networkAccess: false },
         model: options.model || undefined,
+        effort: options.effort || undefined,
       })
         .then((r) => {
           turnId = r.turn.id;

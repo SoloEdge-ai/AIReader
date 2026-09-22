@@ -17,8 +17,16 @@ test("stdio adapter starts fresh threads, interrupts a turn, and reconnects with
     await connecting;
     expect((await early).text).toContain("thread-1");
     expect(adapter.info.account).toMatchObject({ type: "chatgpt" });
-    expect((await adapter.answer("first")).text).toContain("thread-2");
-    expect((await adapter.answer("second")).text).toContain("thread-3");
+    const models = await adapter.models();
+    expect(models.map((m) => m.model)).toEqual(["fixture-a", "fixture-b"]);
+    const configured = await adapter.answer("CONFIG", {
+      model: "fixture-b",
+      effort: "high",
+    });
+    expect(configured.text).toContain("fixture-b/high");
+    expect(configured.text).toContain("isolated=true");
+    expect((await adapter.answer("first")).text).toContain("thread-3");
+    expect((await adapter.answer("second")).text).toContain("thread-4");
     const signal = new AbortController();
     const pending = adapter.answer("WAIT", { signal: signal.signal });
     setTimeout(() => signal.abort(), 100);

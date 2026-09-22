@@ -1,3 +1,98 @@
+.account-controls {
+  font-size: 12px;
+  line-height: 1.8;
+  padding: 12px 0;
+}
+.account-controls p {
+  margin: 10px 0;
+}
+.account-controls details {
+  margin-top: 15px;
+}
+.account-controls h3 {
+  margin-bottom: 10px;
+}
+.chat-account {
+  padding: 0 18px;
+  overflow: auto;
+  max-height: 50%;
+}
+.model-picker {
+  display: flex !important;
+  gap: 4px;
+  margin-top: 6px;
+}
+.model-picker select {
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  padding: 6px 0;
+  max-width: 65%;
+}
+.chat-heading select {
+  flex: 1;
+  min-width: 50px;
+  font-size: 12px;
+  border: 0;
+}
+.rename-session {
+  display: flex;
+  padding: 0 12px;
+  gap: 5px;
+}
+.rename-session input {
+  width: 100%;
+  font-size: 12px;
+}
+.markdown {
+  white-space: normal !important;
+}
+.markdown p {
+  margin: 8px 0;
+}
+.markdown pre {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg);
+  padding: 12px;
+  font-size: 12px;
+}
+.markdown code {
+  font-family: Consolas, monospace;
+}
+.markdown :not(pre) > code {
+  background: var(--hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.markdown table {
+  display: block;
+  overflow: auto;
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+}
+.markdown a {
+  color: var(--accent);
+}
+.markdown .katex-display {
+  overflow: auto;
+  padding: 4px;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  font-size: 16px;
+  margin: 16px 0 8px;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
 :root {
   font-family:
     "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
