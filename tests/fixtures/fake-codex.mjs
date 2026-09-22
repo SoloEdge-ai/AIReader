@@ -32,8 +32,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           {
             id: p.cursor ? "fixture-b" : "fixture-a",
             model: p.cursor ? "fixture-b" : "fixture-a",
-            displayName: "Fixture",
-            supportedReasoningEfforts: [{ reasoningEffort: "high" }],
+            displayName: p.cursor ? "Fixture B" : "Fixture A",
+            supportedReasoningEfforts: p.cursor
+              ? [{ reasoningEffort: "high" }]
+              : [
+                  { reasoningEffort: "low" },
+                  { reasoningEffort: "medium" },
+                  { reasoningEffort: "high" },
+                ],
             defaultReasoningEffort: "high",
             isDefault: !p.cursor,
           },

@@ -72,6 +72,7 @@
       "node_modules/@napi-rs/**/*"
     ],
     "win": {
+      "icon": "assets/app.ico",
       "target": [
         {
           "target": "portable",

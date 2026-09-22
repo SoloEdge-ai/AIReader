@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { build as viteBuild } from "vite";
-import { mkdir } from "node:fs/promises";
+import { mkdir, copyFile } from "node:fs/promises";
 await mkdir("dist/core", { recursive: true });
 await build({
   entryPoints: ["apps/core/src/pdf-worker.ts"],
@@ -28,6 +28,7 @@ await build({
   external: ["electron"],
   sourcemap: true,
 });
+await copyFile("assets/app.ico", "dist/desktop/app.ico");
 await viteBuild({
   root: "apps/web",
   base: "./",

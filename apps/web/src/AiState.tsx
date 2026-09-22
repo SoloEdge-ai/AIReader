@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
 } from "react";
 import type {
   AccountState,
@@ -12,12 +13,14 @@ import type {
   ModelSelection,
 } from "../../../packages/protocol/src";
 import { api, post } from "./api";
+import { ModelControl } from "./ModelControl";
 type State = {
   account: AccountState;
   runtime: AiRuntimeStatus;
   models: ModelOption[];
   choice: ModelSelection | null;
   error: string;
+  selecting: boolean;
   refresh: () => Promise<void>;
   choose: (value: ModelSelection) => Promise<void>;
   operate: (action: string) => Promise<void>;
@@ -33,7 +36,11 @@ export function AiProvider({ children }: { children: React.ReactNode }) {
   const [models, setModels] = useState<ModelOption[]>([]),
     [choice, setChoice] = useState<ModelSelection | null>(null),
     [error, setError] = useState("");
+  const [selecting, setSelecting] = useState(false);
+  const choiceRevision = useRef(0),
+    choosing = useRef(false);
   const refresh = useCallback(async () => {
+    const revision = choiceRevision.current;
     const [a, r, c] = await Promise.all([
       api<AccountState>("ai/status"),
       api<AiRuntimeStatus>("ai/runtime"),
@@ -41,7 +48,7 @@ export function AiProvider({ children }: { children: React.ReactNode }) {
     ]);
     setAccount(a);
     setRuntime(r);
-    setChoice(c);
+    if (!choosing.current && revision === choiceRevision.current) setChoice(c);
     if (!a.account) setModels([]);
   }, []);
   useEffect(() => {
@@ -74,7 +81,6 @@ export function AiProvider({ children }: { children: React.ReactNode }) {
     void api<ModelOption[]>("ai/models")
       .then(async (list) => {
         if (!live) return;
-        setModels(list);
         const saved = await api<ModelSelection | null>("ai/selection");
         if (!live) return;
         if (saved) setChoice(saved);
@@ -89,6 +95,8 @@ export function AiProvider({ children }: { children: React.ReactNode }) {
             if (live) setChoice(value);
           }
         }
+        choiceRevision.current++;
+        if (live) setModels(list);
       })
       .catch((e) => {
         if (live) setError(e.message);
@@ -98,12 +106,21 @@ export function AiProvider({ children }: { children: React.ReactNode }) {
     };
   }, [identity, account.connected]);
   async function choose(value: ModelSelection) {
+    if (choosing.current) throw new Error("正在保存模型设置");
+    choosing.current = true;
+    choiceRevision.current++;
+    setSelecting(true);
     try {
       await post("ai/selection", value);
       setChoice(value);
       setError("");
     } catch (e) {
       setError(String(e));
+      throw e;
+    } finally {
+      choiceRevision.current++;
+      choosing.current = false;
+      setSelecting(false);
     }
   }
   async function operate(action: string) {
@@ -132,6 +149,7 @@ export function AiProvider({ children }: { children: React.ReactNode }) {
         models,
         choice,
         error,
+        selecting,
         refresh,
         choose,
         operate,
@@ -234,57 +252,7 @@ export function AccountControls() {
 }
 export function ModelPicker() {
   const ai = useAi();
-  const model = ai.models.find((m) => m.model === ai.choice?.model);
-  const valid = !!model?.supportedReasoningEfforts.some(
-    (e) => e.reasoningEffort === ai.choice?.effort,
-  );
   return (
-    <div className="model-picker">
-      <select
-        aria-label="模型"
-        value={ai.choice?.model ?? ""}
-        disabled={!ai.models.length}
-        onChange={(e) => {
-          const m = ai.models.find((x) => x.model === e.target.value)!;
-          void ai.choose({ model: m.model, effort: m.defaultReasoningEffort });
-        }}
-      >
-        <option value="" disabled>
-          选择模型
-        </option>
-        {ai.choice && !model && (
-          <option value={ai.choice.model}>模型已不可用</option>
-        )}
-        {ai.models.map((m) => (
-          <option key={m.model} value={m.model}>
-            {m.displayName}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label="思考强度"
-        value={ai.choice?.effort ?? ""}
-        disabled={!model}
-        onChange={(e) =>
-          void ai.choose({ model: model!.model, effort: e.target.value })
-        }
-      >
-        {!valid && <option value={ai.choice?.effort ?? ""}>请选择强度</option>}
-        {model?.supportedReasoningEfforts.map((e) => (
-          <option key={e.reasoningEffort} value={e.reasoningEffort}>
-            {{
-              none: "无",
-              minimal: "极低",
-              low: "低",
-              medium: "中",
-              high: "高",
-              xhigh: "极高",
-              max: "最大",
-              ultra: "超高",
-            }[e.reasoningEffort] ?? e.reasoningEffort}
-          </option>
-        ))}
-      </select>
-    </div>
+    <ModelControl models={ai.models} choice={ai.choice} onChoose={ai.choose} />
   );
 }

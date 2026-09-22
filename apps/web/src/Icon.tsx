@@ -1,4 +1,13 @@
 const paths = {
+  down: "m6 9 6 6 6-6",
+  copy: "M9 9h12v12H9ZM15 5V3H3v12h2",
+  outward: "M7 17 17 7M7 7h10v10",
+  newChat: "M12 4H4v16h16v-8M10 14l1-4 8-8 3 3-8 8Z",
+  bolt: "m13 2-9 12h7l-1 8 10-13h-8Z",
+  chevron: "m9 6 6 6-6 6",
+  reset: "M3 3v6h6M3 9a9 9 0 1 1 0 6",
+  check: "m5 12 4 4L19 6",
+  stop: "M6 6h12v12H6Z",
   back: "m14 6-6 6 6 6",
   menu: "M4 6h16M4 12h16M4 18h16",
   search: "M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
