@@ -63,9 +63,41 @@ try {
   await input.press("Shift+Enter");
   await expect(input).toHaveValue("中文输入中\n");
   await page
+    .locator("#page-1 .textLayer span")
+    .first()
+    .evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+      element.dispatchEvent(
+        new MouseEvent("mouseup", {
+          bubbles: true,
+          clientX: 200,
+          clientY: 200,
+        }),
+      );
+    });
+  await page
+    .locator(".selection-bar")
+    .getByRole("button", { name: "解释", exact: true })
+    .click();
+  await page
     .getByRole("textbox", { name: "问题", exact: true })
     .fill("Explain memory cache");
+  await expect(page.locator(".selection-bar")).toHaveCount(0);
+  const selectedQuestion = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      /\/books\/[^/]+\/turns$/.test(new URL(request.url()).pathname),
+  );
   await page.getByRole("button", { name: "发送问题", exact: true }).click();
+  expect((await selectedQuestion).postDataJSON().reading).toMatchObject({
+    scope: "selection",
+    page: 1,
+    selection:
+      "Memory cache stores previous tokens and avoids repeated computation.",
+  });
   await expect(page.locator(".turn .answer")).toContainText(
     "supported statement",
   );

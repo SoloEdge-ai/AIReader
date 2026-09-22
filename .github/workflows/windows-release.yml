@@ -39,6 +39,10 @@ jobs:
         run: node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe
         env:
           AIREADER_CI: '1'
+      - name: Selection toolbar acceptance
+        run: node scripts/selection-smoke.mjs release/win-unpacked/AIReader.exe
+        env:
+          AIREADER_CI: '1'
       - name: Packaged desktop smoke test
         shell: pwsh
         run: |

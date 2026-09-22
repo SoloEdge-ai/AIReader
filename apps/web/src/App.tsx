@@ -37,7 +37,12 @@ export function App() {
     [hits, setHits] = useState<Passage[]>([]),
     [marks, setMarks] = useState<Bookmark[]>([]);
   const [selection, setSelection] = useState<ReadingSelection>(),
+    [questionSelection, setQuestionSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<{ name: string; nonce: number }>();
+  const handleSelection = useCallback((value: ReadingSelection | undefined) => {
+    setSelection(value);
+    if (value) setQuestionSelection(undefined);
+  }, []);
   const [highlight, setHighlight] = useState<SourceAnchor>(),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -149,6 +154,7 @@ export function App() {
   useEffect(() => {
     let live = true;
     setSelection(undefined);
+    setQuestionSelection(undefined);
     setAction(undefined);
     setMarks([]);
     setHits([]);
@@ -646,7 +652,7 @@ export function App() {
                 zoom={layout.zoom}
                 rotation={layout.rotation}
                 onPage={onPage}
-                onSelection={setSelection}
+                onSelection={handleSelection}
                 highlight={highlight}
                 annotations={notes.annotations}
                 mode={mode}
@@ -715,6 +721,8 @@ export function App() {
                     <button
                       key={name}
                       onClick={() => {
+                        // Keep the chosen passage when focusing the question clears the DOM selection.
+                        setQuestionSelection(selection);
                         updateLayout({ ...layout, panel: "chat" });
                         setAction({ name, nonce: Date.now() });
                       }}
@@ -802,7 +810,7 @@ export function App() {
                       key={active}
                       book={book}
                       page={page}
-                      selection={selection}
+                      selection={questionSelection ?? selection}
                       action={action}
                       onCitation={jump}
                     />
