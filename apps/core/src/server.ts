@@ -6,6 +6,10 @@ import {randomBytes} from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
 import {z} from 'zod';
 import {Library} from './library';
+import {CodexAdapter} from './codex';
+import {ChatService} from './chat';
+import {ReadingSnapshotSchema} from '../../../packages/protocol/src';
+import {join} from 'node:path';
 import type {CoreEvent} from '../../../packages/protocol/src/index';
 export async function body(req:IncomingMessage,limit=1024*1024){const chunks:Buffer[]=[];let length=0;for await(const chunk of req){length+=chunk.length;if(length>limit)throw new Error('文件或请求过大');chunks.push(Buffer.from(chunk));}return Buffer.concat(chunks);}
 export async function jsonBody(req:IncomingMessage){return JSON.parse((await body(req)).toString());}
@@ -14,6 +18,7 @@ export function createCore(directory:string,webRoot:string){
  const token=randomBytes(32).toString('hex');const sockets=new WebSocketServer({noServer:true});
  const emit=(event:CoreEvent)=>{for(const client of sockets.clients)if(client.readyState===WebSocket.OPEN)client.send(JSON.stringify(event));};
  const library=new Library(directory,emit);library.resume();
+ let codex=new CodexAdapter(join(directory,'control'),library.store.get<{path:string}>('setting','codex')?.path);let chat=new ChatService(library,codex);
  const authenticated=(req:IncomingMessage)=>req.headers.cookie?.split(';').some(x=>x.trim()===`aireader=${token}`);
  const allowedOrigin=(req:IncomingMessage)=>req.headers.origin===`http://${req.headers.host}`||(!process.env.AIREADER_WEB&&req.headers.origin==='http://127.0.0.1:5173');
  const server=createServer(async(req,res)=>{
@@ -27,10 +32,23 @@ export function createCore(directory:string,webRoot:string){
    if(parts[0]==='api'){
     if(!authenticated(req)||(req.method!=='GET'&&!allowedOrigin(req))){send(res,{error:'Session required'},401);return;}
     if(parts[1]==='health'){send(res,{ok:true});return;}
+    if(parts[1]==='ai'){
+     if(parts[2]==='status'){send(res,codex.info);return;}
+     if(req.method==='POST'&&parts[2]==='connect'){await codex.connect();send(res,codex.info);return;}
+     if(req.method==='POST'&&parts[2]==='disconnect'){chat.cancelAll();codex.disconnect();send(res,codex.info);return;}
+     if(req.method==='POST'&&parts[2]==='login'){send(res,await codex.login());return;}
+     if(parts[2]==='models'){send(res,await codex.models());return;}
+     if(req.method==='POST'&&parts[2]==='path'){const value=z.object({path:z.string().max(1000)}).parse(await jsonBody(req));chat.close();codex.disconnect();library.store.put('setting','codex','',value);codex=new CodexAdapter(join(directory,'control'),value.path||undefined);chat=new ChatService(library,codex);send(res,{ok:true});return;}
+    }
     if(parts[1]==='books'&&parts.length===2){if(req.method==='GET'){send(res,library.books());return;}if(req.method==='POST'){send(res,await library.import(await body(req,256*1024*1024),decodeURIComponent(String(req.headers['x-filename']??'Document.pdf')).slice(0,300)),201);return;}}
     if(parts[1]==='books'&&parts[2]){
      const id=parts[2];const book=library.book(id);
      if(parts.length===3){send(res,book);return;}
+     if(parts[3]==='turns'){
+      if(req.method==='POST'&&parts[5]==='cancel'){chat.cancel(id,parts[4]);send(res,{ok:true});return;}
+      if(req.method==='POST'){const value=z.object({reading:ReadingSnapshotSchema,question:z.string().min(1).max(6000),sessionId:z.string().min(1).max(100),model:z.string().max(100).optional()}).parse(await jsonBody(req));if(value.reading.bookId!==id||value.reading.page>book.pages)throw new Error('阅读位置与书籍不匹配');send(res,chat.start(value.reading,value.question,value.sessionId,value.model),202);return;}
+      send(res,chat.list(id,url.searchParams.get('session')??undefined));return;
+     }
      if(parts[3]==='file'&&req.method==='GET'){const file=library.file(id);const size=(await stat(file)).size;res.writeHead(200,{'Content-Type':'application/pdf','Content-Length':size,'Cache-Control':'private, max-age=60'});createReadStream(file).pipe(res);return;}
      if(parts[3]==='search'){send(res,library.search(id,(url.searchParams.get('q')??'').slice(0,1000)));return;}
      if(parts[3]==='passages'){send(res,library.passages(id,url.searchParams.has('page')?Number(url.searchParams.get('page')):undefined));return;}
@@ -48,5 +66,5 @@ export function createCore(directory:string,webRoot:string){
   }catch(error){if(!res.headersSent)send(res,{error:error instanceof Error?error.message:String(error)},400);else res.destroy();}
  });
  server.on('upgrade',(req,socket,head)=>{if(req.url!=='/events'||!allowedOrigin(req)||!authenticated(req)){socket.destroy();return;}sockets.handleUpgrade(req,socket,head,client=>sockets.emit('connection',client,req));});
- return{server,library,emit,close(){for(const client of sockets.clients)client.terminate();sockets.close();server.close();library.close();}};
+ return{server,library,emit,close(){chat.close();codex.disconnect();for(const client of sockets.clients)client.terminate();sockets.close();server.close();library.close();}};
 }
