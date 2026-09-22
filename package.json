@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "concurrently -k \"tsx watch apps/core/src/main.ts\" \"vite apps/web --host 127.0.0.1\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node scripts/build-worker.mjs && vitest run",
     "build": "node scripts/build.mjs",
     "desktop:portable": "pnpm build && electron-builder --win portable --x64 --publish never",
     "start": "electron .",
