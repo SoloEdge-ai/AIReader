@@ -989,6 +989,178 @@ progress::-webkit-progress-value {
 .composer:focus-within {
   border-color: var(--muted);
 }
+.question-attachment {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 9px 10px;
+  margin-bottom: 10px;
+  background: var(--surface);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.attachment-heading,
+.attachment-heading > span,
+.attachment-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.attachment-heading {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+}
+.attachment-heading svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.attachment-heading button {
+  padding: 3px;
+  flex-shrink: 0;
+}
+.attachment-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.75;
+  margin: 6px 0;
+  white-space: pre-wrap;
+}
+.attachment-actions {
+  align-items: flex-start;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+}
+.attachment-actions details {
+  flex: 1;
+  min-width: 0;
+}
+.attachment-actions summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.attachment-actions details p {
+  max-height: 130px;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
+.attachment-actions button {
+  font-size: 11px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+.selection-candidate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.selection-candidate > div {
+  flex: 1;
+  min-width: 0;
+}
+.selection-candidate p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 5px;
+}
+.selection-candidate button {
+  font-size: 11px;
+  color: var(--accent);
+  flex-shrink: 0;
+  padding: 4px;
+}
+.selection-hint {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.selection-hint button {
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.question-source {
+  margin: -20px 0 24px auto;
+  max-width: 88%;
+  color: var(--muted);
+  font-size: 11px;
+}
+.question-source summary,
+.retrieval-details summary {
+  cursor: pointer;
+}
+.question-source p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow: auto;
+  margin-top: 8px;
+}
+.reasoning {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.reasoning > button {
+  padding: 2px 0;
+  font-size: 12px;
+  gap: 6px;
+}
+.reasoning > button svg {
+  width: 13px;
+  height: 13px;
+}
+.reasoning > button[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.reasoning > button span {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.reasoning-summary {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-left: 2px solid var(--line);
+  padding: 8px 12px;
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  line-height: 1.8;
+}
+.reasoning-caption {
+  margin: 6px 0 0 14px;
+  font-size: 10px;
+}
+.retrieval-details {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0 0 12px;
+}
+.retrieval-details > div {
+  max-height: 200px;
+  overflow: auto;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px;
+}
+.retrieval-details p {
+  line-height: 1.7;
+  margin-bottom: 8px;
+}
 .composer-scope {
   display: flex;
   align-items: center;

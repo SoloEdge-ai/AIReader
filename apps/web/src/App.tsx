@@ -15,7 +15,8 @@ import type { z } from "zod";
 import { api, post, base } from "./api";
 import { PdfReader, type AnnotationMode } from "./PdfReader";
 import { NotesPanel, useBookNotes } from "./NotesPanel";
-import { ChatPanel } from "./ChatPanel";
+import { ChatPanel, type SelectionAction } from "./ChatPanel";
+import { QuestionDraftStore } from "./QuestionDrafts";
 import { BookCover } from "./BookCover";
 import { Icon } from "./Icon";
 import { Settings } from "./Settings";
@@ -37,11 +38,11 @@ export function App() {
     [hits, setHits] = useState<Passage[]>([]),
     [marks, setMarks] = useState<Bookmark[]>([]);
   const [selection, setSelection] = useState<ReadingSelection>(),
-    [questionSelection, setQuestionSelection] = useState<ReadingSelection>(),
-    [action, setAction] = useState<{ name: string; nonce: number }>();
-  const handleSelection = useCallback((value: ReadingSelection | undefined) => {
-    setSelection(value);
-    if (value) setQuestionSelection(undefined);
+    [action, setAction] = useState<SelectionAction>();
+  const [questionDrafts] = useState(() => new QuestionDraftStore());
+  const clearSelection = useCallback(() => {
+    setSelection(undefined);
+    getSelection()?.removeAllRanges();
   }, []);
   const [highlight, setHighlight] = useState<SourceAnchor>(),
     [error, setError] = useState(""),
@@ -154,7 +155,6 @@ export function App() {
   useEffect(() => {
     let live = true;
     setSelection(undefined);
-    setQuestionSelection(undefined);
     setAction(undefined);
     setMarks([]);
     setHits([]);
@@ -652,7 +652,7 @@ export function App() {
                 zoom={layout.zoom}
                 rotation={layout.rotation}
                 onPage={onPage}
-                onSelection={handleSelection}
+                onSelection={setSelection}
                 highlight={highlight}
                 annotations={notes.annotations}
                 mode={mode}
@@ -721,19 +721,19 @@ export function App() {
                     <button
                       key={name}
                       onClick={() => {
-                        // Keep the chosen passage when focusing the question clears the DOM selection.
-                        setQuestionSelection(selection);
                         updateLayout({ ...layout, panel: "chat" });
-                        setAction({ name, nonce: Date.now() });
+                        setAction({
+                          name,
+                          nonce: Date.now(),
+                          selection: structuredClone(selection),
+                        });
+                        clearSelection();
                       }}
                     >
                       {name}
                     </button>
                   ))}
-                  <button
-                    aria-label="取消选区"
-                    onClick={() => setSelection(undefined)}
-                  >
+                  <button aria-label="取消选区" onClick={clearSelection}>
                     <Icon name="close" />
                   </button>
                 </div>
@@ -810,11 +810,17 @@ export function App() {
                       key={active}
                       book={book}
                       page={page}
-                      selection={questionSelection ?? selection}
+                      selection={selection}
                       action={action}
-                      onUseSelection={() =>
-                        setQuestionSelection(selection ?? questionSelection)
-                      }
+                      savedDrafts={questionDrafts}
+                      onActionConsumed={() => setAction(undefined)}
+                      onClearSelection={clearSelection}
+                      onPickSelection={() => {
+                        setMode("select");
+                        document
+                          .querySelector<HTMLElement>(".pdf-scroll")
+                          ?.focus({ preventScroll: true });
+                      }}
                       onCitation={jump}
                     />
                   )}

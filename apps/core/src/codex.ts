@@ -378,6 +378,7 @@ export class CodexAdapter extends EventEmitter {
     options: {
       signal?: AbortSignal;
       onText?: (text: string) => void;
+      onReasoning?: (text: string) => void;
       model?: string;
       effort?: string;
       cwd?: string;
@@ -398,83 +399,141 @@ export class CodexAdapter extends EventEmitter {
         "Only cite supplied passage IDs. Do not execute commands or inspect files. Respond in Chinese unless requested otherwise.",
     });
     const id = thread.thread.id;
-    return new Promise<{ text: string; usage?: unknown }>((resolve, reject) => {
-      let text = "";
-      let turnId: string | undefined;
-      let usage: unknown;
-      let finished = false;
-      const timer = setTimeout(() => {
-        void cancel();
-        finish(new Error("回答超时，请重试。"));
-      }, 180000);
-      const cleanup = () => {
-        clearTimeout(timer);
-        this.off("notification", receive);
-        this.off("disconnected", finish);
-        options.signal?.removeEventListener("abort", abort);
-      };
-      const finish = (error?: Error) => {
-        if (finished) return;
-        finished = true;
-        cleanup();
-        void this.request("thread/unsubscribe", { threadId: id }).catch(
-          () => {},
-        );
-        if (error) reject(error);
-        else resolve({ text, usage });
-      };
-      const cancel = async () => {
-        if (turnId)
-          await this.request("turn/interrupt", { threadId: id, turnId }).catch(
+    return new Promise<{ text: string; reasoning: string; usage?: unknown }>(
+      (resolve, reject) => {
+        let text = "";
+        let reasoning = "";
+        const summaries = new Map<string, string[]>();
+        const updateSummary = (itemId: string, parts: string[]) => {
+          if (!summaries.has(itemId) && summaries.size >= 64) return;
+          let remaining = 32000;
+          for (const [id, values] of summaries)
+            if (id !== itemId) remaining -= values.join("").length;
+          summaries.set(
+            itemId,
+            parts.slice(0, 64).map((part) => {
+              const value = part.slice(0, Math.max(0, remaining));
+              remaining -= value.length;
+              return value;
+            }),
+          );
+          const next = [...summaries.values()]
+            .flat()
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, 32000);
+          if (next !== reasoning) {
+            reasoning = next;
+            options.onReasoning?.(reasoning);
+          }
+        };
+        let turnId: string | undefined;
+        let usage: unknown;
+        let finished = false;
+        const timer = setTimeout(() => {
+          void cancel();
+          finish(new Error("回答超时，请重试。"));
+        }, 180000);
+        const cleanup = () => {
+          clearTimeout(timer);
+          this.off("notification", receive);
+          this.off("disconnected", finish);
+          options.signal?.removeEventListener("abort", abort);
+        };
+        const finish = (error?: Error) => {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          void this.request("thread/unsubscribe", { threadId: id }).catch(
             () => {},
           );
-      };
-      const abort = () => {
-        void cancel();
-        finish(new Error("已取消"));
-      };
-      const receive = (message: any) => {
-        const p = message.params ?? {};
-        if (p.threadId !== id) return;
-        if (message.method === "turn/started") turnId = p.turn.id;
-        if (message.method === "item/agentMessage/delta") {
-          text += p.delta;
-          options.onText?.(text);
+          if (error) reject(error);
+          else resolve({ text, reasoning, usage });
+        };
+        const cancel = async () => {
+          if (turnId)
+            await this.request("turn/interrupt", {
+              threadId: id,
+              turnId,
+            }).catch(() => {});
+        };
+        const abort = () => {
+          void cancel();
+          finish(new Error("已取消"));
+        };
+        const receive = (message: any) => {
+          const p = message.params ?? {};
+          if (p.threadId !== id) return;
+          if (turnId && p.turnId && p.turnId !== turnId) return;
+          if (turnId && p.turn?.id && p.turn.id !== turnId) return;
+          if (message.method === "turn/started") turnId = p.turn.id;
+          // Only public summaries are collected. Never store reasoning/textDelta or item.content.
+          if (
+            options.onReasoning &&
+            message.method === "item/reasoning/summaryTextDelta" &&
+            typeof p.itemId === "string" &&
+            typeof p.delta === "string" &&
+            Number.isInteger(p.summaryIndex) &&
+            p.summaryIndex >= 0 &&
+            p.summaryIndex < 64
+          ) {
+            const parts = [...(summaries.get(p.itemId) ?? [])];
+            parts[p.summaryIndex] = (parts[p.summaryIndex] ?? "") + p.delta;
+            updateSummary(p.itemId, parts);
+          }
+          if (
+            options.onReasoning &&
+            message.method === "item/completed" &&
+            p.item?.type === "reasoning" &&
+            typeof p.item.id === "string" &&
+            Array.isArray(p.item.summary)
+          )
+            updateSummary(
+              p.item.id,
+              p.item.summary.filter(
+                (part: unknown) => typeof part === "string",
+              ),
+            );
+          if (message.method === "item/agentMessage/delta") {
+            text += p.delta;
+            options.onText?.(text);
+          }
+          if (
+            message.method === "item/completed" &&
+            p.item?.type === "agentMessage"
+          ) {
+            text = p.item.text;
+            options.onText?.(text);
+          }
+          if (message.method === "thread/tokenUsage/updated")
+            usage = p.tokenUsage;
+          if (message.method === "turn/completed") {
+            if (p.turn.status === "completed") finish();
+            else finish(new Error(p.turn.error?.message ?? "回答已中止"));
+          }
+        };
+        this.on("notification", receive);
+        this.on("disconnected", finish);
+        options.signal?.addEventListener("abort", abort, { once: true });
+        if (options.signal?.aborted) {
+          abort();
+          return;
         }
-        if (
-          message.method === "item/completed" &&
-          p.item?.type === "agentMessage"
-        ) {
-          text = p.item.text;
-          options.onText?.(text);
-        }
-        if (message.method === "thread/tokenUsage/updated")
-          usage = p.tokenUsage;
-        if (message.method === "turn/completed") {
-          if (p.turn.status === "completed") finish();
-          else finish(new Error(p.turn.error?.message ?? "回答已中止"));
-        }
-      };
-      this.on("notification", receive);
-      this.on("disconnected", finish);
-      options.signal?.addEventListener("abort", abort, { once: true });
-      if (options.signal?.aborted) {
-        abort();
-        return;
-      }
-      void this.request("turn/start", {
-        threadId: id,
-        input: [{ type: "text", text: prompt, text_elements: [] }],
-        approvalPolicy: "never",
-        sandboxPolicy: { type: "readOnly", networkAccess: false },
-        model: options.model || undefined,
-        effort: options.effort || undefined,
-      })
-        .then((r) => {
-          turnId = r.turn.id;
-          if (finished) void cancel();
+        void this.request("turn/start", {
+          threadId: id,
+          input: [{ type: "text", text: prompt, text_elements: [] }],
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+          model: options.model || undefined,
+          effort: options.effort || undefined,
+          summary: options.onReasoning ? "auto" : "none",
         })
-        .catch(finish);
-    });
+          .then((r) => {
+            turnId = r.turn.id;
+            if (finished) void cancel();
+          })
+          .catch(finish);
+      },
+    );
   }
 }

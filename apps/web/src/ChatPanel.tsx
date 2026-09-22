@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type {
   Book,
   ChatTurn,
   ReadingSnapshot,
+  ReadingSelection,
   SourceAnchor,
 } from "../../../packages/protocol/src";
 import { api, post } from "./api";
@@ -10,41 +11,71 @@ import { useAi, ModelPicker, AccountControls } from "./AiState";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import { ChatMessage } from "./ChatMessage";
+import { SelectionContext } from "./SelectionContext";
+import type { QuestionDraft, QuestionDraftStore } from "./QuestionDrafts";
+export type SelectionAction = {
+  name: string;
+  nonce: number;
+  selection: ReadingSelection;
+};
 type Session = { id: string; title: string; updatedAt: string };
 export function ChatPanel({
   book,
   page,
   selection,
   action,
-  onUseSelection,
+  savedDrafts,
+  onActionConsumed,
+  onClearSelection,
+  onPickSelection,
   onCitation,
 }: {
   book: Book;
   page: number;
-  selection?: { text: string; page: number };
-  action?: { name: string; nonce: number };
-  onUseSelection: () => void;
+  selection?: ReadingSelection;
+  action?: SelectionAction;
+  savedDrafts: QuestionDraftStore;
+  onActionConsumed: () => void;
+  onClearSelection: () => void;
+  onPickSelection: () => void;
   onCitation: (page: number, anchor: SourceAnchor) => void;
 }) {
-  const ai = useAi(),
-    [question, setQuestion] = useState(""),
-    [scope, setScope] = useState<ReadingSnapshot["scope"]>("auto");
+  const ai = useAi();
   const [session, setSession] = useState(""),
     [sessions, setSessions] = useState<Session[]>([]),
     [turns, setTurns] = useState<ChatTurn[]>([]),
     [error, setError] = useState("");
+  const draftKey = book.id + ":" + session;
+  const draft = useSyncExternalStore(savedDrafts.subscribe, () =>
+    savedDrafts.get(draftKey),
+  );
+  const { question, scope, attachment } = draft;
   const [renaming, setRenaming] = useState(false),
     [title, setTitle] = useState("");
   const input = useRef<HTMLTextAreaElement>(null),
     messages = useRef<HTMLDivElement>(null);
   const currentSession = useRef(session),
-    drafts = useRef(new Map<string, string>()),
     submitting = useRef(false);
   const [sending, setSending] = useState(false),
     [creating, setCreating] = useState(false);
   const followBottom = useRef(true);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   currentSession.current = session;
+  function updateDraft(patch: Partial<QuestionDraft>) {
+    if (currentSession.current)
+      savedDrafts.update(book.id + ":" + currentSession.current, patch);
+  }
+  const setQuestion = (question: string) => updateDraft({ question });
+  function setScope(scope: ReadingSnapshot["scope"]) {
+    updateDraft({
+      scope,
+      ...(scope !== "selection" ? { attachment: undefined } : {}),
+    });
+  }
+  function attach(value: ReadingSelection) {
+    updateDraft({ attachment: structuredClone(value), scope: "selection" });
+    onClearSelection();
+  }
   useEffect(
     () => () => {
       currentSession.current = "";
@@ -52,12 +83,10 @@ export function ChatPanel({
     [],
   );
   function switchSession(id: string) {
-    drafts.current.set(session, question);
     currentSession.current = id;
     setSession(id);
     setRenaming(false);
     followBottom.current = true;
-    setQuestion(drafts.current.get(id) ?? "");
     setTurns([]);
     setError("");
   }
@@ -70,7 +99,7 @@ export function ChatPanel({
         if (live) {
           setSessions(list);
           const previous = localStorage.getItem("session-" + book.id);
-          setSession(
+          switchSession(
             list.some((s) => s.id === previous) ? previous! : list[0].id,
           );
         }
@@ -115,17 +144,18 @@ export function ChatPanel({
     };
   }, [book.id, session]);
   useEffect(() => {
-    if (action) {
-      setScope("selection");
-      setQuestion(action.name === "提问" ? "" : `请${action.name}选中的原文。`);
+    if (action && session) {
+      attach(action.selection);
+      if (action.name !== "提问") setQuestion(`请${action.name}选中的原文。`);
+      onActionConsumed();
       input.current?.focus();
     }
-  }, [action?.nonce]);
+  }, [action?.nonce, session]);
   const latest = turns.at(-1);
   useEffect(() => {
     if (followBottom.current && messages.current)
       messages.current.scrollTop = messages.current.scrollHeight;
-  }, [latest?.id, latest?.answer, latest?.status]);
+  }, [latest?.id, latest?.answer, latest?.reasoning, latest?.status]);
   const running = turns.find((t) => t.status === "running");
   const chosen = ai.models.find((m) => m.model === ai.choice?.model);
   const valid = chosen?.supportedReasoningEfforts.some(
@@ -140,18 +170,19 @@ export function ChatPanel({
     !creating &&
     !ai.selecting &&
     !running &&
-    (scope !== "selection" || !!selection);
+    (scope !== "selection" || !!attachment);
   async function ask() {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
     setSending(true);
     const requestedSession = session;
+    const submittedDraft = draft;
     setError("");
     try {
       const reading = {
         bookId: book.id,
-        page: scope === "selection" ? (selection?.page ?? page) : page,
-        selection: selection?.text ?? "",
+        page: scope === "selection" ? (attachment?.page ?? page) : page,
+        selection: scope === "selection" ? (attachment?.text ?? "") : "",
         scope,
       };
       const turn = await post<ChatTurn>(`books/${book.id}/turns`, {
@@ -160,11 +191,11 @@ export function ChatPanel({
         sessionId: session,
         ...ai.choice,
       });
+      savedDrafts.clearIfUnchanged(draftKey, submittedDraft);
       if (currentSession.current === requestedSession) {
         setTurns((old) =>
           old.some((t) => t.id === turn.id) ? old : [...old, turn],
         );
-        setQuestion((old) => (old === question ? "" : old));
       }
       if (book.status === "ready")
         void post(`books/${book.id}/index`, {
@@ -351,36 +382,40 @@ export function ChatPanel({
           <Icon name="down" />
         </button>
       )}
-      {selection && (
-        <blockquote>
-          选区 · 第 {selection.page} 页<br />
-          {selection.text.slice(0, 140)}
-        </blockquote>
-      )}
       {(error || ai.error) && <p className="error">{error || ai.error}</p>}
       {ai.choice && ai.models.length > 0 && !valid && (
         <p className="error">所选模型或强度已不可用，请重新选择。</p>
       )}
       <div className="composer">
+        <SelectionContext
+          key={session}
+          attached={attachment}
+          candidate={selection}
+          disabled={!session || creating}
+          onAttach={attach}
+          onRemove={() => updateDraft({ attachment: undefined, scope: "auto" })}
+          onPick={onPickSelection}
+        />
         <div className="composer-scope">
           <Icon name="book" />
           <select
             aria-label="提问范围"
             value={scope}
             onChange={(e) => {
-              if (e.target.value === "selection") onUseSelection();
-              setScope(e.target.value as ReadingSnapshot["scope"]);
+              if (e.target.value === "selection" && !attachment && selection)
+                attach(selection);
+              else setScope(e.target.value as ReadingSnapshot["scope"]);
             }}
           >
             <option value="auto">当前阅读位置</option>
-            <option value="selection" disabled={!selection}>
+            <option value="selection" disabled={!attachment && !selection}>
               选中原文
             </option>
             <option value="chapter">当前章节</option>
             <option value="book">整本书</option>
           </select>
           <span>
-            第 {scope === "selection" ? (selection?.page ?? page) : page} 页
+            第 {scope === "selection" ? (attachment?.page ?? page) : page} 页
           </span>
         </div>
         <textarea
@@ -388,9 +423,7 @@ export function ChatPanel({
           aria-label="问题"
           placeholder="继续追问，或选中原文提问…"
           value={question}
-          onFocus={() => {
-            if (scope === "selection" && selection) onUseSelection();
-          }}
+          disabled={!session || creating}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => {
             if (

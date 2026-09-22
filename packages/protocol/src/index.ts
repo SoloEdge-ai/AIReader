@@ -105,6 +105,8 @@ export interface ToolRun {
   files?: string[];
 }
 export interface ChatTurn {
+  /** Service-provided public summary only; absent on records predating summary support. */
+  reasoning?: string;
   model?: string;
   effort?: string;
   id: string;

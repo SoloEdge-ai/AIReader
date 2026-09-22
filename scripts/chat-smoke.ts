@@ -62,22 +62,25 @@ try {
   await expect(page.locator(".turn")).toHaveCount(0);
   await input.press("Shift+Enter");
   await expect(input).toHaveValue("中文输入中\n");
-  await page
-    .locator("#page-1 .textLayer span")
-    .first()
-    .evaluate((element) => {
-      const range = document.createRange();
-      range.selectNodeContents(element);
-      getSelection()!.removeAllRanges();
-      getSelection()!.addRange(range);
-      element.dispatchEvent(
-        new MouseEvent("mouseup", {
-          bubbles: true,
-          clientX: 200,
-          clientY: 200,
-        }),
-      );
-    });
+  async function selectPassage() {
+    await page
+      .locator("#page-1 .textLayer span")
+      .first()
+      .evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        getSelection()!.removeAllRanges();
+        getSelection()!.addRange(range);
+        element.dispatchEvent(
+          new MouseEvent("mouseup", {
+            bubbles: true,
+            clientX: 200,
+            clientY: 200,
+          }),
+        );
+      });
+  }
+  await selectPassage();
   await page
     .locator(".selection-bar")
     .getByRole("button", { name: "解释", exact: true })
@@ -86,6 +89,22 @@ try {
     .getByRole("textbox", { name: "问题", exact: true })
     .fill("Explain memory cache");
   await expect(page.locator(".selection-bar")).toHaveCount(0);
+  await expect(page.locator(".question-attachment")).toContainText(
+    "Memory cache",
+  );
+  await page.screenshot({ path: ".local/screenshots/context-card-light.png" });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await page.screenshot({ path: ".local/screenshots/context-card-dark.png" });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "light"));
+  await page.setViewportSize({ width: 860, height: 760 });
+  await page.screenshot({ path: ".local/screenshots/context-card-narrow.png" });
+  await expect(
+    page.getByRole("button", { name: "移除引用", exact: true }),
+  ).toBeInViewport();
+  await expect(
+    page.getByRole("button", { name: "发送问题", exact: true }),
+  ).toBeInViewport();
+  await page.setViewportSize({ width: 1440, height: 960 });
   const selectedQuestion = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
@@ -103,6 +122,16 @@ try {
   );
   await expect(page.locator(".turn .answer")).toContainText("未验证引用");
   await expect(page.locator(".turn .citation")).toHaveCount(1);
+  await page.getByRole("button", { name: "思考摘要", exact: true }).click();
+  await expect(page.locator(".reasoning-summary")).toContainText(
+    "已核对原文。",
+  );
+  await expect(page.locator(".reasoning-summary")).toContainText(
+    "保留可核验引用。",
+  );
+  await expect(page.locator(".turn")).not.toContainText("PRIVATE_TRACE");
+  await expect(page.locator(".question-source")).toContainText("本轮引用");
+  await expect(page.locator(".question-attachment")).toHaveCount(0);
   await page
     .getByRole("button", { name: "返回第 1 页原文", exact: true })
     .click();
@@ -146,16 +175,38 @@ try {
   await expect(
     page.getByRole("button", { name: "历史会话", exact: true }),
   ).toContainText("缓存笔记");
+  await selectPassage();
+  await page.getByRole("button", { name: "添加到问题", exact: true }).click();
+  await input.fill("留给此会话的草稿");
   await page.getByRole("button", { name: "新建会话", exact: true }).click();
   await expect(page.locator(".turn")).toHaveCount(0);
+  await expect(page.locator(".question-attachment")).toHaveCount(0);
+  await expect(input).toHaveValue("");
   await page.getByRole("button", { name: "历史会话", exact: true }).click();
   await page.getByRole("button", { name: "缓存笔记", exact: true }).click();
   await expect(page.locator(".turn")).toHaveCount(1);
+  await expect(input).toHaveValue("留给此会话的草稿");
+  await expect(page.locator(".question-attachment")).toContainText(
+    "Memory cache",
+  );
+  await page.getByRole("button", { name: "移除引用", exact: true }).click();
   await page
     .getByRole("textbox", { name: "问题", exact: true })
     .fill("WAIT memory");
+  const unquotedQuestion = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      /\/books\/[^/]+\/turns$/.test(new URL(request.url()).pathname),
+  );
   await page.getByRole("button", { name: "发送问题", exact: true }).click();
+  expect((await unquotedQuestion).postDataJSON().reading).toMatchObject({
+    selection: "",
+    scope: "auto",
+  });
   await page.getByRole("button", { name: "停止回答", exact: true }).waitFor();
+  await expect(
+    page.locator(".turn").last().locator(".reasoning-summary"),
+  ).toContainText("核对原文。");
   await picker.click();
   await page.getByRole("radio", { name: "Fixture B", exact: true }).click();
   await expect(picker).toContainText("Fixture B");
@@ -172,6 +223,14 @@ try {
   await page.locator(".textLayer span").first().waitFor();
   await expect(picker).toContainText("Fixture B");
   await expect(page.locator(".turn")).toHaveCount(2);
+  await page
+    .locator(".turn")
+    .first()
+    .getByRole("button", { name: "思考摘要", exact: true })
+    .click();
+  await expect(
+    page.locator(".turn").first().locator(".reasoning-summary"),
+  ).toContainText("已核对原文。");
   await page.screenshot({
     path: ".local/screenshots/chat-integrated-light.png",
   });
@@ -180,6 +239,86 @@ try {
   await page.screenshot({
     path: ".local/screenshots/chat-integrated-dark.png",
   });
+  await page.keyboard.press("Escape");
+  await input.fill("NO_SUMMARY memory");
+  await page.getByRole("button", { name: "发送问题", exact: true }).click();
+  await expect(page.locator(".turn")).toHaveCount(3);
+  await expect(
+    page
+      .locator(".turn")
+      .last()
+      .getByRole("button", { name: "思考摘要", exact: true }),
+  ).toContainText("未提供");
+  await page
+    .locator(".turn")
+    .last()
+    .getByRole("button", { name: "思考摘要", exact: true })
+    .click();
+  await expect(
+    page.locator(".turn").last().locator(".reasoning-summary"),
+  ).toContainText("本轮未返回思考摘要");
+  // Delay only delivery of a real Core response, including remount before delivery.
+  for (const navigation of ["sidebar", "session", "newer-draft"]) {
+    await selectPassage();
+    await page.getByRole("button", { name: "添加到问题", exact: true }).click();
+    await input.fill("Delayed " + navigation);
+    let release!: () => void;
+    let received!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const accepted = new Promise<void>((resolve) => (received = resolve));
+    await page.route("**/api/books/*/turns", async (route) => {
+      const response = await route.fetch();
+      received();
+      await gate;
+      await route.fulfill({ response });
+    });
+    try {
+      await page.getByRole("button", { name: "发送问题", exact: true }).click();
+      await accepted;
+      if (navigation === "session") {
+        await page
+          .getByRole("button", { name: "历史会话", exact: true })
+          .click();
+        await page.getByRole("button", { name: "新会话", exact: true }).click();
+        await input.fill("另一会话的草稿");
+      } else {
+        await page
+          .getByRole("button", { name: "收起侧栏", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "问答", exact: true })
+          .first()
+          .click();
+        await expect(input).toHaveValue("Delayed " + navigation);
+        if (navigation === "newer-draft") await input.fill("发送期间的新草稿");
+      }
+      const delivered = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          /\/books\/[^/]+\/turns$/.test(new URL(response.url()).pathname),
+      );
+      release();
+      await delivered;
+      if (navigation === "session") {
+        await expect(input).toHaveValue("另一会话的草稿");
+        await page
+          .getByRole("button", { name: "历史会话", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "缓存笔记", exact: true })
+          .click();
+      }
+      await expect(input).toHaveValue(
+        navigation === "newer-draft" ? "发送期间的新草稿" : "",
+      );
+      await expect(page.locator(".question-attachment")).toHaveCount(
+        navigation === "newer-draft" ? 1 : 0,
+      );
+    } finally {
+      release();
+      await page.unroute("**/api/books/*/turns");
+    }
+  }
   expect(errors).toEqual([]);
   console.log(
     "Chat HTTP/UI: signed-out, model paging/effort, validated citation, copy, rename/history, cancellation, frozen config and reload passed.",
