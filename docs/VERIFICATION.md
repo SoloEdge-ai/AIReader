@@ -17,6 +17,8 @@ The user-provided PDF was tested locally only; no source PDF or extracted conten
 
 Headless Edge and native Electron both loaded the 516-page PDF. The browser reported zero uncaught page errors; Chinese keyword search returned results and navigated to source pages. Screenshots remain in ignored local test output.
 
+The actual single-file portable EXE also launched successfully, rendered the 516-page book and completed text indexing. Its self-extracting launcher does not forward the inspector pipe used by Playwright's Electron launcher, so the portable test attaches through an explicitly enabled local debugging port instead. The application does not enable this port during normal launches.
+
 Real Codex connection reused the existing ChatGPT login. A question about physical page 20 returned a source-grounded answer with a validated page-20 citation. Manual comparison confirmed the cited paragraph discusses capacity/unit accounting. A current-section semantic-index job completed successfully. A first run exposed wrong retrieval prioritization for “current page”; that was fixed before the successful rerun.
 
 ## Limits

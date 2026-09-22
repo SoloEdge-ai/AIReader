@@ -32,7 +32,10 @@ jobs:
           $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
       - run: pnpm desktop:portable
       - name: Packaged desktop smoke test
-        run: node scripts/desktop-smoke.mjs release/win-unpacked/AIReader.exe
+        shell: pwsh
+        run: |
+          $portable = Get-ChildItem release/AIReader-Portable-*-x64.exe
+          node scripts/desktop-smoke.mjs $portable.FullName
         env:
           AIREADER_CI: '1'
       - name: Checksums
