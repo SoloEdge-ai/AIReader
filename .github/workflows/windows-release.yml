@@ -1,0 +1,72 @@
+name: Windows portable
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  build:
+    name: Build and verify
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Set artifact version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content package.json -Raw | ConvertFrom-Json
+          $manifest.version = '0.1.${{ github.run_number }}'
+          $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+      - run: pnpm desktop:portable
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem release/AIReader-Portable-*-x64.exe
+          if (@($file).Count -ne 1) { throw 'Expected one executable' }
+          $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($file.Name)" | Set-Content release/SHA256SUMS.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aireader-windows11-x64-${{ github.sha }}
+          path: |
+            release/AIReader-Portable-*-x64.exe
+            release/SHA256SUMS.txt
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aireader-windows11-x64-${{ github.sha }}
+          path: release
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v0.1.${{ github.run_number }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "AIReader $TAG" --generate-notes --latest
+          fi
