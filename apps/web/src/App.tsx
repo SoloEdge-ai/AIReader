@@ -7,9 +7,14 @@ import {
   type Passage,
   type SourceAnchor,
   type CoreEvent,
+  type ReadingSelection,
+  type Annotation,
+  type AnnotationInputSchema,
 } from "../../../packages/protocol/src";
+import type { z } from "zod";
 import { api, post, base } from "./api";
-import { PdfReader } from "./PdfReader";
+import { PdfReader, type AnnotationMode } from "./PdfReader";
+import { NotesPanel, useBookNotes } from "./NotesPanel";
 import { ChatPanel } from "./ChatPanel";
 import { BookCover } from "./BookCover";
 import { Icon } from "./Icon";
@@ -31,7 +36,7 @@ export function App() {
   const [query, setQuery] = useState(""),
     [hits, setHits] = useState<Passage[]>([]),
     [marks, setMarks] = useState<Bookmark[]>([]);
-  const [selection, setSelection] = useState<{ text: string; page: number }>(),
+  const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<{ name: string; nonce: number }>();
   const [highlight, setHighlight] = useState<SourceAnchor>(),
     [error, setError] = useState(""),
@@ -42,6 +47,35 @@ export function App() {
     saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   current.current = active;
   const book = books.find((b) => b.id === active);
+  const notes = useBookNotes(active);
+  const [mode, setMode] = useState<AnnotationMode>("select");
+  const [annotationColor, setAnnotationColor] =
+    useState<Annotation["color"]>("yellow");
+  const openSequence = useRef(0);
+  async function createAnnotation(
+    value: z.infer<typeof AnnotationInputSchema>,
+  ) {
+    const id = active;
+    try {
+      if (!id || !(await notes.flush())) return;
+      const a = await post<Annotation>(`books/${id}/annotations`, {
+        ...value,
+        color: annotationColor,
+      });
+      if (current.current !== id) return;
+      notes.undo.current.push(() =>
+        api(`books/${id}/annotations/${a.id}`, { method: "DELETE" }),
+      );
+      await notes.refresh();
+      notes.setSelected(a.noteId);
+      setSelection(undefined);
+      setMode("select");
+      updateLayout({ ...layout, panel: "notes" });
+      getSelection()?.removeAllRanges();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   useEffect(() => {
     let socket: WebSocket;
     let live = true;
@@ -88,6 +122,31 @@ export function App() {
   }, [prefs.theme]);
   useEffect(() => setPageInput(String(page)), [page]);
   useEffect(() => {
+    if (!active || !book || !["queued", "parsing"].includes(book.status))
+      return;
+    let live = true,
+      updating = false;
+    const refresh = async () => {
+      if (!live || updating) return;
+      updating = true;
+      try {
+        const value = await api<Book>(`books/${active}`);
+        if (live)
+          setBooks((old) => old.map((b) => (b.id === value.id ? value : b)));
+      } catch {
+        /* The event stream or the next poll can recover a transient disconnect. */
+      } finally {
+        updating = false;
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 1500);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [active, book?.status]);
+  useEffect(() => {
     let live = true;
     setSelection(undefined);
     setAction(undefined);
@@ -96,6 +155,7 @@ export function App() {
     setQuery("");
     setHighlight(undefined);
     setBookMenu(false);
+    setMode("select");
     if (active)
       void api<Bookmark[]>(`books/${active}/bookmarks`)
         .then((v) => {
@@ -123,6 +183,15 @@ export function App() {
     [active],
   );
   const updateLayout = (p: ReaderPreferences) => {
+    if (layout.panel === "notes" && p.panel !== "notes") {
+      void notes.flush().then((ok) => {
+        if (ok) persistLayout(p);
+      });
+      return;
+    }
+    persistLayout(p);
+  };
+  const persistLayout = (p: ReaderPreferences) => {
     setLayout(p);
     if (active)
       void post(`books/${active}/preferences`, p).catch((e) =>
@@ -134,8 +203,11 @@ export function App() {
     void post("preferences", p).catch((e) => setError(e.message));
   };
   async function openBook(b: Book) {
+    const request = ++openSequence.current;
     try {
+      if (!(await notes.flush())) return;
       const p = await api<ReaderPreferences>(`books/${b.id}/preferences`);
+      if (request !== openSequence.current) return;
       setLayout(p);
       setPage(b.progress);
       setActive(b.id);
@@ -301,9 +373,12 @@ export function App() {
             <button
               aria-label="返回书库"
               onClick={() => {
-                void post(`books/${book.id}/progress`, { page });
-                setActive(undefined);
-                void api<Book[]>("books").then(setBooks);
+                void (async () => {
+                  if (!(await notes.flush())) return;
+                  await post(`books/${book.id}/progress`, { page });
+                  setActive(undefined);
+                  setBooks(await api<Book[]>("books"));
+                })().catch((e) => setError(String(e)));
               }}
             >
               <Icon name="back" />
@@ -411,6 +486,42 @@ export function App() {
               onClick={togglePanel}
             >
               <Icon name="chat" />
+            </button>
+            <button
+              aria-label="笔记"
+              aria-pressed={layout.panel === "notes"}
+              onClick={() =>
+                updateLayout({
+                  ...layout,
+                  panel: layout.panel === "notes" ? "none" : "notes",
+                })
+              }
+            >
+              笔记
+            </button>
+            <select
+              aria-label="批注工具"
+              value={mode}
+              onChange={(e) => setMode(e.target.value as AnnotationMode)}
+            >
+              <option value="select">选取文字</option>
+              <option value="sticky">页内便签</option>
+              <option value="region">区域摘录</option>
+            </select>
+            <button
+              aria-label="旋转页面"
+              onClick={() =>
+                updateLayout({
+                  ...layout,
+                  rotation: ((layout.rotation + 90) % 360) as
+                    | 0
+                    | 90
+                    | 180
+                    | 270,
+                })
+              }
+            >
+              ↻
             </button>
             <button
               aria-label="书籍菜单"
@@ -533,13 +644,73 @@ export function App() {
                 id={active!}
                 initialPage={book.progress}
                 zoom={layout.zoom}
+                rotation={layout.rotation}
                 onPage={onPage}
-                onSelection={(text, p) => setSelection({ text, page: p })}
+                onSelection={setSelection}
                 highlight={highlight}
+                annotations={notes.annotations}
+                mode={mode}
+                onCreate={(value) => void createAnnotation(value)}
+                onAnnotation={(id) => {
+                  void notes.flush().then((ok) => {
+                    if (ok) {
+                      notes.setSelected(id);
+                      updateLayout({ ...layout, panel: "notes" });
+                    }
+                  });
+                }}
               />
               {selection && (
-                <div className="selection-bar">
+                <div
+                  className="selection-bar"
+                  style={{
+                    left: Math.max(
+                      8,
+                      Math.min(
+                        window.innerWidth - 540,
+                        selection.screen.x - 220,
+                      ),
+                    ),
+                    top: Math.max(
+                      65,
+                      Math.min(
+                        window.innerHeight - 60,
+                        selection.screen.y + 12,
+                      ),
+                    ),
+                  }}
+                >
                   <span>{selection.text.length} 字</span>
+                  {(["highlight", "underline", "strike"] as const).map(
+                    (kind, i) => (
+                      <button
+                        key={kind}
+                        onClick={() =>
+                          void createAnnotation({
+                            kind,
+                            color: annotationColor,
+                            quote: selection.text,
+                            anchors: selection.anchors,
+                          })
+                        }
+                      >
+                        {["高亮", "下划线", "删除线"][i]}
+                      </button>
+                    ),
+                  )}
+                  <select
+                    aria-label="选区批注颜色"
+                    value={annotationColor}
+                    onChange={(e) =>
+                      setAnnotationColor(e.target.value as Annotation["color"])
+                    }
+                  >
+                    {["yellow", "green", "blue", "pink"].map((c, i) => (
+                      <option key={c} value={c}>
+                        {["黄", "绿", "蓝", "粉"][i]}
+                      </option>
+                    ))}
+                  </select>
                   {["解释", "总结", "翻译", "提问"].map((name) => (
                     <button
                       key={name}
@@ -602,19 +773,40 @@ export function App() {
                 />
                 <div className="side-panel">
                   <header className="panel-header">
-                    <strong>问答</strong>
+                    <div className="panel-tabs">
+                      <button
+                        className={layout.panel === "chat" ? "chosen" : ""}
+                        onClick={() =>
+                          updateLayout({ ...layout, panel: "chat" })
+                        }
+                      >
+                        问答
+                      </button>
+                      <button
+                        className={layout.panel === "notes" ? "chosen" : ""}
+                        onClick={() =>
+                          updateLayout({ ...layout, panel: "notes" })
+                        }
+                      >
+                        笔记
+                      </button>
+                    </div>
                     <button aria-label="收起侧栏" onClick={togglePanel}>
                       <Icon name="close" />
                     </button>
                   </header>
-                  <ChatPanel
-                    key={active}
-                    book={book}
-                    page={page}
-                    selection={selection}
-                    action={action}
-                    onCitation={jump}
-                  />
+                  {layout.panel === "notes" ? (
+                    <NotesPanel bookId={book.id} state={notes} onJump={jump} />
+                  ) : (
+                    <ChatPanel
+                      key={active}
+                      book={book}
+                      page={page}
+                      selection={selection}
+                      action={action}
+                      onCitation={jump}
+                    />
+                  )}
                 </div>
               </>
             )}

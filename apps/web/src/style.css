@@ -866,3 +866,203 @@ summary {
     scroll-behavior: auto !important;
   }
 }
+.pdf-scroll {
+  position: relative;
+}
+.annotation-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.annotation {
+  position: absolute;
+  pointer-events: auto;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.annotation-highlight {
+  background: var(--annotation-color);
+  opacity: 0.3;
+  mix-blend-mode: multiply;
+}
+.annotation-region {
+  border: 2px solid var(--annotation-color);
+}
+.annotation-sticky {
+  background: var(--annotation-color);
+  color: #333;
+  font-size: 15px;
+}
+.annotation-capture {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: crosshair;
+  touch-action: none;
+}
+.capture-rectangle {
+  position: absolute;
+  border: 1px solid #3769a7;
+  background: #75a7d52a;
+}
+.selection-bar {
+  position: fixed;
+  bottom: auto;
+  transform: none;
+  z-index: 30;
+  flex-wrap: wrap;
+  max-width: min(540px, 95vw);
+}
+.selection-bar select {
+  width: 48px;
+  padding: 4px;
+}
+.panel-tabs {
+  display: flex;
+  gap: 8px;
+}
+.notes-panel {
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+  padding: 14px;
+}
+.notes-actions,
+.note-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.note-filters input {
+  width: 100%;
+}
+.note-filters select {
+  flex: 1;
+  width: 40%;
+  font-size: 12px;
+}
+.notes-list {
+  max-height: 220px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+.notes-list > button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  text-align: left;
+  width: 100%;
+  padding: 9px 8px;
+}
+.notes-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.notes-list small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.note-title {
+  width: 100%;
+  font-weight: 600;
+  border: 0;
+  font-size: 16px;
+  margin: 12px 0;
+}
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  border-block: 1px solid var(--line);
+  padding: 5px 0;
+  gap: 2px;
+}
+.editor-toolbar button {
+  padding: 4px 7px;
+  font-size: 12px;
+}
+.tiptap {
+  min-height: 200px;
+  outline: none;
+  line-height: 1.8;
+  font-size: 14px;
+  padding: 12px 3px;
+  overflow-wrap: anywhere;
+}
+.tiptap p {
+  margin: 5px 0;
+}
+.tiptap ul,
+.tiptap ol {
+  padding-left: 22px;
+}
+.tiptap pre {
+  background: var(--surface);
+  padding: 10px;
+  overflow: auto;
+}
+.tiptap blockquote {
+  border-left: 3px solid var(--line);
+  padding-left: 12px;
+  margin: 8px 0;
+}
+.note-detail footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+  align-items: center;
+  font-size: 11px;
+}
+.note-detail footer > span {
+  flex: 1;
+}
+.note-source {
+  padding: 10px;
+  background: var(--surface);
+  border-radius: 5px;
+  font-size: 12px;
+}
+.note-source blockquote {
+  margin: 8px 0;
+  max-height: 100px;
+  overflow: auto;
+  line-height: 1.7;
+}
+.note-source img {
+  width: 100%;
+  height: auto;
+  margin-block: 8px;
+}
+.note-source select {
+  font-size: 12px;
+  padding: 3px;
+}
+.toolbar > select {
+  font-size: 12px;
+  max-width: 95px;
+}
+@media (max-width: 1100px) {
+  .toolbar > strong {
+    max-width: 80px;
+  }
+  .toolbar {
+    gap: 2px;
+  }
+  .toolbar > button {
+    padding: 6px;
+  }
+  .toolbar > select {
+    max-width: 80px;
+  }
+}

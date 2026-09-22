@@ -26,9 +26,25 @@ test("semantic jobs persist pause/resume state and only reference their own sour
     await library.waitForBook(book.id);
     const job = indexer.start(book.id, 1);
     indexer.control(book.id, job.id, "pause");
-    await new Promise((r) => setTimeout(r, 300));
     expect(indexer.list(book.id)[0].status).toBe("paused");
-    indexer.control(book.id, job.id, "resume");
+    await expect
+      .poll(
+        () => {
+          try {
+            indexer.control(book.id, job.id, "resume");
+            return true;
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === "正在停止当前任务，请稍后重试"
+            )
+              return false;
+            throw error;
+          }
+        },
+        { timeout: 10000 },
+      )
+      .toBe(true);
     await expect.poll(() => indexer.list(book.id)[0].status).toBe("complete");
     const nodes = indexer.nodes(book.id);
     expect(nodes).toHaveLength(1);

@@ -20,6 +20,8 @@
   },
   "main": "dist/desktop/main.cjs",
   "dependencies": {
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "katex": "0.16.22",
     "pdfjs-dist": "5.4.54",
     "react": "19.1.1",
