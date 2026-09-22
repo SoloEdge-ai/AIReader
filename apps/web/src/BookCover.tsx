@@ -7,6 +7,7 @@ export function BookCover({ id }: { id: string }) {
     let dead = false;
     let task: ReturnType<typeof pdfjs.getDocument> | undefined;
     let render: ReturnType<pdfjs.PDFPageProxy["render"]> | undefined;
+    let loading: Promise<unknown> | undefined;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry.isIntersecting || task) return;
@@ -15,7 +16,7 @@ export function BookCover({ id }: { id: string }) {
           withCredentials: true,
           isEvalSupported: false,
         });
-        void task.promise
+        loading = task.promise
           .then(async (pdf) => {
             const page = await pdf.getPage(1);
             if (dead || !canvas.current) return;
@@ -40,7 +41,9 @@ export function BookCover({ id }: { id: string }) {
       dead = true;
       observer.disconnect();
       render?.cancel();
-      void task?.destroy().catch(() => {});
+      void Promise.resolve(loading)
+        .then(() => task?.destroy())
+        .catch(() => {});
     };
   }, [id]);
   return (

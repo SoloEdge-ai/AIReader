@@ -84,7 +84,53 @@ test("book annotations and rich notes persist, reject stale or unsafe edits, and
       ).status,
     ).toBe(400);
     const current = await updated.json();
-    expect((await request(`books/${book.id}/notes/${note.id}`,{revision:current.revision,title:"invalid nesting",document:{type:"doc",content:[{type:"paragraph",content:[{type:"doc"}]}]}})).status).toBe(400);
+    const otherPdf = await PDFDocument.create();
+    otherPdf.addPage([300, 300]);
+    const other = await (
+      await fetch(connection.origin + "/api/books", {
+        method: "POST",
+        headers: connection.headers,
+        body: Buffer.from(await otherPdf.save()),
+      })
+    ).json();
+    await core.library.waitForBook(other.id);
+    expect(
+      (
+        await request(`books/${other.id}/notes/${note.id}`, {
+          revision: current.revision,
+          title: "wrong book",
+          document: current.document,
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(
+          `books/${other.id}/annotations/${annotation.id}`,
+          undefined,
+          "DELETE",
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(
+          `books/${other.id}/annotation-assets/..%2F..%2Flibrary.sqlite`,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(`books/${book.id}/notes/${note.id}`, {
+          revision: current.revision,
+          title: "invalid nesting",
+          document: {
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "doc" }] }],
+          },
+        })
+      ).status,
+    ).toBe(400);
     expect(
       (
         await request(`books/${book.id}/notes/${note.id}`, {

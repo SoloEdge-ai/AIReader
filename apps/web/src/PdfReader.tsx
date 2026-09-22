@@ -31,6 +31,36 @@ function rectStyle(r: number[]) {
   const b = ordered(r);
   return { left: b[0], top: b[1], width: b[2] - b[0], height: b[3] - b[1] };
 }
+function AnnotationStroke({
+  view,
+  rect,
+  kind,
+}: {
+  view: View;
+  rect: Rect;
+  kind: "underline" | "strike";
+}) {
+  const y = kind === "underline" ? rect[1] : (rect[1] + rect[3]) / 2;
+  const start = view.convertToViewportPoint(rect[0], y),
+    end = view.convertToViewportPoint(rect[2], y),
+    box = ordered(view.convertToViewportRectangle(rect));
+  return (
+    <svg
+      width="100%"
+      height="100%"
+      style={{ overflow: "visible", display: "block" }}
+    >
+      <line
+        x1={start[0] - box[0]}
+        y1={start[1] - box[1]}
+        x2={end[0] - box[0]}
+        y2={end[1] - box[1]}
+        stroke="var(--annotation-color)"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
 const colors = {
   yellow: "#f5d549",
   green: "#60c88c",
@@ -128,7 +158,13 @@ function Page({
       id={`page-${page}`}
       className="pdf-page"
       data-page={page}
-      style={{ width: view.width, height: view.height }}
+      style={
+        {
+          width: view.width,
+          height: view.height,
+          "--total-scale-factor": view.scale * proxy.userUnit,
+        } as React.CSSProperties
+      }
     >
       <canvas ref={canvas} style={{ width: "100%", height: "100%" }} />
       <div ref={text} className="textLayer" />
@@ -152,6 +188,9 @@ function Page({
                   onClick={() => onAnnotation(a.noteId)}
                 >
                   {a.kind === "sticky" ? "▤" : null}
+                  {(a.kind === "underline" || a.kind === "strike") && (
+                    <AnnotationStroke view={view} rect={r} kind={a.kind} />
+                  )}
                 </button>
               )),
             ),
@@ -371,6 +410,7 @@ export function PdfReader({
         const range = s.getRangeAt(0);
         if (!scroll.current?.contains(range.commonAncestorContainer)) return;
         const anchors: PdfAnchor[] = [];
+        const selectedText: string[] = [];
         for (const node of scroll.current.querySelectorAll<HTMLElement>(
           "[data-page]",
         )) {
@@ -379,16 +419,23 @@ export function PdfReader({
             box = node.getBoundingClientRect(),
             view = views.current[page - 1];
           const rects: Rect[] = [];
-          const selectedRects:DOMRect[]=[];
-          const textLayer=node.querySelector(".textLayer");
-          if(!textLayer)continue;
-          const walker=document.createTreeWalker(textLayer,NodeFilter.SHOW_TEXT);
-          let textNode:Node|null;
-          while((textNode=walker.nextNode())){
-            if(!range.intersectsNode(textNode))continue;
-            const fragment=document.createRange();fragment.selectNodeContents(textNode);
-            if(fragment.compareBoundaryPoints(Range.START_TO_START,range)<0)fragment.setStart(range.startContainer,range.startOffset);
-            if(fragment.compareBoundaryPoints(Range.END_TO_END,range)>0)fragment.setEnd(range.endContainer,range.endOffset);
+          const selectedRects: DOMRect[] = [];
+          const textLayer = node.querySelector(".textLayer");
+          if (!textLayer) continue;
+          const walker = document.createTreeWalker(
+            textLayer,
+            NodeFilter.SHOW_TEXT,
+          );
+          let textNode: Node | null;
+          while ((textNode = walker.nextNode())) {
+            if (!range.intersectsNode(textNode)) continue;
+            const fragment = document.createRange();
+            fragment.selectNodeContents(textNode);
+            if (fragment.compareBoundaryPoints(Range.START_TO_START, range) < 0)
+              fragment.setStart(range.startContainer, range.startOffset);
+            if (fragment.compareBoundaryPoints(Range.END_TO_END, range) > 0)
+              fragment.setEnd(range.endContainer, range.endOffset);
+            if (fragment.toString()) selectedText.push(fragment.toString());
             selectedRects.push(...fragment.getClientRects());
           }
           for (const r of selectedRects) {
@@ -418,7 +465,7 @@ export function PdfReader({
         }
         if (anchors.length)
           onSelection({
-            text: s.toString().slice(0, 12000),
+            text: selectedText.join(" ").slice(0, 12000),
             page: anchors[0].page,
             anchors,
             screen: { x: e.clientX, y: e.clientY },

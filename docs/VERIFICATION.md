@@ -1,5 +1,16 @@
 # Verification record
 
+## Immersive reader / independent account redesign (2026-09-22)
+
+- Baseline confirmed by the user: `e01b880`. Automated seams: Core HTTP, PDF/UI operations and simulated App Server protocol.
+- Generated PDF desktop acceptance covers highlights, cross-page/double-column underlines, rotated-page strikeouts, blank/scanned-page region images and sticky notes, all four rotation directions, zoom position, per-book layout, auto-save/reopen, delete/undo, failed-save recovery, committed-response-loss recovery, and vetoed application Quit followed by successful saving.
+- Native Electron runs at 100%, 150% and 200% device scale; screenshots cover light/dark, wide reading and 960px drawer layout. Full automated suite has 9 tests across 8 files, including invalid rich text, stale revisions and cross-book mutation/asset rejection.
+- The private 516-page PDF still loads with zero browser page errors; Chinese search returns 20 results and source navigation works. It remains outside the repository and CI.
+- Pinned official runtime download, checksum/extraction, cancellation, retry and binary-tampering rejection were exercised. A real downloaded 0.155.1 runtime connects with an empty, app-owned account home; the system CLI remains logged in. Mock protocol verifies complete model pagination and actual model/effort forwarding.
+- Real ChatGPT browser authorization and an authenticated model-answer session with the new independent home still require user interaction. They are not claimed as completed. Native Chinese IME behavior is not fully certified by synthetic input tests; further user acceptance is appropriate. Sandbox restrictions remain unchanged.
+
+The records below describe the original release. Its shared-login check is historical, not the redesigned account behavior.
+
 Environment: Windows 11 x64 build 26200. Local CLI upgraded from 0.128.0 to 0.155.1 through npm; existing ChatGPT login remained valid. The updater left an in-use old binary in npm's temporary cleanup directory; it was not forcibly removed.
 
 ## Automated

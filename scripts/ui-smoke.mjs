@@ -1,8 +1,16 @@
 import { chromium } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { resolve } from "node:path";
 await mkdir(".local/screenshots", { recursive: true });
+const fixture = resolve(".local/ui-fixture.pdf");
+if (!process.argv[2]) {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage().drawText("Inference memory isolation", { font });
+  await writeFile(fixture, await doc.save());
+}
 const core = spawn(process.execPath, ["dist/core/main.cjs"], {
   env: {
     ...process.env,
@@ -30,24 +38,28 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://127.0.0.1:43129");
-  await page.getByText("留出时间，读懂一本书。").waitFor();
+  await page.getByRole("heading", { name: "书库", exact: true }).waitFor();
   await page.screenshot({ path: ".local/screenshots/library.png" });
   await page
     .locator("input[type=file]")
-    .setInputFiles(
-      process.argv[2] ?? "C:/Users/Zplea/Downloads/AI-Infra-Book.pdf",
-    );
+    .setInputFiles(process.argv[2] ?? fixture);
   await page.locator(".pdf-page canvas").first().waitFor();
   await page.waitForFunction(
     () => document.querySelector(".textLayer span")?.textContent,
     { timeout: 20000 },
   );
   await page.screenshot({ path: ".local/screenshots/reader.png" });
-  await page.getByRole("button", { name: "搜索", exact: true }).first().click();
-  await page.getByLabel("书内搜索").fill("推理");
+  await page.locator('[data-book-status="ready"]').waitFor({ timeout: 60000 });
+  await page
+    .getByRole("button", { name: "书内搜索", exact: true })
+    .first()
+    .click();
+  await page
+    .getByLabel("书内搜索文字")
+    .fill(process.argv[2] ? "推理" : "memory");
   await page
     .locator("form")
-    .getByRole("button", { name: "搜索", exact: true })
+    .getByRole("button", { name: "查找", exact: true })
     .click();
   await page.locator(".search-hit").first().waitFor();
   await page.locator(".search-hit").first().click();

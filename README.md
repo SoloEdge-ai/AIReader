@@ -7,11 +7,11 @@
 ## 使用
 
 1. 下载 `AIReader-Portable-<version>-x64.exe`，直接运行，无需 Node、Python 或 WSL。发布附带 `SHA256SUMS.txt`。首版未签名，Windows 可能显示发布者提示。
-2. 导入文本型 PDF；不连接 AI 也能阅读、搜索、添加书签及保存进度。扫描页可显示，但首版没有 OCR。
-3. AI 功能需要本机 **Codex CLI 0.155.1 或更新的稳定版本**。点击“连接本机 Codex”，优先复用现有 ChatGPT 登录；设置中可指定原生 `codex.exe` 路径。缺少程序时先安装 Codex。
+2. 导入 PDF；不登录也能阅读、搜索、添加书签、批注和笔记。选文可高亮／下划线／删除线，扫描页可添加便签和区域摘录，但没有 OCR。侧栏支持问答与所见即所得笔记。
+3. 首次启用问答时，应用下载并校验固定版本 **Codex 0.155.1 Windows x64** 组件，然后通过系统浏览器独立登录 ChatGPT。无需安装 CLI；不会读取或迁移系统 Codex 凭证。输入区可选择服务返回的模型与思考强度。
 4. 选中文字后选择解释／总结／翻译，或直接提问。回答中的页码按钮返回相应原文。“本轮上下文”显示取证范围和估算用量。
 
-程序可移动，书库数据保存在 `%LOCALAPPDATA%\AIReader`，更换 EXE 不会重置书库。导入的 PDF 会复制到本地书库；退出 AIReader 的连接不会退出其他 Codex 客户端的登录。
+程序可移动，书库、批注、笔记、区域图片及独立账号数据保存在 `%LOCALAPPDATA%\AIReader`，更换 EXE 不会重置书库。导入的 PDF 会复制到本地书库；退出 AIReader 账号不会退出系统 Codex。批注不回写 PDF，笔记与摘录图片不会自动发送给 AI。
 
 ## 索引与隐私
 
@@ -23,7 +23,7 @@
 
 工具仅面向单本书的独立工作区，生成材料不作为原文引用。启用前必须通过工作区写入、外部读取／写入拒绝和网络拒绝探针。
 
-**目前本机实测 Codex 0.155.1 的 Windows elevated 沙盒要求根目录读取权限，不能满足本应用的书籍隔离要求，因此执行入口保持禁用。** UI 会显示具体检测结果；不会通过放宽文件读取权限绕过验证。脚本执行、停止和产物下载链路已实现，只有兼容沙盒通过检测后才可使用。
+**目前本机实测沙盒不能满足书籍隔离要求，因此执行入口保持禁用。** 编程工具位于设置的实验功能，默认关闭；独立登录并不解决沙盒隔离问题，不会放宽权限绕过验证。
 
 ## 开发与验证
 
@@ -45,5 +45,4 @@ pnpm desktop:portable
 
 所有实现经 PR，`main` 对管理员同样受保护，仅 squash merge。每次 PR 更新生成保留 30 天的 EXE；合并后发布新版本。CI 使用生成的测试 PDF 和模拟 Codex，不保存账户凭证或用户书籍。
 
-[实施规格](docs/SPEC.md) · [验收与限制](docs/VERIFICATION.md) · [审查记录](docs/REVIEW.md)
-Local-first PDF reading with grounded AI conversations for Windows 11
+[改版规格](docs/REDESIGN.md) · [验收与限制](docs/VERIFICATION.md) · [改版审查](docs/REVIEW-REDESIGN.md)

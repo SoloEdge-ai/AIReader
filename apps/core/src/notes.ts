@@ -100,12 +100,37 @@ export function richDocument(input: unknown): RichNode {
         throw new Error("无效的笔记层级");
       result.content = value.content.map((v: unknown) => parse(v, depth + 1));
     }
-    const children=result.content??[];
-    const blocks=["paragraph","heading","bulletList","orderedList","blockquote","codeBlock","horizontalRule"];
-    const allowed:Record<string,string[]>={doc:blocks,blockquote:blocks,listItem:blocks,paragraph:["text","hardBreak"],heading:["text","hardBreak"],codeBlock:["text"],bulletList:["listItem"],orderedList:["listItem"]};
-    if(children.some(child=>!allowed[value.type]?.includes(child.type)))throw new Error("无效的笔记层级");
-    if(["doc","blockquote","listItem","bulletList","orderedList"].includes(value.type)&&!children.length)throw new Error("笔记结构缺少内容");
-    if(value.type==="listItem"&&children[0]?.type!=="paragraph")throw new Error("列表项必须以段落开始");
+    const children = result.content ?? [];
+    const blocks = [
+      "paragraph",
+      "heading",
+      "bulletList",
+      "orderedList",
+      "blockquote",
+      "codeBlock",
+      "horizontalRule",
+    ];
+    const allowed: Record<string, string[]> = {
+      doc: blocks,
+      blockquote: blocks,
+      listItem: blocks,
+      paragraph: ["text", "hardBreak"],
+      heading: ["text", "hardBreak"],
+      codeBlock: ["text"],
+      bulletList: ["listItem"],
+      orderedList: ["listItem"],
+    };
+    if (children.some((child) => !allowed[value.type]?.includes(child.type)))
+      throw new Error("无效的笔记层级");
+    if (
+      ["doc", "blockquote", "listItem", "bulletList", "orderedList"].includes(
+        value.type,
+      ) &&
+      !children.length
+    )
+      throw new Error("笔记结构缺少内容");
+    if (value.type === "listItem" && children[0]?.type !== "paragraph")
+      throw new Error("列表项必须以段落开始");
     return result;
   }
   const result = parse(input, 0);
@@ -180,8 +205,9 @@ export class Notes {
         image.length < 33 ||
         image.length > 8 * 1024 * 1024 ||
         image.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" ||
-      image.toString("ascii", 12, 16) !== "IHDR" ||
-      image.readUInt32BE(16) === 0 || image.readUInt32BE(20) === 0 ||
+        image.toString("ascii", 12, 16) !== "IHDR" ||
+        image.readUInt32BE(16) === 0 ||
+        image.readUInt32BE(20) === 0 ||
         image.readUInt32BE(16) > 8192 ||
         image.readUInt32BE(20) > 8192
       )

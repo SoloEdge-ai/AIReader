@@ -31,6 +31,10 @@ jobs:
           $manifest.version = '0.1.${{ github.run_number }}'
           $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
       - run: pnpm desktop:portable
+      - name: Annotation and save-recovery acceptance
+        run: node scripts/annotations-smoke.mjs
+        env:
+          AIREADER_CI: '1'
       - name: Packaged desktop smoke test
         shell: pwsh
         run: |

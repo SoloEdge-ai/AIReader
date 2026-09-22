@@ -890,17 +890,6 @@ summary {
   opacity: 0.3;
   mix-blend-mode: multiply;
 }
-.annotation-underline {
-  border-bottom: 2px solid var(--annotation-color);
-}
-.annotation-strike::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  border-top: 2px solid var(--annotation-color);
-}
 .annotation-region {
   border: 2px solid var(--annotation-color);
 }

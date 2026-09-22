@@ -45,9 +45,7 @@ app.whenReady().then(() => {
     window.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url);
-        if (
-          ["https:", "http:", "mailto:"].includes(target.protocol)
-        )
+        if (["https:", "http:", "mailto:"].includes(target.protocol))
           void shell.openExternal(url);
       } catch {}
       return { action: "deny" };
@@ -56,6 +54,18 @@ app.whenReady().then(() => {
       if (!url.startsWith(`http://127.0.0.1:${message.port}/`))
         event.preventDefault();
     });
+    window.webContents.on("will-prevent-unload", (event) => {
+      const discard = dialog.showMessageBoxSync(window, {
+        type: "warning",
+        title: "笔记尚未保存",
+        message: "还有未保存的笔记草稿。",
+        detail: "返回编辑可以重试保存；放弃草稿将丢失尚未保存的修改。",
+        buttons: ["返回编辑", "放弃草稿并退出"],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (discard === 1) event.preventDefault();
+    });
     void window.loadURL(`http://127.0.0.1:${message.port}`);
   });
   core.on("exit", () => {
@@ -63,4 +73,4 @@ app.whenReady().then(() => {
   });
 });
 app.on("window-all-closed", () => app.quit());
-app.on("before-quit", () => core?.kill());
+app.on("will-quit", () => core?.kill());

@@ -8,6 +8,16 @@ import type {
 } from "../../../packages/protocol/src";
 import { api, base, post } from "./api";
 type Draft = { title: string; document: RichNode; generation: number };
+const canonical = (value: unknown): string =>
+  JSON.stringify(value, (_key, v) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, v[k]]),
+        )
+      : v,
+  );
 export function useBookNotes(bookId: string | undefined) {
   const [notes, setNotes] = useState<Note[]>([]),
     [annotations, setAnnotations] = useState<Annotation[]>([]),
@@ -72,6 +82,28 @@ export function useBookNotes(bookId: string | undefined) {
         setStatus(drafts.current.size ? "保存中…" : "已保存");
         return true;
       } catch (e) {
+        // A lost response may hide a successful commit. Reconcile identical content only.
+        try {
+          const latest = await api<Note[]>(`books/${bookId}/notes`);
+          for (const [id, draft] of drafts.current) {
+            const saved = latest.find((n) => n.id === id);
+            if (
+              saved &&
+              saved.title === (draft.title || "未命名笔记") &&
+              canonical(saved.document) === canonical(draft.document)
+            ) {
+              drafts.current.delete(id);
+              records.current = records.current.map((n) =>
+                n.id === id ? saved : n,
+              );
+            }
+          }
+          setNotes([...records.current]);
+          if (!drafts.current.size) {
+            setStatus("已保存");
+            return true;
+          }
+        } catch {}
         setStatus("保存失败，草稿仍保留：" + String(e));
         return false;
       }
@@ -81,6 +113,11 @@ export function useBookNotes(bookId: string | undefined) {
     pending.current = undefined;
     if (ok && drafts.current.size) return flush();
     return ok;
+  }
+  async function retryWithLatest() {
+    if (pending.current) await pending.current;
+    await refresh();
+    return flush();
   }
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
@@ -149,6 +186,7 @@ export function useBookNotes(bookId: string | undefined) {
     status,
     edit,
     flush,
+    retryWithLatest,
     refresh,
     create,
     remove,
@@ -466,7 +504,15 @@ export function NotesPanel({
           <footer>
             <span role="status">{state.status}</span>
             {state.status.startsWith("保存失败") && (
-              <button onClick={() => void state.flush()}>重试保存</button>
+              <>
+                <button onClick={() => void state.flush()}>重试保存</button>
+                <button
+                  title="重新读取当前版本，并用保留的草稿替换它"
+                  onClick={() => run(state.retryWithLatest)}
+                >
+                  用此草稿覆盖最新版本
+                </button>
+              </>
             )}
             <button onClick={() => run(() => state.remove(selected))}>
               删除{annotation ? "批注" : "笔记"}
