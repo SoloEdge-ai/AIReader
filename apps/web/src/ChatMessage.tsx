@@ -7,6 +7,8 @@ import "katex/dist/katex.min.css";
 import type { ChatTurn, SourceAnchor } from "../../../packages/protocol/src";
 import { Icon } from "./Icon";
 import { effortLabel } from "./ModelControl";
+import { ChatImageList } from "./ChatImageList";
+import { base } from "./api";
 
 export function ChatMessage({
   turn,
@@ -46,6 +48,12 @@ export function ChatMessage({
   return (
     <article className="turn">
       <div className="question">{turn.question}</div>
+      <ChatImageList
+        images={(turn.images ?? []).map((image) => ({
+          ...image,
+          url: `${base}/api/books/${turn.bookId}/chat-images/${image.id}`,
+        }))}
+      />
       {turn.context.reading.selection && (
         <details className="question-source">
           <summary>本轮引用 · 第 {turn.context.reading.page} 页起</summary>
@@ -213,6 +221,8 @@ export function ChatMessage({
             <p>
               本轮阅读位置：第 {turn.context.reading.page} 页 · 约{" "}
               {turn.context.estimatedTokens.toLocaleString()} tokens
+              {!!turn.images?.length &&
+                `（文本估算，${turn.images.length} 张图片用量另计）`}
             </p>
             <p>{turn.context.coverage}</p>
             <details>

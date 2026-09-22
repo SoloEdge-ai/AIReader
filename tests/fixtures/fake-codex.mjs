@@ -1,4 +1,6 @@
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
+import { PNG } from "pngjs";
 let sequence = 0;
 let initialized = false;
 const threads = new Map();
@@ -57,6 +59,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     notify("turn/started", { threadId: p.threadId, turn: { id: turnId } });
     const prompt = p.input[0].text;
     const question = prompt.match(/(?:^|\n)问题：([^\n]*)/)?.[1] ?? prompt;
+    const pictures = p.input
+      .filter((item) => item.type === "localImage")
+      .map((item) => {
+        const decoded = PNG.sync.read(readFileSync(item.path));
+        return `${decoded.width}x${decoded.height}:${[...decoded.data.subarray(0, 4)].join(",")}`;
+      });
     const summaryParams = {
       threadId: p.threadId,
       turnId,
@@ -123,8 +131,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           });
         }
         const cite = prompt.match(/\[\[([^\]]+:\d+:\d+)\]\]/)?.[1];
-        const text =
-          prompt === "CONFIG"
+        const text = question.includes("CHECK_IMAGE")
+          ? `Images received: ${pictures.length}; ${pictures.join("; ")}`
+          : prompt === "CONFIG"
             ? `${p.model}/${p.effort} isolated=${process.env.CODEX_HOME?.includes("codex-home") && !process.env.OPENAI_API_KEY}`
             : prompt.includes("严格 JSON")
               ? JSON.stringify({

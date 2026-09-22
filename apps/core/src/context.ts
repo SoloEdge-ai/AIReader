@@ -101,7 +101,7 @@ export function buildContext(
       .slice(-3)
       .map(
         (t) =>
-          `用户：${t.question.slice(0, 600)}\n回答：${t.answer.slice(0, 1000)}`,
+          `用户：${t.question.slice(0, 600)}${t.images?.length ? `（曾附 ${t.images.length} 张图片，图片未随历史重发；需要查看时请用户重新添加）` : ""}\n回答：${t.answer.slice(0, 1000)}`,
       )
       .join("\n")
       .slice(-4000),

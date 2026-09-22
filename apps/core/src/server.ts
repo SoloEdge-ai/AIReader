@@ -14,6 +14,9 @@ import {
   ReadingSnapshotSchema,
   ReaderPreferencesSchema,
   ModelSelectionSchema,
+  ChatImageInputSchema,
+  MAX_CHAT_IMAGES,
+  MAX_CHAT_IMAGE_BYTES,
   type ModelSelection,
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
@@ -30,8 +33,8 @@ export async function body(req: IncomingMessage, limit = 1024 * 1024) {
   }
   return Buffer.concat(chunks);
 }
-export async function jsonBody(req: IncomingMessage) {
-  return JSON.parse((await body(req)).toString());
+export async function jsonBody(req: IncomingMessage, limit?: number) {
+  return JSON.parse((await body(req, limit)).toString());
 }
 export function send(res: ServerResponse, value: unknown, status = 200) {
   res
@@ -317,6 +320,18 @@ export function createCore(
             );
             return;
           }
+          if (parts[3] === "chat-images" && parts[4] && req.method === "GET") {
+            const file = chat.images.asset(id, parts[4]);
+            res.writeHead(200, {
+              "Content-Type": "image/png",
+              "X-Content-Type-Options": "nosniff",
+              "Cache-Control": "private, max-age=3600",
+            });
+            createReadStream(file)
+              .on("error", () => res.destroy())
+              .pipe(res);
+            return;
+          }
           if (parts[3] === "open" && req.method === "POST") {
             book.lastOpenedAt = new Date().toISOString();
             library.store.put("book", id, id, book);
@@ -461,11 +476,20 @@ export function createCore(
                 .object({
                   reading: ReadingSnapshotSchema,
                   question: z.string().min(1).max(6000),
+                  images: ChatImageInputSchema.array()
+                    .max(MAX_CHAT_IMAGES)
+                    .default([]),
                   sessionId: z.string().min(1).max(100),
                   model: z.string().max(100).optional(),
                   effort: z.string().max(30).optional(),
                 })
-                .parse(await jsonBody(req));
+                .parse(
+                  await jsonBody(
+                    req,
+                    MAX_CHAT_IMAGES * Math.ceil(MAX_CHAT_IMAGE_BYTES / 3) * 4 +
+                      1024 * 1024,
+                  ),
+                );
               if (
                 value.reading.bookId !== id ||
                 value.reading.page > book.pages
@@ -485,6 +509,7 @@ export function createCore(
                   value.sessionId,
                   chosen.model,
                   chosen.effort,
+                  value.images,
                 ),
                 202,
               );

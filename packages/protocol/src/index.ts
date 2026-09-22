@@ -54,7 +54,7 @@ export const ReaderPreferencesSchema = z.object({
   theme: z.enum(["system", "light", "dark"]).default("system"),
   navigation: z.boolean().default(false),
   panel: z.enum(["none", "chat", "notes"]).default("none"),
-  panelWidth: z.number().min(320).max(560).default(400),
+  panelWidth: z.number().min(320).max(1600).default(400),
   zoom: z.number().min(0.4).max(3).default(1.1),
   experimentalTools: z.boolean().default(false),
 });
@@ -105,6 +105,7 @@ export interface ToolRun {
   files?: string[];
 }
 export interface ChatTurn {
+  images?: ChatImage[];
   /** Service-provided public summary only; absent on records predating summary support. */
   reasoning?: string;
   model?: string;
@@ -121,6 +122,23 @@ export interface ChatTurn {
   citations: SourceAnchor[];
   tools: ToolRun[];
   usage?: unknown;
+}
+export const MAX_CHAT_IMAGES = 4;
+export const MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024;
+export const MAX_CHAT_IMAGE_PIXELS = 16000000;
+export const ChatImageInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    dataUrl: z.string().max(Math.ceil(MAX_CHAT_IMAGE_BYTES / 3) * 4 + 64),
+  })
+  .strict();
+export type ChatImageInput = z.infer<typeof ChatImageInputSchema>;
+export interface ChatImage {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  bytes: number;
 }
 export interface CoreEvent {
   type:
