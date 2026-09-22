@@ -8,6 +8,7 @@ import {z} from 'zod';
 import {Library} from './library';
 import {CodexAdapter} from './codex';
 import {ChatService} from './chat';
+import {IndexService} from './indexer';
 import {ReadingSnapshotSchema} from '../../../packages/protocol/src';
 import {join} from 'node:path';
 import type {CoreEvent} from '../../../packages/protocol/src/index';
@@ -19,6 +20,7 @@ export function createCore(directory:string,webRoot:string){
  const emit=(event:CoreEvent)=>{for(const client of sockets.clients)if(client.readyState===WebSocket.OPEN)client.send(JSON.stringify(event));};
  const library=new Library(directory,emit);library.resume();
  let codex=new CodexAdapter(join(directory,'control'),library.store.get<{path:string}>('setting','codex')?.path);let chat=new ChatService(library,codex);
+ let indexer=new IndexService(library,codex);indexer.resume();
  const authenticated=(req:IncomingMessage)=>req.headers.cookie?.split(';').some(x=>x.trim()===`aireader=${token}`);
  const allowedOrigin=(req:IncomingMessage)=>req.headers.origin===`http://${req.headers.host}`||(!process.env.AIREADER_WEB&&req.headers.origin==='http://127.0.0.1:5173');
  const server=createServer(async(req,res)=>{
@@ -38,12 +40,18 @@ export function createCore(directory:string,webRoot:string){
      if(req.method==='POST'&&parts[2]==='disconnect'){chat.cancelAll();codex.disconnect();send(res,codex.info);return;}
      if(req.method==='POST'&&parts[2]==='login'){send(res,await codex.login());return;}
      if(parts[2]==='models'){send(res,await codex.models());return;}
-     if(req.method==='POST'&&parts[2]==='path'){const value=z.object({path:z.string().max(1000)}).parse(await jsonBody(req));chat.close();codex.disconnect();library.store.put('setting','codex','',value);codex=new CodexAdapter(join(directory,'control'),value.path||undefined);chat=new ChatService(library,codex);send(res,{ok:true});return;}
+     if(req.method==='POST'&&parts[2]==='path'){const value=z.object({path:z.string().max(1000)}).parse(await jsonBody(req));indexer.close();chat.close();codex.disconnect();library.store.put('setting','codex','',value);codex=new CodexAdapter(join(directory,'control'),value.path||undefined);chat=new ChatService(library,codex);indexer=new IndexService(library,codex);send(res,{ok:true});return;}
     }
     if(parts[1]==='books'&&parts.length===2){if(req.method==='GET'){send(res,library.books());return;}if(req.method==='POST'){send(res,await library.import(await body(req,256*1024*1024),decodeURIComponent(String(req.headers['x-filename']??'Document.pdf')).slice(0,300)),201);return;}}
     if(parts[1]==='books'&&parts[2]){
      const id=parts[2];const book=library.book(id);
      if(parts.length===3){send(res,book);return;}
+     if(parts[3]==='index'){
+      if(req.method==='GET'){send(res,{jobs:indexer.list(id),nodes:indexer.nodes(id)});return;}
+      if(req.method==='POST'&&parts[4]){const value=z.object({action:z.enum(['pause','cancel','resume'])}).parse(await jsonBody(req));send(res,indexer.control(id,parts[4],value.action));return;}
+      if(req.method==='POST'){const value=z.object({page:z.number().int().positive(),full:z.boolean().default(false)}).parse(await jsonBody(req));send(res,indexer.start(id,value.page,value.full));return;}
+     }
+     if(parts[3]==='memory'&&req.method==='POST'){const value=z.object({sessionId:z.string().max(100),goal:z.string().max(600)}).parse(await jsonBody(req));library.store.put('memory',id+':'+value.sessionId,id,{goal:value.goal,text:'用户学习目标：'+value.goal});send(res,{ok:true});return;}
      if(parts[3]==='turns'){
       if(req.method==='POST'&&parts[5]==='cancel'){chat.cancel(id,parts[4]);send(res,{ok:true});return;}
       if(req.method==='POST'){const value=z.object({reading:ReadingSnapshotSchema,question:z.string().min(1).max(6000),sessionId:z.string().min(1).max(100),model:z.string().max(100).optional()}).parse(await jsonBody(req));if(value.reading.bookId!==id||value.reading.page>book.pages)throw new Error('阅读位置与书籍不匹配');send(res,chat.start(value.reading,value.question,value.sessionId,value.model),202);return;}
@@ -66,5 +74,5 @@ export function createCore(directory:string,webRoot:string){
   }catch(error){if(!res.headersSent)send(res,{error:error instanceof Error?error.message:String(error)},400);else res.destroy();}
  });
  server.on('upgrade',(req,socket,head)=>{if(req.url!=='/events'||!allowedOrigin(req)||!authenticated(req)){socket.destroy();return;}sockets.handleUpgrade(req,socket,head,client=>sockets.emit('connection',client,req));});
- return{server,library,emit,close(){chat.close();codex.disconnect();for(const client of sockets.clients)client.terminate();sockets.close();server.close();library.close();}};
+ return{server,library,emit,close(){indexer.close();chat.close();codex.disconnect();for(const client of sockets.clients)client.terminate();sockets.close();server.close();library.close();}};
 }
