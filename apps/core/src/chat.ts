@@ -97,6 +97,7 @@ export class ChatService {
       sessionId,
       question,
       answer: "",
+      reasoning: "",
       status: "running",
       createdAt: new Date().toISOString(),
       context,
@@ -117,12 +118,19 @@ export class ChatService {
             this.save(turn);
           }
         },
+        onReasoning: (text) => {
+          if (turn.status === "running") {
+            turn.reasoning = text;
+            this.save(turn);
+          }
+        },
       })
       .then((result) => {
         if (control.signal.aborted || this.closed) return;
         Object.assign(turn, validateCitations(result.text, context), {
           status: "complete",
           usage: result.usage,
+          reasoning: result.reasoning,
         });
         const key = turn.bookId + ":" + sessionId;
         const previous = this.library.store.get<{ goal?: string }>(

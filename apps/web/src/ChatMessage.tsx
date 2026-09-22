@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -16,6 +16,9 @@ export function ChatMessage({
   onCitation: (page: number, anchor: SourceAnchor) => void;
 }) {
   const [copyStatus, setCopyStatus] = useState("");
+  const [reasoningExpanded, setReasoningExpanded] = useState<boolean>();
+  const reasoningId = useId();
+  const showReasoning = reasoningExpanded ?? turn.status === "running";
   const sources = [
     ...new Map(turn.citations.map((c) => [c.passageId, c])).values(),
   ];
@@ -43,10 +46,75 @@ export function ChatMessage({
   return (
     <article className="turn">
       <div className="question">{turn.question}</div>
+      {turn.context.reading.selection && (
+        <details className="question-source">
+          <summary>本轮引用 · 第 {turn.context.reading.page} 页起</summary>
+          <p>{turn.context.reading.selection}</p>
+        </details>
+      )}
       <div className="assistant-label">
         <Icon name="book" />
         <span>AIReader</span>
       </div>
+      <details className="retrieval-details">
+        <summary>
+          本轮依据 · 已提供 {turn.context.evidence.length} 段原文
+        </summary>
+        <div>
+          <p>{turn.context.coverage}</p>
+          <p>这些是发送给模型的检索材料，不代表回答已经核实了每一段。</p>
+          {turn.context.evidence.map((passage) => (
+            <button
+              className="evidence"
+              key={passage.id}
+              onClick={() => onCitation(passage.page, passage.anchor)}
+            >
+              第 {passage.anchor.label} 页 · {passage.text.slice(0, 180)}
+            </button>
+          ))}
+        </div>
+      </details>
+      {turn.reasoning !== undefined && (
+        <section className="reasoning">
+          <button
+            aria-label="思考摘要"
+            aria-expanded={showReasoning}
+            aria-controls={reasoningId}
+            onClick={() => setReasoningExpanded(!showReasoning)}
+          >
+            <Icon name="chevron" />
+            思考摘要
+            <span>
+              {turn.status === "running"
+                ? "生成中"
+                : !turn.reasoning
+                  ? "未提供"
+                  : ""}
+            </span>
+          </button>
+          {showReasoning && (
+            <div id={reasoningId}>
+              <div className="reasoning-summary">
+                <ReactMarkdown
+                  skipHtml
+                  components={{
+                    img: () => null,
+                    a: ({ children }) => <span>{children}</span>,
+                  }}
+                >
+                  {turn.reasoning ||
+                    (turn.status === "running"
+                      ? "正在等待模型提供摘要…"
+                      : "本轮未返回思考摘要。")}
+                </ReactMarkdown>
+              </div>
+              <p className="reasoning-caption">
+                模型提供的摘要；事实依据请查看原文。
+              </p>
+            </div>
+          )}
+        </section>
+      )}
       <div className="answer markdown">
         <ReactMarkdown
           skipHtml
@@ -81,7 +149,7 @@ export function ChatMessage({
         >
           {markdown ||
             (turn.status === "running"
-              ? "正在查找相关原文…"
+              ? "正在等待模型回答…"
               : "尚无回答内容。")}
         </ReactMarkdown>
       </div>

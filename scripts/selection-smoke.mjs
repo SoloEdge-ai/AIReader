@@ -54,22 +54,45 @@ try {
 
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
   await selectPassage();
+  await expect(page.locator(".selection-candidate")).toContainText("尚未添加");
+  await expect(page.locator(".question-attachment")).toHaveCount(0);
   await page.getByLabel("提问范围", { exact: true }).selectOption("selection");
   await page.getByLabel("问题", { exact: true }).fill("直接使用选中的原文");
   await expect(page.locator('option[value="selection"]')).toBeEnabled();
-  await expect(page.locator(".chat > blockquote")).toContainText(
+  await expect(page.locator(".question-attachment")).toContainText(
     "A selected passage",
   );
   await expect(toolbar).toHaveCount(0);
-  // The selected scope stays active when choosing a different passage.
+  // A new temporary selection must not silently replace the attached passage.
+  await page.getByRole("button", { name: "重新选择引用", exact: true }).click();
   await selectPassage(0.5);
+  await expect(page.locator(".question-attachment")).toContainText(
+    "A selected passage",
+  );
+  await page.getByRole("button", { name: "替换引用", exact: true }).click();
   await page.getByLabel("问题", { exact: true }).fill("换一个选区继续提问");
   await expect(page.locator('option[value="selection"]')).toBeEnabled();
-  await expect(page.locator(".chat > blockquote")).toContainText(
+  await expect(page.locator(".question-attachment")).toContainText(
     "reading actions",
   );
-  await expect(page.locator(".chat > blockquote")).not.toContainText(
+  await expect(page.locator(".question-attachment")).not.toContainText(
     "A selected passage",
+  );
+  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "问答", exact: true }).first().click();
+  await expect(page.locator(".question-attachment")).toContainText(
+    "reading actions",
+  );
+  await expect(page.getByLabel("问题", { exact: true })).toHaveValue(
+    "换一个选区继续提问",
+  );
+  await page.getByRole("button", { name: "移除引用", exact: true }).click();
+  await expect(page.locator(".question-attachment")).toHaveCount(0);
+  await expect(page.getByLabel("提问范围", { exact: true })).toHaveValue(
+    "auto",
+  );
+  await expect(page.getByLabel("问题", { exact: true })).toHaveValue(
+    "换一个选区继续提问",
   );
   await page.getByRole("button", { name: "收起侧栏" }).click();
 

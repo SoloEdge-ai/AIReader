@@ -56,8 +56,72 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     send({ id, result: { turn: { id: turnId } } });
     notify("turn/started", { threadId: p.threadId, turn: { id: turnId } });
     const prompt = p.input[0].text;
+    const question = prompt.match(/(?:^|\n)问题：([^\n]*)/)?.[1] ?? prompt;
+    const summaryParams = {
+      threadId: p.threadId,
+      turnId,
+      itemId: "reasoning-1",
+    };
+    if (p.summary === "auto" && !question.includes("NO_SUMMARY")) {
+      notify("item/reasoning/summaryTextDelta", {
+        ...summaryParams,
+        summaryIndex: 0,
+        delta: "核对",
+      });
+      notify("item/reasoning/summaryTextDelta", {
+        ...summaryParams,
+        summaryIndex: 0,
+        delta: "原文。",
+      });
+      notify("item/reasoning/summaryPartAdded", {
+        ...summaryParams,
+        summaryIndex: 1,
+      });
+      notify("item/reasoning/summaryTextDelta", {
+        ...summaryParams,
+        summaryIndex: 1,
+        delta: "区分事实与解释。",
+      });
+      notify("item/reasoning/summaryTextDelta", {
+        ...summaryParams,
+        threadId: "unrelated-thread",
+        summaryIndex: 0,
+        delta: "FOREIGN_THREAD",
+      });
+      notify("item/reasoning/summaryTextDelta", {
+        ...summaryParams,
+        turnId: "unrelated-turn",
+        summaryIndex: 0,
+        delta: "FOREIGN_TURN",
+      });
+      notify("item/reasoning/textDelta", {
+        ...summaryParams,
+        contentIndex: 0,
+        delta: "PRIVATE_TRACE_DO_NOT_STORE",
+      });
+    }
     const timer = setTimeout(
       () => {
+        if (p.summary === "auto" && !question.includes("NO_SUMMARY")) {
+          notify("item/completed", {
+            ...summaryParams,
+            item: {
+              type: "reasoning",
+              id: "reasoning-1",
+              summary: ["已核对原文。", "补充说明与书中观点分开。"],
+              content: ["PRIVATE_TRACE_DO_NOT_STORE"],
+            },
+          });
+          notify("item/completed", {
+            ...summaryParams,
+            item: {
+              type: "reasoning",
+              id: "reasoning-2",
+              summary: ["保留可核验引用。"],
+              content: ["PRIVATE_TRACE_DO_NOT_STORE"],
+            },
+          });
+        }
         const cite = prompt.match(/\[\[([^\]]+:\d+:\d+)\]\]/)?.[1];
         const text =
           prompt === "CONFIG"
@@ -77,7 +141,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           turn: { id: turnId, status: "completed" },
         });
       },
-      prompt.includes("WAIT") ? 30000 : 40,
+      question.includes("WAIT") ? 30000 : 40,
     );
     timers.set(p.threadId, timer);
   } else if (method === "turn/interrupt") {

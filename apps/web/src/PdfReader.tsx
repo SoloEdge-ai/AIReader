@@ -422,6 +422,7 @@ export function PdfReader({
     <div
       ref={scroll}
       className="pdf-scroll"
+      tabIndex={-1}
       onScroll={report}
       onMouseUp={(e) => {
         if (mode !== "select") return;

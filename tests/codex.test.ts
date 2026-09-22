@@ -27,6 +27,20 @@ test("stdio adapter starts fresh threads, interrupts a turn, and reconnects with
     expect(configured.text).toContain("isolated=true");
     expect((await adapter.answer("first")).text).toContain("thread-3");
     expect((await adapter.answer("second")).text).toContain("thread-4");
+    const summaries: string[] = [];
+    const explained = await adapter.answer("summary", {
+      onReasoning: (text) => summaries.push(text),
+    });
+    expect(summaries).toContain("核对原文。\n\n区分事实与解释。");
+    expect(explained.reasoning).toBe(
+      "已核对原文。\n\n补充说明与书中观点分开。\n\n保留可核验引用。",
+    );
+    expect(JSON.stringify({ summaries, explained })).not.toMatch(
+      /PRIVATE_TRACE|FOREIGN_/,
+    );
+    expect(
+      (await adapter.answer("NO_SUMMARY", { onReasoning: () => {} })).reasoning,
+    ).toBe("");
     const signal = new AbortController();
     const pending = adapter.answer("WAIT", { signal: signal.signal });
     setTimeout(() => signal.abort(), 100);
