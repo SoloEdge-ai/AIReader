@@ -306,7 +306,7 @@ export function PdfReader({
   zoom: number;
   rotation?: number;
   onPage: (page: number) => void;
-  onSelection: (selection: ReadingSelection) => void;
+  onSelection: (selection: ReadingSelection | undefined) => void;
   highlight?: SourceAnchor;
   annotations?: Annotation[];
   mode?: AnnotationMode;
@@ -318,6 +318,22 @@ export function PdfReader({
   const scroll = useRef<HTMLDivElement>(null),
     position = useRef({ page: initialPage, x: 0, y: 0 }),
     views = useRef<View[]>([]);
+  useEffect(() => {
+    // PDF.js can clear its text selection after mouseup has already fired.
+    const syncSelection = () => {
+      const selection = getSelection();
+      if (
+        !selection?.rangeCount ||
+        !selection.toString().trim() ||
+        !scroll.current?.contains(
+          selection.getRangeAt(0).commonAncestorContainer,
+        )
+      )
+        onSelection(undefined);
+    };
+    document.addEventListener("selectionchange", syncSelection);
+    return () => document.removeEventListener("selectionchange", syncSelection);
+  }, [onSelection]);
   // All page dimensions are known before mounting: later lazy rendering cannot move earlier pages.
   useEffect(() => {
     let active = true;
@@ -410,7 +426,10 @@ export function PdfReader({
       onMouseUp={(e) => {
         if (mode !== "select") return;
         const s = getSelection();
-        if (!s?.rangeCount || !s.toString().trim()) return;
+        if (!s?.rangeCount || !s.toString().trim()) {
+          onSelection(undefined);
+          return;
+        }
         const range = s.getRangeAt(0);
         if (!scroll.current?.contains(range.commonAncestorContainer)) return;
         const anchors: PdfAnchor[] = [];
