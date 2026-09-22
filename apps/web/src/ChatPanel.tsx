@@ -119,28 +119,28 @@ export function ChatPanel({
       input.current?.focus();
     }
   }, [action?.nonce]);
+  const latest = turns.at(-1);
   useEffect(() => {
     if (followBottom.current && messages.current)
       messages.current.scrollTop = messages.current.scrollHeight;
-  }, [turns]);
+  }, [latest?.id, latest?.answer, latest?.status]);
   const running = turns.find((t) => t.status === "running");
   const chosen = ai.models.find((m) => m.model === ai.choice?.model);
   const valid = chosen?.supportedReasoningEfforts.some(
     (e) => e.reasoningEffort === ai.choice?.effort,
   );
+  const canSubmit =
+    !!question.trim() &&
+    !!session &&
+    !!valid &&
+    !!ai.account.account &&
+    !sending &&
+    !creating &&
+    !ai.selecting &&
+    !running &&
+    (scope !== "selection" || !!selection);
   async function ask() {
-    if (
-      !question.trim() ||
-      !session ||
-      !valid ||
-      !ai.account.account ||
-      submitting.current ||
-      creating ||
-      ai.selecting ||
-      !!running ||
-      (scope === "selection" && !selection)
-    )
-      return;
+    if (!canSubmit || submitting.current) return;
     submitting.current = true;
     setSending(true);
     const requestedSession = session;
@@ -418,16 +418,7 @@ export function ChatPanel({
               className="composer-send"
               aria-label="发送问题"
               title="发送问题（Enter）"
-              disabled={
-                sending ||
-                creating ||
-                ai.selecting ||
-                (scope === "selection" && !selection) ||
-                !valid ||
-                !ai.account.account ||
-                !question.trim() ||
-                !session
-              }
+              disabled={!canSubmit}
               onClick={() => void ask()}
             >
               <Icon name="arrow" />

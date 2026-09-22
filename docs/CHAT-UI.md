@@ -24,3 +24,19 @@ Acceptance: model-control browser interactions and real renderer/Core HTTP with
 only the external Codex process mocked; full tests/typecheck, packaged desktop and
 annotation regression. Light/dark, narrow popovers and keyboard/IME operation.
 Deliver using codex branch, PR checks, portable EXE artifact and squash merge.
+
+## Review and local acceptance
+
+- Standards review: no documented-standard violations. One P2 scrolling issue
+  reproduced (expanded context jumped from scrollTop 0 to 1053 on an unchanged
+  poll), then fixed by following latest-turn content/status instead of polling
+  array identity. The browser regression now holds position across two polls.
+  One non-blocking duplicated-eligibility smell was resolved with `canSubmit`.
+- Spec review: no missing requirements, wrong behavior or scope creep found.
+- Typecheck and all nine unit/integration tests passed. Model picker and full
+  Core/browser chat acceptance passed, including failed-save recovery, invalid
+  model, single-effort models, Escape focus, Chinese IME, frozen configuration,
+  citations, copy, session rename/history, cancellation and reload.
+- Windows 11 annotation/reader smoke passed at 100%, 150% and 200% scaling.
+  The authorized 516-page local book loaded and searched without page errors.
+  Private test material is not included in the repository or CI artifacts.

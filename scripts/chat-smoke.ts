@@ -9,9 +9,12 @@ await mkdir(".local/screenshots", { recursive: true });
 const data = await mkdtemp(resolve(".local/chat-acceptance-"));
 const pdf = await PDFDocument.create();
 const font = await pdf.embedFont(StandardFonts.Helvetica);
-pdf
-  .addPage()
-  .drawText("Memory cache avoids repeated computation.", { font, size: 18 });
+const pdfPage = pdf.addPage();
+for (let line = 0; line < 40; line++)
+  pdfPage.drawText(
+    "Memory cache stores previous tokens and avoids repeated computation.",
+    { font, size: 11, x: 35, y: 785 - line * 17 },
+  );
 const file = resolve(data, "fixture.pdf");
 await writeFile(file, await pdf.save());
 const core = createCore(data, resolve("dist/web"), {
@@ -75,6 +78,26 @@ try {
   await expect(page.locator(".answer-metadata")).toContainText(
     "fixture-a · 中",
   );
+  await page.getByText("本轮上下文", { exact: true }).click();
+  const positionAfterExpansion = await page
+    .locator(".messages")
+    .evaluate((node) => node.scrollTop);
+  for (let poll = 0; poll < 2; poll++)
+    await page.waitForResponse(
+      (response) =>
+        response.url().includes("/turns?session=") &&
+        response.request().method() === "GET",
+    );
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  expect(
+    await page.locator(".messages").evaluate((node) => node.scrollTop),
+  ).toBe(positionAfterExpansion);
+  await page.getByText("本轮上下文", { exact: true }).click();
   await page.getByRole("button", { name: "复制回答", exact: true }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "已复制" }),
