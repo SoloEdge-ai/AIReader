@@ -37,6 +37,11 @@ export function ChatPanel({
     [title, setTitle] = useState("");
   const input = useRef<HTMLTextAreaElement>(null),
     messages = useRef<HTMLDivElement>(null);
+  const currentSession=useRef(session), drafts=useRef(new Map<string,string>()), submitting=useRef(false);
+  const [sending,setSending]=useState(false);
+  currentSession.current=session;
+  useEffect(()=>()=>{currentSession.current="";},[]);
+  function switchSession(id:string){drafts.current.set(session,question);currentSession.current=id;setSession(id);setQuestion(drafts.current.get(id)??"");setTurns([]);setError("");}
   useEffect(() => {
     let live = true;
     void api<Session[]>(`books/${book.id}/sessions`)
@@ -103,7 +108,9 @@ export function ChatPanel({
     (e) => e.reasoningEffort === ai.choice?.effort,
   );
   async function ask() {
-    if (!question.trim() || !session || !valid || !ai.account.account) return;
+    if (!question.trim() || !session || !valid || !ai.account.account || submitting.current) return;
+    submitting.current=true;setSending(true);
+    const requestedSession=session;
     setError("");
     try {
       const reading = {
@@ -118,8 +125,10 @@ export function ChatPanel({
         sessionId: session,
         ...ai.choice,
       });
-      setTurns((old) => [...old, turn]);
-      setQuestion("");
+      if(currentSession.current===requestedSession){
+        setTurns((old) => old.some(t=>t.id===turn.id)?old:[...old, turn]);
+        setQuestion(old=>old===question?"":old);
+      }
       if (book.status === "ready")
         void post(`books/${book.id}/index`, {
           page: reading.page,
@@ -131,8 +140,8 @@ export function ChatPanel({
         messages.current?.scrollTo({ top: messages.current.scrollHeight }),
       );
     } catch (e) {
-      setError(String(e));
-    }
+      if(currentSession.current===requestedSession)setError(String(e));
+    }finally{submitting.current=false;setSending(false);}
   }
   const markdown = (turn: ChatTurn) =>
     turn.answer.replace(/\[\[([^\]]+)\]\]/g, (_, id: string) => {
@@ -150,8 +159,7 @@ export function ChatPanel({
           aria-label="历史会话"
           value={session}
           onChange={(e) => {
-            setTurns([]);
-            setSession(e.target.value);
+            switchSession(e.target.value);
           }}
         >
           {sessions.map((s) => (
@@ -174,8 +182,7 @@ export function ChatPanel({
           onClick={() =>
             void post<Session>(`books/${book.id}/sessions`, {}).then((s) => {
               setSessions((old) => [s, ...old]);
-              setTurns([]);
-              setSession(s.id);
+              switchSession(s.id);
             })
           }
         >
@@ -224,16 +231,15 @@ export function ChatPanel({
                   img: () => null,
                   a: ({ href, children }) => {
                     if (href?.startsWith("#source-")) {
-                      const id = decodeURIComponent(href.slice(8));
                       const anchor = turn.citations.find(
-                        (c) => c.passageId === id,
+                        (c) => "#source-"+encodeURIComponent(c.passageId) === href,
                       );
                       return anchor ? (
                         <button
                           className="citation"
                           onClick={() => onCitation(anchor.page, anchor)}
                         >
-                          第 {children} 页
+                          第 {anchor.label} 页
                         </button>
                       ) : (
                         <span>{children}</span>
