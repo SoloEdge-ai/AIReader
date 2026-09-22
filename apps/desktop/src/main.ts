@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, utilityProcess, shell } from 'electron';
 import { join } from 'node:path';
 import { release } from 'node:os';
 let core: Electron.UtilityProcess | undefined;
@@ -8,7 +8,7 @@ app.whenReady().then(() => {
   core = utilityProcess.fork(join(__dirname,'../core/main.cjs'), [], {env:{...process.env,AIREADER_PORT:'0',AIREADER_WEB:join(__dirname,'../web'),AIREADER_WORKER:join(__dirname,'../core/pdf-worker.mjs'),AIREADER_DATA:app.getPath('userData')},serviceName:'AIReader Core'});
   core.on('message', (message: {port:number}) => {
     const window = new BrowserWindow({width:1440,height:960,minWidth:960,minHeight:640,title:'AIReader',backgroundColor:'#f5f3ee',webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}});
-    window.webContents.setWindowOpenHandler(() => ({action:'deny'}));
+    window.webContents.setWindowOpenHandler(({url}) => {try{const target=new URL(url);if(target.protocol==='https:'&&target.hostname==='auth.openai.com')void shell.openExternal(url);}catch{}return {action:'deny'};});
     window.webContents.on('will-navigate',(event,url) => { if (!url.startsWith(`http://127.0.0.1:${message.port}/`)) event.preventDefault(); });
     void window.loadURL(`http://127.0.0.1:${message.port}`);
   });

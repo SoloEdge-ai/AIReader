@@ -2,7 +2,9 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import type {Book,Bookmark,Passage,SourceAnchor,CoreEvent} from '../../../packages/protocol/src';
 import {api,post,base} from './api';
 import {PdfReader} from './PdfReader';
+import {ChatPanel} from './ChatPanel';
 export function App(){
+ const [action,setAction]=useState<{name:string;nonce:number}>();
  const [books,setBooks]=useState<Book[]>([]);const [active,setActive]=useState<string>();const book=books.find(b=>b.id===active);const [page,setPage]=useState(1);const [zoom,setZoom]=useState(1.15);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const [nav,setNav]=useState('目录');const [query,setQuery]=useState('');const [hits,setHits]=useState<Passage[]>([]);const [marks,setMarks]=useState<Bookmark[]>([]);const [selection,setSelection]=useState<{text:string;page:number}>();const [highlight,setHighlight]=useState<SourceAnchor>();const input=useRef<HTMLInputElement>(null);const saveTimer=useRef<ReturnType<typeof setTimeout>>(undefined);
  const refresh=()=>api<Book[]>('books').then(setBooks);
  useEffect(()=>{let socket:WebSocket;void post('session',{}).then(refresh).then(()=>{socket=new WebSocket((base||location.origin).replace('http:','ws:')+'/events');socket.onmessage=event=>{const value=JSON.parse(event.data) as CoreEvent;if(value.type==='book')setBooks(old=>{const b=value.data as Book;return [...old.filter(x=>x.id!==b.id),b];});};}).catch(e=>setError(e.message));return()=>socket?.close();},[]);
@@ -19,8 +21,8 @@ export function App(){
   {nav==='目录'&&book.chapters.map(ch=><button key={ch.id} onClick={()=>jump(ch.page)}>{ch.title}<small>{book.labels[ch.page-1]??ch.page}</small></button>)}
   {nav==='书签'&&marks.map(mark=><div className="bookmark" key={mark.id}><button onClick={()=>jump(mark.page)}>{mark.note}</button><button aria-label="删除书签" onClick={()=>void api('books/'+active+'/bookmarks/'+mark.id,{method:'DELETE'}).then(()=>setMarks(m=>m.filter(x=>x.id!==mark.id)))}>×</button></div>)}
   {nav==='搜索'&&<><form onSubmit={e=>{e.preventDefault();void api<Passage[]>('books/'+active+'/search?q='+encodeURIComponent(query)).then(setHits);}}><input aria-label="书内搜索" placeholder="搜索书内文字" value={query} onChange={e=>setQuery(e.target.value)}/><button>搜索</button></form>{hits.map(hit=><button className="search-hit" key={hit.id} onClick={()=>jump(hit.page,hit.anchor)}><small>第 {hit.anchor.label} 页</small>{hit.text.slice(0,140)}…</button>)}</>}
-  </aside><section className="reading"><PdfReader key={active} id={active!} initialPage={book.progress} zoom={zoom} onPage={onPage} onSelection={(text,p)=>setSelection({text,page:p})} highlight={highlight}/>{selection&&<div className="selection-bar"><span>已选择 {selection.text.length} 字</span>{['解释','总结','翻译','提问'].map(action=><button key={action} onClick={()=>setError('AI 接入将在下一阶段启用')}>{action}</button>)}<button onClick={()=>setSelection(undefined)}>×</button></div>}</section>
-  <aside className="chat"><p className="eyebrow">READ WITH UNDERSTANDING</p><h2>一起读懂。</h2><p className="subtle">选中一段文字，或针对当前页面提问。回答将带有可回查的原文引用。</p>{selection&&<blockquote>{selection.text.slice(0,240)}</blockquote>}<div className="chat-empty">AI 连接将在下一阶段启用。<br/>你可以先阅读、搜索和添加书签。</div>{error&&<p className="error">{error}</p>}</aside></div>
+  </aside><section className="reading"><PdfReader key={active} id={active!} initialPage={book.progress} zoom={zoom} onPage={onPage} onSelection={(text,p)=>setSelection({text,page:p})} highlight={highlight}/>{selection&&<div className="selection-bar"><span>已选择 {selection.text.length} 字</span>{['解释','总结','翻译','提问'].map(name=><button key={name} onClick={()=>setAction({name,nonce:Date.now()})}>{name}</button>)}<button onClick={()=>setSelection(undefined)}>×</button></div>}</section>
+  <ChatPanel key={active} book={book} page={page} selection={selection} action={action} onCitation={jump}/></div>
   <footer><span>{book.status==='ready'?'文本索引完成':book.status==='error'?'解析失败：'+book.error:`正在解析 ${book.parsedPages} / ${book.pages} 页`}</span><span>{book.textPages} 页含可提取文字{book.status==='ready'&&book.textPages<book.pages?' · 部分页面为扫描或无文字内容':''}</span><span>数据保存在本机</span></footer>
  </div>}</>;
 }
