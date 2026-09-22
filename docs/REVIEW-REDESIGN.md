@@ -19,3 +19,5 @@ Two findings in the annotations slice: rotated underline/strike geometry and los
 ## Summary
 
 Standards: 3 annotations-slice findings addressed. Spec: 2 annotations-slice findings addressed. Real browser authorization and native IME acceptance remain explicitly documented verification limits, not reported as automated passes.
+
+Focused recheck of `e034f91`: Standards reported no remaining documented violations or heuristic findings; Spec confirmed both remaining findings resolved and no material defect in the focused recheck. Packaged release verification follows CI; real authorization remains user-interactive.

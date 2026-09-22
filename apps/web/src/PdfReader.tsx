@@ -158,6 +158,7 @@ function Page({
       id={`page-${page}`}
       className="pdf-page"
       data-page={page}
+      data-render-ready={ready}
       style={
         {
           width: view.width,
@@ -218,6 +219,8 @@ function Page({
       {mode !== "select" && (
         <div
           className="annotation-capture"
+          aria-busy={!ready}
+          title={ready ? "在页面上拖动或点击添加批注" : "页面绘制中，请稍候"}
           onPointerDown={(e) => {
             if (!ready) return;
             e.preventDefault();

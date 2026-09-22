@@ -117,9 +117,7 @@ try {
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("3");
   await page.getByLabel("批注工具").selectOption("region");
-  await page.waitForFunction(
-    () => document.querySelector("#page-3 canvas")?.width > 0,
-  );
+  await expect(page.locator('#page-3')).toHaveAttribute('data-render-ready','true');
   const box = await page.locator("#page-3").boundingBox();
   await page.mouse.move(box.x + 80, box.y + 80);
   await page.mouse.down();
