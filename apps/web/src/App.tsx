@@ -101,6 +101,9 @@ export function App() {
       if (popover) {
         event.preventDefault();
         popover.hidePopover();
+        Array.from(document.querySelectorAll<HTMLButtonElement>("button[popovertarget]"))
+          .find((button) => button.getAttribute("popovertarget") === popover.id)
+          ?.focus({ preventScroll: true });
       }
       const editing = (event.target as HTMLElement)?.closest(".workspace-card input,.workspace-card textarea,.notes-panel input,.notes-panel textarea,.notes-panel [contenteditable]");
       if (editing) {
@@ -108,7 +111,8 @@ export function App() {
         void Promise.all([workspace.current?.flush(), notes.flush()]).then((results) => {
           if (results.some((ok) => ok === false)) setError("编辑内容保存失败，草稿仍保留；请重试保存。");
         });
-      } else if (!popover && (event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) return false;
+      } else if (!popover && !(event.target as HTMLElement)?.closest(".reader-popover") &&
+                 (event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) return false;
       if (questionCapture) cancelQuestionCapture();
       return true;
     },

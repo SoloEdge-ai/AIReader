@@ -80,7 +80,12 @@ export function Popover({
         popover="auto"
         role="dialog"
         aria-label={label}
-        onToggle={(e) => setOpen(e.newState === "open")}
+        onToggle={(e) => {
+          setOpen(e.newState === "open");
+          if (e.newState === "closed" &&
+              (document.activeElement === document.body || panel.current?.contains(document.activeElement)))
+            button.current?.focus({ preventScroll: true });
+        }}
       >
         {children(close)}
       </div>
