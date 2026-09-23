@@ -158,7 +158,8 @@ try {
   await expect.poll(() => page.locator(".workspace-card.region img").evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "旋转页面" }).click();
   await expect(page.locator(".annotation-region")).toHaveCount(1);
-  await page.getByRole("button", { name: "页内便签" }).click();
+  await page.getByRole("button", { name: "添加文本或卡片" }).click();
+  await page.getByRole("menuitem", { name: "页内便签" }).click();
   const rotated = await page.locator("#page-3").boundingBox();
   await page.mouse.click(rotated.x + 200, Math.max(80, rotated.y + 150));
   await expect(page.locator(".annotation-sticky")).toHaveCount(1);
