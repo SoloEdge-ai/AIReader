@@ -31,14 +31,24 @@ function Machine-Entry {
 }
 
 function Invoke-Setup([string[]]$Arguments, [int]$ExpectedExit = 0) {
-  $process = Start-Process -FilePath $Installer -ArgumentList $Arguments -PassThru -Wait -WindowStyle Hidden
+  $process = Start-Process -FilePath $Installer -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+  if (-not $process.WaitForExit(180000)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw "Installer did not exit within three minutes for $($Arguments -join ' ')"
+  }
   if ($process.ExitCode -ne $ExpectedExit) {
     throw "Installer returned $($process.ExitCode); expected $ExpectedExit for $($Arguments -join ' ')"
   }
 }
 
 function Assert-Installed([string]$ExpectedDir) {
-  $entry = @(Installed-Entry)
+  for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    $entry = @(Installed-Entry)
+    if ($entry.Count -eq 1 -and $entry[0].DisplayVersion -eq $ExpectedVersion -and
+        (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) -and
+        (Test-Path -LiteralPath $startMenu) -and (Test-Path -LiteralPath $desktop)) { break }
+    Start-Sleep -Seconds 1
+  }
   if ($entry.Count -ne 1 -or $entry[0].DisplayVersion -ne $ExpectedVersion) {
     $found = ($entry | ForEach-Object { "$($_.DisplayName) [$($_.DisplayVersion)]" }) -join ', '
     throw "Installer did not register exactly one current-user installation with version $ExpectedVersion; found $($entry.Count): $found"
@@ -81,7 +91,11 @@ function Invoke-Uninstall([object]$Entry, [string]$ExpectedDir) {
   if ($remaining.Count) { Write-Output ($remaining | ConvertTo-Json -Depth 3) }
   $mainExecutable = Join-Path $ExpectedDir 'AIReader.exe'
   Write-Output (Get-Item -LiteralPath $mainExecutable | Select-Object FullName,Length,Attributes | ConvertTo-Json)
-  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser') -PassThru -Wait -WindowStyle Hidden
+  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser') -PassThru -WindowStyle Hidden
+  if (-not $process.WaitForExit(180000)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw 'Uninstaller did not exit within three minutes.'
+  }
   if ($process.ExitCode -ne 0) { throw "Uninstaller returned $($process.ExitCode)" }
   for ($attempt = 0; $attempt -lt 30; $attempt++) {
     if (-not (Test-Path -LiteralPath $ExpectedDir) -and
