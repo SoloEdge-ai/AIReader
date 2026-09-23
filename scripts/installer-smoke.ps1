@@ -73,7 +73,13 @@ function Invoke-Uninstall([object]$Entry, [string]$ExpectedDir) {
       [IO.Path]::GetFullPath($ExpectedDir)) {
     throw 'Registered uninstaller is outside the tested installation directory.'
   }
-  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser') -PassThru -Wait -WindowStyle Hidden
+  # NSIS normally forks a temporary copy and its launcher can return success
+  # even when the real uninstaller refuses to proceed. Run in place so this
+  # acceptance test observes the actual guard and uninstall exit code.
+  $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'AIReader.exe'" |
+    Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine)
+  if ($remaining.Count) { Write-Output ($remaining | ConvertTo-Json -Depth 3) }
+  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser', "_?=$ExpectedDir") -PassThru -Wait -WindowStyle Hidden
   if ($process.ExitCode -ne 0) { throw "Uninstaller returned $($process.ExitCode)" }
   for ($attempt = 0; $attempt -lt 30; $attempt++) {
     if (-not (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) -and
