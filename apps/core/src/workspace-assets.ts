@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { RegionExcerptInputSchema, type WorkspaceCard } from "../../../packages/protocol/src/workspace";
+import { PDFDocument } from "pdf-lib";
 import { decodeImage } from "./chat-images";
 import { Library } from "./library";
 import { Workspaces } from "./workspace";
@@ -29,12 +30,34 @@ export class WorkspaceAssets {
     if (record?.bookId !== bookId) throw new Error("图片不属于本书");
     return readFile(this.path(bookId, assetId));
   }
+  private async pageBounds(bookId: string, page: number): Promise<[number, number, number, number]> {
+    const key = `${bookId}:${page}`;
+    const cached = this.library.store.get<[number, number, number, number]>("pdf-page-bounds", key);
+    if (cached) return cached;
+    const document = await PDFDocument.load(await readFile(this.library.file(bookId)),
+      { updateMetadata: false });
+    const proxy = document.getPage(page - 1);
+    const media = proxy.getMediaBox(), crop = proxy.getCropBox();
+    const bounds: [number, number, number, number] = [
+      Math.max(media.x, crop.x), Math.max(media.y, crop.y),
+      Math.min(media.x + media.width, crop.x + crop.width),
+      Math.min(media.y + media.height, crop.y + crop.height),
+    ];
+    if (bounds[0] >= bounds[2] || bounds[1] >= bounds[3])
+      throw new Error("PDF 页面裁剪范围无效");
+    this.library.store.put("pdf-page-bounds", key, bookId, bounds);
+    return bounds;
+  }
   async createRegion(bookId: string, raw: unknown) {
     const input = RegionExcerptInputSchema.parse(raw);
     const book = this.library.book(bookId);
     if (input.bookId !== bookId || input.fingerprint !== book.fingerprint || input.page > book.pages ||
         input.rect[2] <= input.rect[0] || input.rect[3] <= input.rect[1])
       throw new Error("图片摘录与书籍或页面不匹配");
+    const bounds = await this.pageBounds(bookId, input.page);
+    if (input.rect[0] < bounds[0] - 1 || input.rect[1] < bounds[1] - 1 ||
+        input.rect[2] > bounds[2] + 1 || input.rect[3] > bounds[3] + 1)
+      throw new Error("图片摘录超出 PDF 页面范围");
     const commandKey = `${bookId}:${input.commandId}`;
     if (this.library.store.get("workspace-command", commandKey))
       return { workspace: this.workspaces.get(bookId), cardId: input.commandId };

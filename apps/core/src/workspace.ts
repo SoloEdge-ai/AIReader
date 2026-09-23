@@ -87,7 +87,7 @@ export class Workspaces {
         objects: [...objects.values()],
         links: [...links.values()],
       });
-      this.validate(bookId, next, current);
+      this.validate(bookId, next, current, Boolean(prepare));
       this.library.store.put("workspace", bookId, bookId, next);
       this.library.store.put("workspace-command", commandKey, bookId, {
         version: next.revision,
@@ -104,13 +104,13 @@ export class Workspaces {
       throw new Error(
         "工作区已在其他窗口更新；草稿已保留，请重新打开后处理冲突",
       );
-    this.validate(bookId, value, current);
+    this.validate(bookId, value, current, true);
     const saved = { ...value, revision: current.revision + 1 };
     this.library.store.put("workspace", bookId, bookId, saved);
     if (value.camera) this.camera(bookId, value.camera);
     return saved;
   }
-  private validate(bookId: string, value: BookWorkspace, current: BookWorkspace) {
+  private validate(bookId: string, value: BookWorkspace, current: BookWorkspace, prepareRegionAsset = false) {
     const book = this.library.book(bookId);
     const ids = new Set([...value.cards.map((card) => card.id), ...value.objects.map((object) => object.id)]);
     if (
@@ -133,6 +133,9 @@ export class Workspaces {
         }
       }
       if (card.region) {
+        const previous = current.cards.find((old) => old.id === card.id);
+        if (!previous && !prepareRegionAsset)
+          throw new Error("图片摘录只能通过受控区域接口创建");
         if (card.region.fingerprint !== book.fingerprint || card.region.page > book.pages ||
             card.region.rect[2] <= card.region.rect[0] || card.region.rect[3] <= card.region.rect[1])
           throw new Error("图片摘录位置无效");

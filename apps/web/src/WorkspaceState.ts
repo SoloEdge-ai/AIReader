@@ -156,6 +156,10 @@ export function useWorkspace(bookId: string) {
   function change(next: BookWorkspace, remember = true) {
     const previous = draft.current;
     if (!previous) return;
+    const remaining = new Set([...next.cards.map((card) => card.id),
+      ...next.objects.map((object) => object.id)]);
+    const links = next.links.filter((link) => remaining.has(link.from) && remaining.has(link.to));
+    if (links.length !== next.links.length) next = { ...next, links };
     const changes = difference(previous, next);
     if (remember && changes.length) {
       history.current = [...history.current.slice(-99), difference(next, previous)];

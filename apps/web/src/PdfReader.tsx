@@ -28,6 +28,7 @@ export type QuestionRegion = {
   page: number;
   rect: [number, number, number, number];
   image: string;
+  operationId?: string;
 };
 export type RegionAction = "card" | "question" | "annotation";
 type View = ReturnType<pdfjs.PDFPageProxy["getViewport"]>;
@@ -102,7 +103,7 @@ function Page({
   annotations: Annotation[];
   highlight?: SourceAnchor;
   mode: AnnotationMode | "ask-region";
-  onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
+  onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void | Promise<void | boolean>;
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
   onRegionAction?: (region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) => void | Promise<void>;
@@ -111,7 +112,8 @@ function Page({
 }) {
   const outer = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
-    text = useRef<HTMLDivElement>(null);
+    text = useRef<HTMLDivElement>(null),
+    regionOperationId = useRef(crypto.randomUUID());
   const [visible, setVisible] = useState(false),
     [renderedView, setRenderedView] = useState<View>(),
     [drag, setDrag] = useState<Rect>();
@@ -227,7 +229,8 @@ function Page({
           }
       context.restore();
     }
-    return { page, rect: pdfRect(view, rect), image: crop.toDataURL("image/png") };
+    return { page, rect: pdfRect(view, rect), image: crop.toDataURL("image/png"),
+      operationId: regionOperationId.current };
   }
   async function submitRegion(action: RegionAction) {
     if (!pendingRegion || !onRegionAction || regionBusy) return;
@@ -362,6 +365,7 @@ function Page({
             }
             if (r[2] - r[0] < 3 || r[3] - r[1] < 3) return;
             if (mode === "region" && onRegionAction) {
+              regionOperationId.current = crypto.randomUUID();
               setPendingRegion(r);
               return;
             }
@@ -433,6 +437,7 @@ function Page({
                   }}
                   onPointerUp={(event) => {
                     event.stopPropagation();
+                    regionOperationId.current = crypto.randomUUID();
                     resizing.current = undefined;
                   }}
                   onPointerCancel={(event) => {
@@ -480,7 +485,7 @@ export interface PdfReaderProps {
   highlight?: SourceAnchor;
   annotations?: Annotation[];
   mode?: AnnotationMode;
-  onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
+  onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void | Promise<void | boolean>;
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
   onRegionAction?: (region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) => void | Promise<void>;

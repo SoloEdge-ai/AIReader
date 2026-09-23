@@ -59,6 +59,12 @@ test("region cards own immutable book-scoped PNG assets and retry without duplic
     expect((await duplicate.json()).workspace.cards).toHaveLength(1);
     expect((await request(endpoint, { ...input, commandId: "wrong-book", bookId: second.id })).status).toBe(400);
     expect((await request(endpoint, { ...input, commandId: "wrong-page", expectedVersion: 1, page: 2 })).status).toBe(400);
+    expect((await request(endpoint, { ...input, commandId: "outside-page", expectedVersion: 1,
+      rect: [20, 30, 405, 100] })).status).toBe(400);
+    expect((await request(`books/${first.id}/workspace/commands`, {
+      bookId: first.id, commandId: "forged-region", expectedVersion: 1,
+      changes: [{ type: "upsert-card", card: { ...card, id: "forged-card" } }],
+    })).status).toBe(400);
     expect((await request(endpoint, { ...input, commandId: "stale", expectedVersion: 0 })).status).toBe(409);
     expect(core.library.store.list("workspace-asset", first.id)).toHaveLength(1);
     core.close();

@@ -84,6 +84,12 @@
   height: 12px;
   color: var(--workspace-accent);
 }
+.workspace-card header .workspace-region-marked {
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--workspace-accent);
+}
 .workspace-grip {
   opacity: 0.4;
 }

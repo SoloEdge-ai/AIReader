@@ -216,12 +216,12 @@ export function App() {
   ) {
     const id = active;
     try {
-      if (!id || !(await notes.flush())) return;
+      if (!id || !(await notes.flush())) return false;
       const a = await post<Annotation>(`books/${id}/annotations`, {
         ...value,
         color: annotationColor,
       });
-      if (current.current !== id) return;
+      if (current.current !== id) return false;
       notes.undo.current.push(() =>
         api(`books/${id}/annotations/${a.id}`, { method: "DELETE" }),
       );
@@ -229,8 +229,10 @@ export function App() {
       notes.setSelected(a.noteId);
       readerTools.finish(value.kind === "sticky" || value.kind === "region" ? "pointer" : "text");
       updateLayout({ ...layout, panel: "notes" });
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     }
   }
   useEffect(() => {
@@ -835,7 +837,7 @@ export function App() {
                 highlight={highlight}
                 annotations={notes.annotations}
                 mode={mode === "text" ? "select" : mode}
-                onCreate={(value) => void createAnnotation(value)}
+                onCreate={createAnnotation}
                 onRegionAction={handleWorkspaceRegion}
                 onQuestionRegion={
                   questionCapture?.bookId === book.id

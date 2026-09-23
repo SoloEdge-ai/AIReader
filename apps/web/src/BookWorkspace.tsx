@@ -225,8 +225,9 @@ export const BookWorkspace = forwardRef<
       return;
     }
     if (action === "annotation") {
-      props.onCreate({ kind: "region", color: "yellow", quote: "",
+      const created = await props.onCreate({ kind: "region", color: "yellow", quote: "",
         anchors: [{ page: region.page, rects: [region.rect] }], image: region.image });
+      if (created === false) throw new Error("区域批注尚未保存，请重试");
       await props.onRegionAction?.(region, action, includePersonalMarks);
       return;
     }
@@ -240,7 +241,7 @@ export const BookWorkspace = forwardRef<
     while (state.value?.cards.some((card) => Math.abs(card.x - x) < 20 && Math.abs(card.y - y) < 40)) y += 50;
     const result = await post<{ workspace: WorkspaceSnapshot; cardId: string }>(
       `books/${props.book.id}/workspace/region-excerpts`, {
-        bookId: props.book.id, commandId: crypto.randomUUID(), expectedVersion: revision,
+        bookId: props.book.id, commandId: region.operationId ?? crypto.randomUUID(), expectedVersion: revision,
         fingerprint: props.book.fingerprint, page: region.page, rect: region.rect,
         image: region.image, includePersonalMarks,
         title: `第 ${props.book.labels[region.page - 1] ?? region.page} 页图片摘录`, x, y,
@@ -459,6 +460,7 @@ export const BookWorkspace = forwardRef<
               <span>
                 <Icon name={card.kind === "note" ? "note" : "book"} />
                 {card.kind === "excerpt" ? "原文摘录" : card.kind === "region" ? "图片摘录" : "笔记"}
+                {card.region?.includePersonalMarks && <small className="workspace-region-marked">含个人标注</small>}
               </span>
               <span className="workspace-grip" aria-hidden="true">
                 ⠿
