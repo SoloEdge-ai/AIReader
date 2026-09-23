@@ -161,9 +161,12 @@ test("selected canvas materials are frozen, book/session scoped and actually sen
     expect(restored.status).toBe(201);
     const copy = await restored.json();
     const copyNotes = await (await request(`books/${copy.id}/notes`)).json();
-    expect(copyNotes[0].origin.materials[0].sections[0].text).toBe(card.text);
-    expect(copyNotes[0].origin.materials[0].images[0].includesPdfBackground).toBe(true);
-    const copiedImage = copyNotes[0].origin.materials[0].images[0].id;
+    const copiedAnswerNote = copyNotes.find((candidate: { origin?: { materials?: unknown[] } }) =>
+      candidate.origin?.materials?.length);
+    expect(copiedAnswerNote).toBeDefined();
+    expect(copiedAnswerNote.origin.materials[0].sections[0].text).toBe(card.text);
+    expect(copiedAnswerNote.origin.materials[0].images[0].includesPdfBackground).toBe(true);
+    const copiedImage = copiedAnswerNote.origin.materials[0].images[0].id;
     expect((await request(`books/${copy.id}/chat-images/${copiedImage}`)).status).toBe(200);
     expect((await request(`books/${book.id}/turns`, { reading: { bookId: book.id, page: 1 },
       sessionId: session.id, question: "CHECK_MATERIAL", model: "fixture-a", effort: "medium",
