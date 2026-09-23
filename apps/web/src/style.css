@@ -1712,6 +1712,9 @@ summary {
   box-shadow: 0 3px 16px #0002;
   font-size: 12px;
 }
+.reading:has(.reader-tool-palette[data-dock="bottom"]) .region-question-prompt {
+  bottom: 76px;
+}
 .region-question-prompt svg {
   flex-shrink: 0;
 }
