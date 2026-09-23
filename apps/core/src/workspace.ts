@@ -160,6 +160,9 @@ export class Workspaces {
       if (surfaces.some((surface) => surface.kind === "pdf" &&
           (surface.fingerprint !== book.fingerprint || surface.page > book.pages)))
         throw new Error("画布对象不属于此 PDF");
+      if (object.kind !== "ink" && object.surface.kind === "board" &&
+          (object.x < 0 || object.y < 0))
+        throw new Error("白板对象位置无效");
     }
     for (const link of value.links)
       if (link.from === link.to || !ids.has(link.from) || !ids.has(link.to))

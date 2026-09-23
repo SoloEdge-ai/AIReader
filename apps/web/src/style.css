@@ -1817,6 +1817,21 @@ summary {
   box-shadow: 0 8px 28px #0003;
   font-size: 12px;
 }
+.reader-tool-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  display: none;
+  min-width: 156px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 28px #0003;
+}
+.reader-tool-menu:popover-open { display: grid; gap: 2px; }
+.reader-tool-menu button { width: 100%; justify-content: flex-start; font-size: 12px; }
 .reader-brush-settings header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; font-weight: 600; }
 .reader-brush-settings header span { color: var(--muted); font-size: 10px; font-weight: 400; }
 .reader-brush-settings label { display: flex; justify-content: space-between; margin: 11px 0 6px; }

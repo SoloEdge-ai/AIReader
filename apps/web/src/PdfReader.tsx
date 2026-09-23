@@ -19,13 +19,14 @@ import type { z } from "zod";
 import { fileUrl } from "./api";
 import { zoomWorkspaceAtPointer } from "./WorkspaceViewport";
 import type { InkPoint } from "./InkGeometry";
-import type { InkStroke } from "../../../packages/protocol/src/workspace";
+import type { InkStroke, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import {
   WORKSPACE_DOCUMENT_X,
   type WorkspaceCamera,
 } from "../../../packages/protocol/src/workspace";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-export type AnnotationMode = "pointer" | "select" | "sticky" | "region" | "pen" | "highlighter" | "eraser";
+export type AnnotationMode = "pointer" | "select" | "sticky" | "region" | "pen" | "highlighter" | "eraser" |
+  "free-text" | "note-card" | "rectangle" | "ellipse" | "line" | "arrow" | "link" | "lasso";
 export type QuestionRegion = {
   page: number;
   rect: [number, number, number, number];
@@ -92,6 +93,7 @@ function Page({
   view,
   annotations,
   ink,
+  marks,
   highlight,
   mode,
   onCreate,
@@ -105,6 +107,7 @@ function Page({
   view: View;
   annotations: Annotation[];
   ink: InkStroke[];
+  marks: Exclude<WorkspaceObject, InkStroke>[];
   highlight?: SourceAnchor;
   mode: AnnotationMode | "ask-region";
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void | Promise<void | boolean>;
@@ -245,6 +248,51 @@ function Page({
             context.lineCap = context.lineJoin = "round";
             context.stroke();
           }
+      for (const mark of marks) {
+        if (mark.surface.kind !== "pdf" || mark.surface.page !== page) continue;
+        const [x1, y1, x2, y2] = ordered(view.convertToViewportRectangle([
+          mark.x, mark.y, mark.x + mark.width, mark.y + mark.height]));
+        context.strokeStyle = context.fillStyle = mark.color;
+        context.globalAlpha = 1;
+        if (mark.kind === "text") {
+          context.font = `${mark.bold ? "bold " : ""}${mark.fontSize * view.scale}px sans-serif`;
+          for (const [index, line] of mark.text.split("\n").entries())
+            context.fillText(line, x1 + 4, y1 + (index + 1) * mark.fontSize * view.scale * 1.4,
+              Math.max(1, x2 - x1 - 8));
+          continue;
+        }
+        context.lineWidth = mark.strokeWidth * view.scale;
+        if (mark.shape === "rectangle") {
+          if (mark.fill) {
+            context.fillStyle = mark.fill; context.globalAlpha = mark.fillOpacity ?? .25;
+            context.fillRect(x1, y1, x2 - x1, y2 - y1); context.globalAlpha = 1;
+          }
+          context.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        }
+        else if (mark.shape === "ellipse") {
+          context.beginPath(); context.ellipse((x1 + x2) / 2, (y1 + y2) / 2,
+            (x2 - x1) / 2, (y2 - y1) / 2, 0, 0, Math.PI * 2);
+          if (mark.fill) { context.fillStyle = mark.fill; context.globalAlpha = mark.fillOpacity ?? .25;
+            context.fill(); context.globalAlpha = 1; }
+          context.stroke();
+        } else {
+          const start = mark.startCorner ?? "top-left";
+          const a = view.convertToViewportPoint(mark.x + (start.endsWith("right") ? mark.width : 0),
+            mark.y + (start.startsWith("bottom") ? mark.height : 0));
+          const b = view.convertToViewportPoint(mark.x + (start.endsWith("right") ? 0 : mark.width),
+            mark.y + (start.startsWith("bottom") ? 0 : mark.height));
+          context.beginPath(); context.moveTo(a[0], a[1]); context.lineTo(b[0], b[1]); context.stroke();
+          if (mark.shape === "arrow") {
+            const angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
+            const size = Math.max(8, mark.strokeWidth * view.scale * 4);
+            context.beginPath();
+            context.moveTo(b[0] - size * Math.cos(angle - .5), b[1] - size * Math.sin(angle - .5));
+            context.lineTo(b[0], b[1]);
+            context.lineTo(b[0] - size * Math.cos(angle + .5), b[1] - size * Math.sin(angle + .5));
+            context.stroke();
+          }
+        }
+      }
       context.globalAlpha = 1;
       context.restore();
     }
@@ -524,10 +572,15 @@ export interface PdfReaderProps {
     ) => ReactNode;
     sourceFocus?: PdfAnchor[];
     ink?: InkStroke[];
+    marks?: Exclude<WorkspaceObject, InkStroke>[];
     onInkStart?: (point: InkPoint) => void;
     onInkMove?: (points: InkPoint[]) => void;
     onInkEnd?: (point: InkPoint) => void;
     onInkCancel?: () => void;
+    onCanvasStart?: (point: InkPoint, shift: boolean, targetObjectId?: string) => boolean;
+    onCanvasMove?: (point: InkPoint) => void;
+    onCanvasEnd?: (point: InkPoint) => void;
+    onCanvasCancel?: () => void;
   };
 }
 export function PdfReader({
@@ -566,6 +619,7 @@ export function PdfReader({
   >(undefined);
   const space = useRef(false);
   const inkPointer = useRef<number | undefined>(undefined);
+  const canvasPointer = useRef<number | undefined>(undefined);
   const inkLast = useRef<{ x: number; y: number; point: InkPoint } | undefined>(undefined);
   const inkCallbacks = useRef(workspace);
   inkCallbacks.current = workspace;
@@ -581,6 +635,13 @@ export function PdfReader({
       inkPointer.current = undefined;
     }
   }, [mode]);
+  useEffect(() => {
+    if (canvasPointer.current !== undefined) {
+      inkCallbacks.current?.onCanvasCancel?.();
+      releaseCapture(canvasPointer.current);
+      canvasPointer.current = undefined;
+    }
+  }, [mode, zoom, rotation]);
   const suppressContextMenu = useRef(false);
   const suppressSelection = useRef(false);
   const [panReady, setPanReady] = useState(false);
@@ -639,6 +700,11 @@ export function PdfReader({
       event.preventDefault();
       space.current = true;
       setPanReady(true);
+      if (canvasPointer.current !== undefined) {
+        inkCallbacks.current?.onCanvasCancel?.();
+        releaseCapture(canvasPointer.current);
+        canvasPointer.current = undefined;
+      }
       if (inkPointer.current !== undefined && inkLast.current && scroll.current) {
         const pointerId = inkPointer.current;
         inkCallbacks.current?.onInkEnd?.(inkLast.current.point);
@@ -659,7 +725,12 @@ export function PdfReader({
         releaseCapture(inkPointer.current);
       }
       if (pan.current) releaseCapture(pan.current.pointerId);
+      if (canvasPointer.current !== undefined) {
+        inkCallbacks.current?.onCanvasCancel?.();
+        releaseCapture(canvasPointer.current);
+      }
       inkPointer.current = undefined;
+      canvasPointer.current = undefined;
       space.current = false;
       setPanReady(false);
       pan.current = undefined;
@@ -879,6 +950,10 @@ export function PdfReader({
           inkCallbacks.current?.onInkEnd?.(inkLast.current?.point ?? worldPoint(event));
           inkPointer.current = undefined;
         }
+        if (canvasPointer.current !== undefined && (event.button === 1 || event.button === 2)) {
+          inkCallbacks.current?.onCanvasCancel?.();
+          canvasPointer.current = undefined;
+        }
         if ((mode === "pen" || mode === "highlighter" || mode === "eraser") &&
             event.button === 0 && !space.current && workspace.onInkStart &&
             !target.closest(".workspace-card,.workspace-toolbar,.region-preview,button,input,textarea,select,[contenteditable]")) {
@@ -889,6 +964,16 @@ export function PdfReader({
           inkLast.current = { x: event.clientX, y: event.clientY, point };
           scroll.current!.setPointerCapture(event.pointerId);
           workspace.onInkStart(point);
+          return;
+        }
+        if (event.button === 0 && !space.current && workspace.onCanvasStart &&
+            !target.closest(".workspace-card,.workspace-toolbar,.region-preview,button,input,textarea,select,[contenteditable]") &&
+            workspace.onCanvasStart(worldPoint(event), event.shiftKey,
+              target.closest<HTMLElement>("[data-object-id]")?.dataset.objectId)) {
+          event.preventDefault();
+          event.stopPropagation();
+          canvasPointer.current = event.pointerId;
+          scroll.current!.setPointerCapture(event.pointerId);
           return;
         }
         if (
@@ -923,6 +1008,11 @@ export function PdfReader({
         }
       }}
       onPointerMove={(event) => {
+        if (canvasPointer.current === event.pointerId) {
+          event.preventDefault();
+          workspace?.onCanvasMove?.(worldPoint(event));
+          return;
+        }
         if (inkPointer.current === event.pointerId) {
           if ((event.buttons & 2) || space.current) {
             workspace?.onInkEnd?.(inkLast.current?.point ?? worldPoint(event));
@@ -965,6 +1055,12 @@ export function PdfReader({
         }
       }}
       onPointerUp={(event) => {
+        if (canvasPointer.current === event.pointerId) {
+          canvasPointer.current = undefined;
+          workspace?.onCanvasEnd?.(worldPoint(event));
+          releaseCapture(event.pointerId);
+          return;
+        }
         if (inkPointer.current === event.pointerId) {
           inkPointer.current = undefined;
           workspace?.onInkEnd?.(worldPoint(event));
@@ -977,6 +1073,10 @@ export function PdfReader({
         releaseCapture(event.pointerId);
       }}
       onPointerCancel={(event) => {
+        if (canvasPointer.current === event.pointerId) {
+          canvasPointer.current = undefined;
+          workspace?.onCanvasCancel?.();
+        }
         if (inkPointer.current === event.pointerId) {
           inkPointer.current = undefined;
           workspace?.onInkCancel?.();
@@ -1088,6 +1188,7 @@ export function PdfReader({
               view={views.current[i]}
               annotations={annotations}
               ink={workspace?.ink ?? []}
+              marks={workspace?.marks ?? []}
               highlight={highlight}
               mode={onQuestionRegion ? "ask-region" : mode}
               onCreate={onCreate}

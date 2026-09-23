@@ -45,17 +45,18 @@ export const WorkspaceObjectSchema = z.discriminatedUnion("kind", [
   InkStrokeSchema,
   z.object({
     id: identity, kind: z.literal("text"), surface: SurfaceAnchorSchema,
-    x: position, y: position, width: z.number().finite().min(20).max(2000),
+    x: inkAxis, y: inkAxis, width: z.number().finite().min(20).max(2000),
     height: z.number().finite().min(20).max(2000), text: z.string().max(20000),
     fontSize: z.number().finite().min(8).max(120), color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     bold: z.boolean(), align: z.enum(["left", "center", "right"]),
   }).strict(),
   z.object({
     id: identity, kind: z.literal("shape"), shape: z.enum(["rectangle", "ellipse", "line", "arrow"]),
-    surface: SurfaceAnchorSchema, x: position, y: position,
+    surface: SurfaceAnchorSchema, x: inkAxis, y: inkAxis,
     width: z.number().finite().min(1).max(10000), height: z.number().finite().min(1).max(10000),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/), strokeWidth: z.number().finite().min(0.5).max(100),
     fill: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), fillOpacity: z.number().finite().min(0).max(1).optional(),
+    startCorner: z.enum(["top-left", "top-right", "bottom-left", "bottom-right"]).optional(),
   }).strict(),
 ]);
 export type WorkspaceObject = z.infer<typeof WorkspaceObjectSchema>;
@@ -112,6 +113,7 @@ export const WorkspaceSchema = z
             from: identity,
             to: identity,
             label: z.string().max(200),
+            directed: z.boolean().optional(),
           })
           .strict(),
       )

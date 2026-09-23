@@ -12,7 +12,7 @@ import type {
   ReadingSelection,
   PdfAnchor,
 } from "../../../packages/protocol/src";
-import type { WorkspaceCard } from "../../../packages/protocol/src/workspace";
+import type { WorkspaceCard, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import { WORKSPACE_DOCUMENT_X } from "../../../packages/protocol/src/workspace";
 import type { BookWorkspace as WorkspaceSnapshot } from "../../../packages/protocol/src/workspace";
 import type { InkStroke } from "../../../packages/protocol/src/workspace";
@@ -27,6 +27,9 @@ import {
 import { useWorkspace } from "./WorkspaceState";
 import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPoint, type ProjectedInk } from "./InkGeometry";
 import { InkCanvas, type InkCanvasHandle } from "./InkCanvas";
+import { WorkspaceObjectView } from "./WorkspaceObjectView";
+import { lassoHitsPath, lassoHitsRect, newShape, objectRect, resizeObject,
+  translateObject, worldToSurface } from "./WorkspaceGeometry";
 import { dockBesideDocument } from "./WorkspaceLayout";
 import { Icon } from "./Icon";
 import { base, post } from "./api";
@@ -35,6 +38,7 @@ import "./workspace.css";
 export interface BookWorkspaceHandle {
   flush(): Promise<boolean>;
   excerpt(selection: ReadingSelection): void;
+  escape(): void;
 }
 export const BookWorkspace = forwardRef<
   BookWorkspaceHandle,
@@ -47,6 +51,15 @@ export const BookWorkspace = forwardRef<
 >(function BookWorkspace(props, ref) {
   const state = useWorkspace(props.book.id);
   const [selected, setSelected] = useState<string>();
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedLink, setSelectedLink] = useState<string>();
+  const [editingText, setEditingText] = useState<string>();
+  const [canvasGesture, setCanvasGesture] = useState<
+    | { kind: "shape"; start: InkPoint; current: InkPoint }
+    | { kind: "lasso"; points: InkPoint[] }
+    | { kind: "move"; start: InkPoint; current: InkPoint; ids: string[] }
+    | { kind: "place"; start: InkPoint }
+  >();
   const [linkFrom, setLinkFrom] = useState<string>();
   const [focus, setFocus] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
@@ -271,37 +284,36 @@ export const BookWorkspace = forwardRef<
     setSelected(result.cardId);
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
-  useImperativeHandle(ref, () => ({ flush: state.flush, excerpt: add }));
+  useImperativeHandle(ref, () => ({ flush: state.flush, excerpt: add,
+    escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined); setLinkFrom(undefined); setEditingText(undefined); },
+  }));
   function update(id: string, change: Partial<WorkspaceCard>) {
     if (state.value)
-      state.change({
-        ...state.value,
-        cards: state.value.cards.map((card) =>
+      state.change((current) => ({
+        ...current,
+        cards: current.cards.map((card) =>
           card.id === id
             ? dockBesideDocument({ ...card, ...change }, documentWidth)
             : card,
         ),
-      });
+      }));
   }
-  function select(card: WorkspaceCard) {
-    setSelected(card.id);
+  function selectTarget(id: string, shift = false) {
+    const next = shift ? (selectedIds.includes(id) ? selectedIds.filter((value) => value !== id) : [...selectedIds, id]) :
+      selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id];
+    setSelectedIds(next);
+    setSelected(state.value?.cards.some((card) => card.id === id) ? id : undefined);
     setFocus(false);
-    if (linkFrom && linkFrom !== card.id && state.value) {
-      state.change({
-        ...state.value,
-        links: [
-          ...state.value.links,
-          {
-            id: crypto.randomUUID(),
-            from: linkFrom,
-            to: card.id,
-            label: "关联",
-          },
-        ],
-      });
+    if (linkFrom && linkFrom !== id && state.value) {
+      state.change((current) => ({ ...current,
+        links: [...current.links, { id: crypto.randomUUID(), from: linkFrom, to: id, label: "", directed: false }],
+      }));
       setLinkFrom(undefined);
+    } else if (props.mode === "link") {
+      setLinkFrom(linkFrom === id ? undefined : id);
     }
   }
+  function select(card: WorkspaceCard, shift = false) { selectTarget(card.id, shift); }
   function source(card: WorkspaceCard) {
     const anchors: PdfAnchor[] = card.region
       ? [{ page: card.region.page, rects: [card.region.rect] }]
@@ -384,6 +396,161 @@ export const BookWorkspace = forwardRef<
     inkCanvas.current?.clear();
   }
   useEffect(() => { if (inkGesture.current) cancelInk(); }, [props.mode, props.rotation, props.zoom]);
+  function findTarget(point: InkPoint, targetObjectId?: string) {
+    if (targetObjectId && state.value?.objects.some((object) => object.id === targetObjectId))
+      return targetObjectId;
+    const radius = 7 / props.zoom;
+    for (const ink of [...projectedInk.current].reverse())
+      if (hitStroke(ink, point, radius)) return ink.id;
+    return undefined;
+  }
+  function startCanvas(point: InkPoint, shift: boolean, targetObjectId?: string) {
+    if (!state.value) return false;
+    const mode = props.mode;
+    if (mode === "pointer" || mode === "link") {
+      const target = findTarget(point, targetObjectId);
+      if (!target) {
+        if (mode === "pointer") { setSelectedIds([]); setSelected(undefined); }
+        if (mode === "link") setLinkFrom(undefined);
+        return mode === "link";
+      }
+      const ids = shift ? (selectedIds.includes(target) ? selectedIds.filter((id) => id !== target) : [...selectedIds, target]) :
+        selectedIds.includes(target) && selectedIds.length > 1 ? selectedIds : [target];
+      selectTarget(target, shift);
+      if (mode === "pointer" && ids.includes(target)) setCanvasGesture({ kind: "move", start: point, current: point, ids });
+      return true;
+    }
+    if (mode === "lasso") { setCanvasGesture({ kind: "lasso", points: [point] }); return true; }
+    if (mode && ["rectangle", "ellipse", "line", "arrow"].includes(mode)) {
+      setCanvasGesture({ kind: "shape", start: point, current: point }); return true;
+    }
+    if (mode === "free-text" || mode === "note-card") {
+      setCanvasGesture({ kind: "place", start: point }); return true;
+    }
+    return false;
+  }
+  function moveCanvas(point: InkPoint) {
+    setCanvasGesture((gesture) => {
+      if (!gesture) return gesture;
+      if (gesture.kind === "lasso") {
+        const last = gesture.points.at(-1)!;
+        return Math.hypot(point[0] - last[0], point[1] - last[1]) < 2 ? gesture :
+          { ...gesture, points: [...gesture.points, point] };
+      }
+      return gesture.kind === "place" ? gesture : { ...gesture, current: point };
+    });
+  }
+  function shiftSelection(ids: string[], dx: number, dy: number) {
+    const current = state.value;
+    if (!current) return;
+    const cards = current.cards.filter((card) => ids.includes(card.id));
+    const objects = current.objects.filter((object) => ids.includes(object.id));
+    let minDx = -Infinity, maxDx = Infinity, minDy = -Infinity, maxDy = Infinity;
+    for (const card of cards) {
+      minDy = Math.max(minDy, -card.y);
+      minDx = Math.max(minDx, -card.x);
+      const columnLeft = WORKSPACE_DOCUMENT_X - 24;
+      const columnRight = WORKSPACE_DOCUMENT_X + documentWidth + 24;
+      if (card.x + card.width <= columnLeft) maxDx = Math.min(maxDx, columnLeft - card.x - card.width);
+      else if (card.x >= columnRight) minDx = Math.max(minDx, columnRight - card.x);
+    }
+    for (const object of objects) {
+      if (object.kind === "ink") continue;
+      const rect = objectRect(object, pages.current);
+      if (!rect) continue;
+      minDx = Math.max(minDx, -rect.x);
+      minDy = Math.max(minDy, -rect.y);
+      if (object.surface.kind === "pdf") {
+        const pageNumber = object.surface.page;
+        const page = pages.current.find((item) => item.page === pageNumber);
+        if (page) {
+          minDx = Math.max(minDx, page.x - rect.x);
+          maxDx = Math.min(maxDx, page.x + page.width - rect.x - rect.width);
+          minDy = Math.max(minDy, page.y - rect.y);
+          maxDy = Math.min(maxDy, page.y + page.height - rect.y - rect.height);
+        }
+      }
+    }
+    dx = Math.max(minDx, Math.min(maxDx, dx));
+    dy = Math.max(minDy, Math.min(maxDy, dy));
+    if (Math.abs(dx) < .01 && Math.abs(dy) < .01) return;
+    state.change((snapshot) => ({ ...snapshot,
+      cards: snapshot.cards.map((card) => ids.includes(card.id) ? { ...card, x: card.x + dx, y: card.y + dy } : card),
+      objects: snapshot.objects.map((object) => ids.includes(object.id) ?
+        translateObject(object, dx, dy, pages.current, props.book.fingerprint) : object),
+    }));
+  }
+  function endCanvas(point: InkPoint) {
+    const gesture = canvasGesture;
+    setCanvasGesture(undefined);
+    if (!gesture || !state.value) return;
+    if (gesture.kind === "move") {
+      const dx = point[0] - gesture.start[0], dy = point[1] - gesture.start[1];
+      if (Math.hypot(dx, dy) * props.zoom >= 5) shiftSelection(gesture.ids, dx, dy);
+      return;
+    }
+    if (gesture.kind === "lasso") {
+      const polygon = [...gesture.points, point];
+      const chosen = [
+        ...state.value.cards.filter((card) => lassoHitsRect(polygon, card)).map((card) => card.id),
+        ...state.value.objects.filter((object) => object.kind === "ink" ?
+          projectedInk.current.find((item) => item.id === object.id)?.paths.some((path) => lassoHitsPath(polygon, path.points)) :
+          !!objectRect(object, pages.current) && lassoHitsRect(polygon, objectRect(object, pages.current)!)).map((object) => object.id),
+      ];
+      setSelectedIds(chosen); setSelected(chosen.find((id) => state.value!.cards.some((card) => card.id === id)));
+      return;
+    }
+    if (gesture.kind === "shape") {
+      if (Math.hypot(point[0] - gesture.start[0], point[1] - gesture.start[1]) * props.zoom < 5) return;
+      const shape = newShape(props.mode as "rectangle" | "ellipse" | "line" | "arrow",
+        gesture.start, point, pages.current, props.book.fingerprint);
+      state.change((current) => ({ ...current, objects: [...current.objects, shape] }));
+      setSelectedIds([shape.id]);
+      return;
+    }
+    if (props.mode === "free-text") {
+      const placed = worldToSurface(gesture.start, pages.current, props.book.fingerprint);
+      const object: WorkspaceObject = { id: crypto.randomUUID(), kind: "text", surface: placed.surface,
+        x: placed.point[0], y: placed.point[1], width: 240, height: 90, text: "",
+        fontSize: 16, color: "#283d52", bold: false, align: "left" };
+      state.change((current) => ({ ...current, objects: [...current.objects, object] }));
+      setSelectedIds([object.id]); setEditingText(object.id);
+    } else if (props.mode === "note-card") {
+      const card: WorkspaceCard = dockBesideDocument({ id: crypto.randomUUID(), kind: "note", title: "新笔记",
+        text: "", comment: "", x: Math.max(0, gesture.start[0] + 20), y: Math.max(0, gesture.start[1]),
+        width: 250, height: 170 }, documentWidth);
+      state.change((current) => ({ ...current, cards: [...current.cards, card] }));
+      setSelectedIds([card.id]); setSelected(card.id);
+    }
+  }
+  function cancelCanvas() { setCanvasGesture(undefined); }
+  useEffect(() => { cancelCanvas(); }, [props.mode, props.zoom, props.rotation]);
+  function removeSelected() {
+    if (!selectedIds.length && !selectedLink) return;
+    const ids = new Set(selectedIds);
+    state.change((current) => ({ ...current,
+      cards: current.cards.filter((card) => !ids.has(card.id)),
+      objects: current.objects.filter((object) => !ids.has(object.id)),
+      links: current.links.filter((link) => link.id !== selectedLink &&
+        !ids.has(link.from) && !ids.has(link.to)),
+    }));
+    setSelectedIds([]); setSelected(undefined); setSelectedLink(undefined);
+  }
+  function updateObjects(change: (object: Exclude<WorkspaceObject, InkStroke>) => WorkspaceObject) {
+    const ids = new Set(selectedIds);
+    state.change((current) => ({ ...current, objects: current.objects.map((object) =>
+      object.kind !== "ink" && ids.has(object.id) ? change(object) : object) }));
+  }
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" || event.isComposing || (!selectedIds.length && !selectedLink) ||
+          (event.target as HTMLElement)?.closest("input,textarea,[contenteditable]")) return;
+      event.preventDefault();
+      removeSelected();
+    };
+    window.addEventListener("keydown", keydown);
+    return () => window.removeEventListener("keydown", keydown);
+  }, [selectedIds, selectedLink, state]);
   function overlay(layout: WorkspacePage[], el: HTMLDivElement | null) {
     pages.current = layout;
     viewport.current = el;
@@ -401,6 +568,29 @@ export const BookWorkspace = forwardRef<
     const cards = state.value.cards.map((card) =>
       gesture?.id === card.id ? { ...card, ...gesture } : card,
     );
+    const boundsFor = (id: string) => {
+      const card = cards.find((item) => item.id === id);
+      if (card) return card;
+      const object = state.value!.objects.find((item) => item.id === id);
+      if (!object) return;
+      if (object.kind !== "ink") return objectRect(object, layout);
+      const paths = strokes.find((stroke) => stroke.id === id)?.paths ?? [];
+      if (!paths.length) return;
+      const x = Math.min(...paths.map((path) => path.bounds[0]));
+      const y = Math.min(...paths.map((path) => path.bounds[1]));
+      return { x, y,
+        width: Math.max(...paths.map((path) => path.bounds[2])) - x,
+        height: Math.max(...paths.map((path) => path.bounds[3])) - y };
+    };
+    const selectedRects = selectedIds.flatMap((id) => {
+      const rect = boundsFor(id); return rect ? [rect] : [];
+    });
+    const selectedBounds = selectedRects.length ? {
+      x: Math.min(...selectedRects.map((rect) => rect.x)),
+      y: Math.min(...selectedRects.map((rect) => rect.y)),
+      right: Math.max(...selectedRects.map((rect) => rect.x + rect.width)),
+      bottom: Math.max(...selectedRects.map((rect) => rect.y + rect.height)),
+    } : undefined;
     return <>
       <div
         className={`workspace-objects${focus ? " focus-document" : ""}`}
@@ -424,8 +614,7 @@ export const BookWorkspace = forwardRef<
           )}
         >
           {state.value.links.map((link) => {
-            const from = cards.find((card) => card.id === link.from),
-              to = cards.find((card) => card.id === link.to);
+            const from = boundsFor(link.from), to = boundsFor(link.to);
             if (!from || !to) return null;
             const forward = from.x < to.x;
             const vertical =
@@ -455,6 +644,7 @@ export const BookWorkspace = forwardRef<
             return (
               <g key={link.id}>
                 <path d={path} />
+                {link.directed && <circle cx={x2} cy={y2} r={3.5} fill="#96a9ad" />}
                 <foreignObject
                   x={(x1 + x2) / 2 - 80}
                   y={(y1 + y2) / 2 - 16}
@@ -464,22 +654,53 @@ export const BookWorkspace = forwardRef<
                   <button
                     className="workspace-link"
                     onClick={() => {
-                      setSelected(link.from);
+                      setSelectedLink(link.id);
+                      setSelectedIds([]);
                       setLinkFrom(undefined);
                     }}
-                    title={link.label}
+                    title={link.label || "编辑关系"}
                   >
-                    {link.label}
+                    {link.label || "关联"}
                   </button>
                 </foreignObject>
               </g>
             );
           })}
         </svg>
+        {state.value.objects.filter((object): object is Exclude<WorkspaceObject, InkStroke> => object.kind !== "ink")
+          .map((object) => <WorkspaceObjectView key={object.id} object={object} pages={layout} zoom={props.zoom}
+            selected={selectedIds.includes(object.id)} editing={editingText === object.id}
+            onSelect={() => selectTarget(object.id)} onEdit={() => { selectTarget(object.id); setEditingText(object.id); }}
+            onResize={(dx, dy) => state.change((current) => ({ ...current,
+              objects: current.objects.map((item) => item.id === object.id && item.kind !== "ink" ?
+                resizeObject(item, dx, dy, layout) : item),
+            }))}
+            onCommit={(text) => {
+              if (object.kind === "text" && text !== object.text)
+                state.change((current) => ({ ...current, objects: current.objects.map((item) =>
+                  item.id === object.id && item.kind === "text" ? { ...item, text } : item) }));
+              setEditingText(undefined);
+            }} />)}
+        {canvasGesture?.kind === "lasso" && <svg className="workspace-gesture-preview"
+          width={Math.max(2400, el?.scrollWidth ?? 0)} height={Math.max(1000, el?.scrollHeight ?? 0)}>
+          <path d={`M ${canvasGesture.points.map((point) => point.join(" ")).join(" L ")} Z`} />
+        </svg>}
+        {canvasGesture?.kind === "shape" && (() => {
+          const preview = newShape(props.mode as "rectangle" | "ellipse" | "line" | "arrow",
+            canvasGesture.start, canvasGesture.current, layout, props.book.fingerprint);
+          return <WorkspaceObjectView object={preview} pages={layout} zoom={props.zoom} selected={false} editing={false}
+            onSelect={() => {}} onEdit={() => {}} onCommit={() => {}} onResize={() => {}} />;
+        })()}
+        {selectedIds.filter((id) => state.value!.objects.some((object) => object.id === id && object.kind === "ink"))
+          .map((id) => <svg key={id} className="workspace-ink-selection"
+            width={Math.max(2400, el?.scrollWidth ?? 0)} height={Math.max(1000, el?.scrollHeight ?? 0)}>
+            {strokes.find((stroke) => stroke.id === id)?.paths.map((path, index) =>
+              <polyline key={index} points={path.points.map((point) => point.join(",")).join(" ")} />)}
+          </svg>)}
         {cards.map((card) => (
           <article
             key={card.id}
-            className={`workspace-card ${card.kind}${selected === card.id ? " selected" : ""}`}
+            className={`workspace-card ${card.kind}${selectedIds.includes(card.id) ? " selected" : ""}`}
             data-card-id={card.id}
             style={{
               left: card.x,
@@ -488,7 +709,7 @@ export const BookWorkspace = forwardRef<
               height: card.height,
             }}
             onPointerDown={(event) => {
-              if (event.button === 0) select(card);
+              if (event.button === 0) select(card, event.shiftKey);
             }}
           >
             <header
@@ -699,6 +920,51 @@ export const BookWorkspace = forwardRef<
       </div>
       {el?.parentElement && createPortal(<InkCanvas ref={inkCanvas} strokes={strokes}
         viewport={el} zoom={props.zoom} />, el.parentElement)}
+      {el?.parentElement && selectedBounds && selectedBounds.bottom * props.zoom >= el.scrollTop &&
+        selectedBounds.y * props.zoom <= el.scrollTop + el.clientHeight && createPortal(
+          <div className="workspace-object-toolbar" role="toolbar" aria-label="对象操作"
+            style={{ left: Math.max(8, Math.min(el.clientWidth - 260,
+              (selectedBounds.x + selectedBounds.right) / 2 * props.zoom - el.scrollLeft - 130)),
+              top: Math.max(8, Math.min(el.clientHeight - 44,
+                selectedBounds.y * props.zoom - el.scrollTop - 44)) }}>
+            <span>{selectedIds.length > 1 ? `${selectedIds.length} 个对象` : "已选中"}</span>
+            {selectedIds.some((id) => state.value!.objects.some((object) => object.id === id)) &&
+              <label title="修改选中对象颜色" aria-label="对象颜色">
+                <input type="color" aria-label="对象颜色" defaultValue="#345d84"
+                  onChange={(event) => {
+                    const color = event.target.value, ids = new Set(selectedIds);
+                    state.change((current) => ({ ...current,
+                      objects: current.objects.map((object) => ids.has(object.id) ? { ...object, color } : object),
+                    }));
+                  }} />
+              </label>}
+            <button aria-label="连接选中对象" title="点击另一个对象建立关系"
+              onClick={() => setLinkFrom(selectedIds[0])}><Icon name="link" /></button>
+            <button aria-label="删除选中对象" title="删除选中对象" onClick={removeSelected}>
+              <Icon name="trash" /></button>
+          </div>, el.parentElement)}
+      {el?.parentElement && selectedLink && (() => {
+        const link = state.value!.links.find((item) => item.id === selectedLink);
+        if (!link) return null;
+        const from = boundsFor(link.from), to = boundsFor(link.to);
+        if (!from || !to) return null;
+        return createPortal(<div className="workspace-object-toolbar link-editor" role="toolbar" aria-label="关系操作"
+          style={{ left: Math.max(8, Math.min(el.clientWidth - 240,
+            ((from.x + from.width / 2 + to.x + to.width / 2) / 2) * props.zoom - el.scrollLeft - 120)),
+            top: Math.max(8, Math.min(el.clientHeight - 44,
+              ((from.y + from.height / 2 + to.y + to.height / 2) / 2) * props.zoom - el.scrollTop - 44)) }}>
+          <input key={link.id} aria-label="关系名称" defaultValue={link.label} maxLength={200}
+            placeholder="关系名称" onBlur={(event) => {
+              const label = event.target.value;
+              if (label !== link.label) state.change((current) => ({ ...current,
+                links: current.links.map((item) => item.id === link.id ? { ...item, label } : item) }));
+            }} />
+          <label><input type="checkbox" aria-label="关系方向" checked={link.directed ?? false}
+            onChange={(event) => state.change((current) => ({ ...current,
+              links: current.links.map((item) => item.id === link.id ? { ...item, directed: event.target.checked } : item) }))} />方向</label>
+          <button aria-label="删除关系" onClick={removeSelected}><Icon name="trash" /></button>
+        </div>, el.parentElement);
+      })()}
     </>;
   }
   function move(e: React.PointerEvent) {
@@ -734,7 +1000,10 @@ export const BookWorkspace = forwardRef<
   function finish() {
     if (gesture && pointer.current) {
       const { id, ...geometry } = gesture;
-      update(id, geometry);
+      if (pointer.current.mode === "move" && selectedIds.includes(id) && selectedIds.length > 1)
+        shiftSelection(selectedIds, geometry.x - pointer.current.card.x,
+          geometry.y - pointer.current.card.y);
+      else update(id, geometry);
     }
     cancel();
   }
@@ -774,10 +1043,15 @@ export const BookWorkspace = forwardRef<
           render: overlay,
           sourceFocus,
           ink: state.value?.objects.filter((object): object is InkStroke => object.kind === "ink"),
+          marks: state.value?.objects.filter((object): object is Exclude<WorkspaceObject, InkStroke> => object.kind !== "ink"),
           onInkStart: startInk,
           onInkMove: moveInk,
           onInkEnd: finishInk,
           onInkCancel: cancelInk,
+          onCanvasStart: startCanvas,
+          onCanvasMove: moveCanvas,
+          onCanvasEnd: endCanvas,
+          onCanvasCancel: cancelCanvas,
         }}
       />
       <div className="workspace-toolbar" role="toolbar" aria-label="工作区工具">

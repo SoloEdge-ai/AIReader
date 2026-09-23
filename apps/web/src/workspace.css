@@ -33,9 +33,84 @@
   position: absolute;
   left: 0;
   top: 0;
+  z-index: 4;
   transform-origin: 0 0;
   pointer-events: none;
 }
+.workspace-object {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+  min-width: 1px;
+  min-height: 1px;
+}
+.workspace-object.text {
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  cursor: move;
+}
+.workspace-object.text:focus-visible,
+.workspace-object.selected { outline: 1px solid #6788a2; outline-offset: 2px; }
+.workspace-object.text span:empty::before { content: "双击写字…"; color: var(--muted); }
+.workspace-object.text textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  line-height: inherit;
+}
+.workspace-object.shape { pointer-events: none; }
+.workspace-object.shape svg * { pointer-events: visiblePainted; }
+.workspace-object.shape:focus-visible { outline: 1px solid #6788a2; }
+.workspace-object .workspace-object-resize {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  z-index: 2;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1.5px solid #66869a;
+  border-radius: 3px;
+  background: var(--workspace-paper);
+  cursor: nwse-resize;
+  pointer-events: auto;
+}
+.workspace-gesture-preview,
+.workspace-ink-selection { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.workspace-gesture-preview path { fill: #66869a22; stroke: #66869a; stroke-width: 1.2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.workspace-ink-selection polyline { fill: none; stroke: #3b72ad; stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.workspace-object-toolbar {
+  position: absolute;
+  z-index: 26;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 4px 6px;
+  border: 1px solid var(--workspace-rule);
+  border-radius: 9px;
+  background: var(--workspace-paper);
+  color: var(--text);
+  box-shadow: 0 4px 16px #0002;
+  font-size: 11px;
+}
+.workspace-object-toolbar button { border: 0; background: transparent; border-radius: 6px; padding: 5px; color: inherit; }
+.workspace-object-toolbar button:hover { background: #66869a22; }
+.workspace-object-toolbar input[type="color"] { width: 22px; height: 22px; border: 0; background: transparent; }
+.workspace-object-toolbar.link-editor input[type="text"],
+.workspace-object-toolbar.link-editor input:not([type]) { width: 105px; min-width: 0; border: 0; background: transparent; color: inherit; }
+.workspace-object-toolbar.link-editor label { display: flex; align-items: center; gap: 2px; }
 .workspace-ink-canvas {
   position: absolute;
   inset: 0;

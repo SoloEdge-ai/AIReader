@@ -114,6 +114,7 @@ export function App() {
       } else if (!popover && !(event.target as HTMLElement)?.closest(".reader-popover") &&
                  (event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) return false;
       if (questionCapture) cancelQuestionCapture();
+      workspace.current?.escape();
       return true;
     },
   });
