@@ -7,6 +7,7 @@ import {
   type WorkspaceCamera,
 } from "../../../packages/protocol/src/workspace";
 import { Library } from "./library";
+import type { Annotation } from "../../../packages/protocol/src";
 
 export class WorkspaceConflict extends Error {}
 
@@ -164,8 +165,11 @@ export class Workspaces {
           (object.x < 0 || object.y < 0))
         throw new Error("白板对象位置无效");
     }
+    const annotations = new Set(this.library.store.list<Annotation>("annotation", bookId)
+      .filter((annotation) => !annotation.deletedAt).map((annotation) => annotation.id));
     for (const link of value.links)
-      if (link.from === link.to || !ids.has(link.from) || !ids.has(link.to))
+      if (link.from === link.to ||
+          ![link.from, link.to].every((id) => ids.has(id) || annotations.has(id)))
         throw new Error("连接的对象不存在");
   }
 }

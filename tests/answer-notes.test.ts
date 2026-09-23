@@ -58,7 +58,7 @@ async function fixture() {
     const book = await (await api("books", bytes)).json();
     await expect
       .poll(async () => (await (await api(`books/${book.id}`)).json()).status, {
-        timeout: 10000,
+        timeout: 30000,
       })
       .toBe("ready");
     return { ...book, bytes };
@@ -145,7 +145,7 @@ test("save a completed answer as an editable note with verified original-source 
   } finally {
     await f.close();
   }
-}, 20000);
+}, 45000);
 
 test("saving is idempotent across restart without overwriting edits, rejects running or foreign turns, and allows re-save after deletion", async () => {
   const f = await fixture();

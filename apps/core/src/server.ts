@@ -323,7 +323,8 @@ export function createCore(
             return;
           }
           if (parts[3] === "workspace" && parts[4] === "commands" && parts.length === 5 && req.method === "POST") {
-            send(res, workspaces.command(id, await jsonBody(req, 8 * 1024 * 1024)));
+            const batch = await workspaceAssets.validateCommandObjects(id, await jsonBody(req, 8 * 1024 * 1024));
+            send(res, workspaces.command(id, batch));
             return;
           }
           if (parts[3] === "workspace" && parts[4] === "camera" && parts.length === 5 && req.method === "PUT") {

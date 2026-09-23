@@ -340,8 +340,8 @@ export class WorkspaceArchives {
         throw new Error("画布对象不属于此文档");
     }
     for (const link of data.workspace.links)
-      if (!(cards.has(link.from) || objectIds.has(link.from)) ||
-          !(cards.has(link.to) || objectIds.has(link.to)) || link.from === link.to)
+      if (!(cards.has(link.from) || objectIds.has(link.from) || annotationIds.has(link.from)) ||
+          !(cards.has(link.to) || objectIds.has(link.to) || annotationIds.has(link.to)) || link.from === link.to)
         throw new Error("关系指向不存在的卡片");
     if (
       referencedAssets.size !== Object.keys(data.assets).length ||

@@ -125,10 +125,13 @@ try {
     ).toBeVisible();
   }
   await page.screenshot({ path: ".local/screenshots/desktop.png" });
-  if (!(await page.locator(".side-panel").isVisible()))
+  const collapseSidebar = page.getByRole("button", { name: "收起侧栏" });
+  for (let attempt = 0; attempt < 3 && !(await collapseSidebar.isVisible()); attempt++) {
     await page.getByRole("button", { name: "问答", exact: true }).click();
-  await page.locator(".side-panel").waitFor();
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+    await collapseSidebar.waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
+  }
+  await expect(collapseSidebar).toBeVisible();
+  await collapseSidebar.click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByLabel("主题", { exact: true }).selectOption("dark");
   await page.getByRole("button", { name: "关闭设置" }).click();

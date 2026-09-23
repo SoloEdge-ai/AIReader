@@ -98,6 +98,7 @@ function Page({
   mode,
   onCreate,
   onAnnotation,
+  onAnnotationTarget,
   onQuestionRegion,
   onRegionAction,
   placement,
@@ -112,6 +113,7 @@ function Page({
   mode: AnnotationMode | "ask-region";
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void | Promise<void | boolean>;
   onAnnotation: (id: string) => void;
+  onAnnotationTarget?: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
   onRegionAction?: (region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) => void | Promise<void>;
   placement?: { left: number; top: number };
@@ -361,7 +363,8 @@ function Page({
                       "--annotation-color": colors[a.color],
                     } as React.CSSProperties
                   }
-                  onClick={() => onAnnotation(a.noteId)}
+                  onClick={() => mode === "link" && onAnnotationTarget ?
+                    onAnnotationTarget(a.id) : onAnnotation(a.noteId)}
                 >
                   {a.kind === "sticky" ? "▤" : null}
                   {(a.kind === "underline" || a.kind === "strike") && (
@@ -581,6 +584,7 @@ export interface PdfReaderProps {
     onCanvasMove?: (point: InkPoint) => void;
     onCanvasEnd?: (point: InkPoint) => void;
     onCanvasCancel?: () => void;
+    onAnnotationTarget?: (id: string) => void;
   };
 }
 export function PdfReader({
@@ -1193,6 +1197,7 @@ export function PdfReader({
               mode={onQuestionRegion ? "ask-region" : mode}
               onCreate={onCreate}
               onAnnotation={onAnnotation}
+              onAnnotationTarget={workspace?.onAnnotationTarget}
               onQuestionRegion={onQuestionRegion}
               onRegionAction={onRegionAction}
               sourceFocus={workspace?.sourceFocus}

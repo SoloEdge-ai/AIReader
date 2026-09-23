@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import type {
   Book,
+  Annotation,
   ReadingSelection,
   PdfAnchor,
 } from "../../../packages/protocol/src";
@@ -46,13 +47,25 @@ export const BookWorkspace = forwardRef<
     book: Book;
     page: number;
     toolPreferences: ToolPreferences;
+    workspaceEvent?: number;
+    onAnnotationColor?: (annotation: Annotation, color: Annotation["color"]) => Promise<void>;
+    onAnnotationDelete?: (annotation: Annotation) => Promise<void>;
+    onAnnotationRestore?: (annotation: Annotation) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
   }
 >(function BookWorkspace(props, ref) {
-  const state = useWorkspace(props.book.id);
+  const state = useWorkspace(props.book.id, props.annotations?.map((annotation) => annotation.id));
+  const lastWorkspaceEvent = useRef(props.workspaceEvent ?? 0);
+  useEffect(() => {
+    if (lastWorkspaceEvent.current !== (props.workspaceEvent ?? 0)) {
+      lastWorkspaceEvent.current = props.workspaceEvent ?? 0;
+      void state.reload(true);
+    }
+  }, [props.workspaceEvent]);
   const [selected, setSelected] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedLink, setSelectedLink] = useState<string>();
+  const [styleOpen, setStyleOpen] = useState(false);
   const [editingText, setEditingText] = useState<string>();
   const [canvasGesture, setCanvasGesture] = useState<
     | { kind: "shape"; start: InkPoint; current: InkPoint }
@@ -299,9 +312,11 @@ export const BookWorkspace = forwardRef<
       }));
   }
   function selectTarget(id: string, shift = false) {
+    setStyleOpen(false);
     const next = shift ? (selectedIds.includes(id) ? selectedIds.filter((value) => value !== id) : [...selectedIds, id]) :
       selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id];
     setSelectedIds(next);
+    setSelectedLink(undefined);
     setSelected(state.value?.cards.some((card) => card.id === id) ? id : undefined);
     setFocus(false);
     if (linkFrom && linkFrom !== id && state.value) {
@@ -404,13 +419,39 @@ export const BookWorkspace = forwardRef<
       if (hitStroke(ink, point, radius)) return ink.id;
     return undefined;
   }
+  function sourceAnnotation(annotation: Annotation) {
+    const anchor = annotation.anchors[0];
+    const page = pages.current.find((item) => item.page === anchor.page);
+    const el = viewport.current;
+    if (!page || !el) return;
+    setReturnPosition({ x: el.scrollLeft / props.zoom, y: el.scrollTop / props.zoom });
+    const location = page.locate(anchor.rects[0]);
+    setSourceFocus(annotation.anchors);
+    el.scrollTo({ left: Math.max(0, page.x * props.zoom - 30),
+      top: Math.max(0, location.y * props.zoom - 100) });
+  }
+  function annotationRects(annotation: Annotation, layout: WorkspacePage[]) {
+    return annotation.anchors.flatMap((anchor) => {
+      const page = layout.find((item) => item.page === anchor.page);
+      if (!page) return [];
+      return anchor.rects.map((rect) => {
+        const corners: InkPoint[] = [[rect[0], rect[1]], [rect[2], rect[1]],
+          [rect[0], rect[3]], [rect[2], rect[3]]];
+        const world = corners.map((point) => page.toWorld(point));
+        const x = Math.min(...world.map((point) => point[0]));
+        const y = Math.min(...world.map((point) => point[1]));
+        return { x, y, width: Math.max(...world.map((point) => point[0])) - x,
+          height: Math.max(...world.map((point) => point[1])) - y };
+      });
+    });
+  }
   function startCanvas(point: InkPoint, shift: boolean, targetObjectId?: string) {
     if (!state.value) return false;
     const mode = props.mode;
     if (mode === "pointer" || mode === "link") {
       const target = findTarget(point, targetObjectId);
       if (!target) {
-        if (mode === "pointer") { setSelectedIds([]); setSelected(undefined); }
+        if (mode === "pointer") { setSelectedIds([]); setSelected(undefined); setSelectedLink(undefined); }
         if (mode === "link") setLinkFrom(undefined);
         return mode === "link";
       }
@@ -441,6 +482,10 @@ export const BookWorkspace = forwardRef<
     });
   }
   function shiftSelection(ids: string[], dx: number, dy: number) {
+    if (props.annotations?.some((annotation) => ids.includes(annotation.id))) {
+      setInkError("源批注固定在原文位置；请先取消选择批注，再移动其他对象。");
+      return;
+    }
     const current = state.value;
     if (!current) return;
     const cards = current.cards.filter((card) => ids.includes(card.id));
@@ -496,7 +541,11 @@ export const BookWorkspace = forwardRef<
         ...state.value.objects.filter((object) => object.kind === "ink" ?
           projectedInk.current.find((item) => item.id === object.id)?.paths.some((path) => lassoHitsPath(polygon, path.points)) :
           !!objectRect(object, pages.current) && lassoHitsRect(polygon, objectRect(object, pages.current)!)).map((object) => object.id),
+        ...(props.annotations ?? []).filter((annotation) =>
+          annotationRects(annotation, pages.current).some((rect) => lassoHitsRect(polygon, rect)))
+          .map((annotation) => annotation.id),
       ];
+      setStyleOpen(false);
       setSelectedIds(chosen); setSelected(chosen.find((id) => state.value!.cards.some((card) => card.id === id)));
       return;
     }
@@ -510,8 +559,14 @@ export const BookWorkspace = forwardRef<
     }
     if (props.mode === "free-text") {
       const placed = worldToSurface(gesture.start, pages.current, props.book.fingerprint);
+      const corners = placed.page ? [[placed.page.x, placed.page.y],
+        [placed.page.x + placed.page.width, placed.page.y + placed.page.height]]
+        .map((point) => placed.page!.toPdf(point as InkPoint)) : [];
+      const right = corners.length ? Math.max(...corners.map((point) => point[0])) : Infinity;
+      const bottom = corners.length ? Math.max(...corners.map((point) => point[1])) : Infinity;
+      const x = Math.min(placed.point[0], right - 20), y = Math.min(placed.point[1], bottom - 20);
       const object: WorkspaceObject = { id: crypto.randomUUID(), kind: "text", surface: placed.surface,
-        x: placed.point[0], y: placed.point[1], width: 240, height: 90, text: "",
+        x, y, width: Math.min(240, right - x), height: Math.min(90, bottom - y), text: "",
         fontSize: 16, color: "#283d52", bold: false, align: "left" };
       state.change((current) => ({ ...current, objects: [...current.objects, object] }));
       setSelectedIds([object.id]); setEditingText(object.id);
@@ -525,8 +580,26 @@ export const BookWorkspace = forwardRef<
   }
   function cancelCanvas() { setCanvasGesture(undefined); }
   useEffect(() => { cancelCanvas(); }, [props.mode, props.zoom, props.rotation]);
-  function removeSelected() {
+  useEffect(() => { setSelectedLink(undefined); }, [props.mode]);
+  async function removeSelected() {
     if (!selectedIds.length && !selectedLink) return;
+    const selectedAnnotations = props.annotations?.filter((annotation) => selectedIds.includes(annotation.id)) ?? [];
+    if (selectedAnnotations.length) {
+      if (selectedIds.length !== 1 || !props.onAnnotationDelete) {
+        setInkError("源批注请单独删除，避免混合选区中只删除部分对象。");
+        return;
+      }
+      if (!(await state.flush())) { setInkError("工作区尚未保存，请重试删除批注。"); return; }
+      try { await props.onAnnotationDelete(selectedAnnotations[0]); }
+      catch (cause) { setInkError(`批注删除失败，原数据仍保留：${String(cause)}`); return; }
+      await state.reload(true);
+      if (props.onAnnotationRestore) state.recordExternal({ kind: "external",
+        undo: async () => { await props.onAnnotationRestore!(selectedAnnotations[0]); await state.reload(true); },
+        redo: async () => { await props.onAnnotationDelete!(selectedAnnotations[0]); await state.reload(true); },
+      });
+      setSelectedIds([]); setSelected(undefined);
+      return;
+    }
     const ids = new Set(selectedIds);
     state.change((current) => ({ ...current,
       cards: current.cards.filter((card) => !ids.has(card.id)),
@@ -546,7 +619,7 @@ export const BookWorkspace = forwardRef<
       if (event.key !== "Delete" || event.isComposing || (!selectedIds.length && !selectedLink) ||
           (event.target as HTMLElement)?.closest("input,textarea,[contenteditable]")) return;
       event.preventDefault();
-      removeSelected();
+      void removeSelected();
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
@@ -555,6 +628,8 @@ export const BookWorkspace = forwardRef<
     pages.current = layout;
     viewport.current = el;
     if (!state.value) return null;
+    const styleObject = selectedIds.length === 1 ? state.value.objects.find((object) =>
+      object.id === selectedIds[0] && object.kind !== "ink") : undefined;
     const cached = projectedCache.current;
     const strokes = cached && cached.objects === state.value.objects &&
       cached.pages === layout.length && cached.zoom === props.zoom &&
@@ -572,7 +647,15 @@ export const BookWorkspace = forwardRef<
       const card = cards.find((item) => item.id === id);
       if (card) return card;
       const object = state.value!.objects.find((item) => item.id === id);
-      if (!object) return;
+      if (!object) {
+        const annotation = props.annotations?.find((item) => item.id === id);
+        const rects = annotation ? annotationRects(annotation, layout) : [];
+        if (!rects.length) return;
+        const x = Math.min(...rects.map((rect) => rect.x));
+        const y = Math.min(...rects.map((rect) => rect.y));
+        return { x, y, width: Math.max(...rects.map((rect) => rect.x + rect.width)) - x,
+          height: Math.max(...rects.map((rect) => rect.y + rect.height)) - y };
+      }
       if (object.kind !== "ink") return objectRect(object, layout);
       const paths = strokes.find((stroke) => stroke.id === id)?.paths ?? [];
       if (!paths.length) return;
@@ -928,6 +1011,30 @@ export const BookWorkspace = forwardRef<
               top: Math.max(8, Math.min(el.clientHeight - 44,
                 selectedBounds.y * props.zoom - el.scrollTop - 44)) }}>
             <span>{selectedIds.length > 1 ? `${selectedIds.length} 个对象` : "已选中"}</span>
+            {selectedIds.some((id) => props.annotations?.some((annotation) => annotation.id === id)) &&
+              <span className="workspace-fixed-source" title="源批注不能移动">原文固定</span>}
+            {selectedIds.length === 1 && (() => {
+              const annotation = props.annotations?.find((item) => item.id === selectedIds[0]);
+              if (!annotation) return null;
+              return <>
+                <button aria-label="回到批注原文" title="回到批注原文"
+                  onClick={() => sourceAnnotation(annotation)}><Icon name="outward" /></button>
+                <select aria-label="批注颜色" value={annotation.color}
+                  onChange={(event) => {
+                    const color = event.target.value as Annotation["color"];
+                    if (!props.onAnnotationColor || color === annotation.color) return;
+                    void props.onAnnotationColor(annotation, color).then(() => {
+                      state.recordExternal({ kind: "external",
+                        undo: () => props.onAnnotationColor!(annotation, annotation.color),
+                        redo: () => props.onAnnotationColor!(annotation, color),
+                      });
+                    }).catch((cause) => setInkError(`批注颜色修改失败：${String(cause)}`));
+                  }}>
+                  <option value="yellow">黄</option><option value="green">绿</option>
+                  <option value="blue">蓝</option><option value="pink">粉</option>
+                </select>
+              </>;
+            })()}
             {selectedIds.some((id) => state.value!.objects.some((object) => object.id === id)) &&
               <label title="修改选中对象颜色" aria-label="对象颜色">
                 <input type="color" aria-label="对象颜色" defaultValue="#345d84"
@@ -938,9 +1045,48 @@ export const BookWorkspace = forwardRef<
                     }));
                   }} />
               </label>}
+            {styleObject && <>
+              <button aria-label="对象格式" aria-expanded={styleOpen} title="对象格式"
+                onClick={() => setStyleOpen((open) => !open)}><Icon name="more" /></button>
+              {styleOpen && <div className="workspace-object-style" role="group" aria-label="对象格式设置">
+                {styleObject.kind === "text" ? <>
+                  <label>字号<input aria-label="文字字号" type="number" min={8} max={120}
+                    value={styleObject.fontSize} onChange={(event) => {
+                      const fontSize = Number(event.target.value);
+                      if (fontSize >= 8 && fontSize <= 120) updateObjects((object) =>
+                        object.kind === "text" ? { ...object, fontSize } : object);
+                    }} /></label>
+                  <label><input aria-label="粗体文字" type="checkbox" checked={styleObject.bold}
+                    onChange={(event) => updateObjects((object) => object.kind === "text" ?
+                      { ...object, bold: event.target.checked } : object)} />粗体</label>
+                  <label>对齐<select aria-label="文字对齐" value={styleObject.align}
+                    onChange={(event) => updateObjects((object) => object.kind === "text" ?
+                      { ...object, align: event.target.value as "left" | "center" | "right" } : object)}>
+                    <option value="left">左</option><option value="center">中</option>
+                    <option value="right">右</option></select></label>
+                </> : styleObject.kind === "shape" ? <>
+                  <label>线宽<select aria-label="形状线宽" value={styleObject.strokeWidth}
+                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
+                      { ...object, strokeWidth: Number(event.target.value) } : object)}>
+                    {[1, 2, 4, 8].map((width) => <option key={width} value={width}>{width}</option>)}
+                  </select></label>
+                  <label><input aria-label="填充形状" type="checkbox" checked={!!styleObject.fill}
+                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
+                      { ...object, fill: event.target.checked ? object.color : undefined,
+                        fillOpacity: event.target.checked ? (object.fillOpacity ?? .2) : undefined } : object)} />填充</label>
+                  {styleObject.fill && <label>透明度<select aria-label="形状填充透明度"
+                    value={styleObject.fillOpacity ?? .2}
+                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
+                      { ...object, fillOpacity: Number(event.target.value) } : object)}>
+                    {[.15, .2, .3, .5, .75].map((opacity) => <option key={opacity} value={opacity}>
+                      {Math.round(opacity * 100)}%</option>)}
+                  </select></label>}
+                </> : null}
+              </div>}
+            </>}
             <button aria-label="连接选中对象" title="点击另一个对象建立关系"
               onClick={() => setLinkFrom(selectedIds[0])}><Icon name="link" /></button>
-            <button aria-label="删除选中对象" title="删除选中对象" onClick={removeSelected}>
+            <button aria-label="删除选中对象" title="删除选中对象" onClick={() => void removeSelected()}>
               <Icon name="trash" /></button>
           </div>, el.parentElement)}
       {el?.parentElement && selectedLink && (() => {
@@ -1052,6 +1198,7 @@ export const BookWorkspace = forwardRef<
           onCanvasMove: moveCanvas,
           onCanvasEnd: endCanvas,
           onCanvasCancel: cancelCanvas,
+          onAnnotationTarget: (id) => selectTarget(id),
         }}
       />
       <div className="workspace-toolbar" role="toolbar" aria-label="工作区工具">

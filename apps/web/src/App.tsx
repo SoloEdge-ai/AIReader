@@ -90,6 +90,7 @@ export function App() {
   const notes = useBookNotes(active);
   const [annotationColor, setAnnotationColor] =
     useState<Annotation["color"]>("yellow");
+  const [workspaceEvents, setWorkspaceEvents] = useState<Record<string, number>>({});
   const openSequence = useRef(0);
   const readerTools = useReaderToolController({
     bookId: active,
@@ -260,6 +261,9 @@ export function App() {
               const b = event.data as Book;
               return [...old.filter((x) => x.id !== b.id), b];
             });
+          if (event.type === "workspace" && event.bookId)
+            setWorkspaceEvents((old) => ({ ...old,
+              [event.bookId!]: (old[event.bookId!] ?? 0) + 1 }));
         };
       })
       .catch((e) => setError(e.message));
@@ -826,6 +830,32 @@ export function App() {
                 book={book}
                 page={page}
                 toolPreferences={toolPreferences}
+                workspaceEvent={workspaceEvents[book.id] ?? 0}
+                onAnnotationColor={async (annotation, color) => {
+                  try {
+                    const latest = await api<Annotation[]>(`books/${book.id}/annotations`);
+                    const current = latest.find((item) => item.id === annotation.id);
+                    if (!current) throw new Error("批注不存在");
+                    await post(`books/${book.id}/annotations/${annotation.id}`, {
+                      revision: current.revision, color,
+                    });
+                    await notes.refresh();
+                  }
+                  catch (cause) { setError(String(cause)); throw cause; }
+                }}
+                onAnnotationDelete={async (annotation) => {
+                  try {
+                    if (!(await notes.flush())) throw new Error("批注笔记尚未保存，请重试");
+                    await api(`books/${book.id}/annotations/${annotation.id}`, { method: "DELETE" });
+                    await notes.refresh();
+                  } catch (cause) { setError(String(cause)); throw cause; }
+                }}
+                onAnnotationRestore={async (annotation) => {
+                  try {
+                    await post(`books/${book.id}/annotations/${annotation.id}/restore`, {});
+                    await notes.refresh();
+                  } catch (cause) { setError(String(cause)); throw cause; }
+                }}
                 key={active}
                 id={active!}
                 initialPage={book.progress}

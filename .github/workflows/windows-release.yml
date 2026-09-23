@@ -41,6 +41,8 @@ jobs:
         run: node --import tsx scripts/region-smoke.ts
       - name: Cross-page ink and eraser acceptance
         run: node --import tsx scripts/ink-smoke.ts
+      - name: Canvas objects and annotation links acceptance
+        run: node --import tsx scripts/objects-smoke.ts
       - name: Chat HTTP and UI acceptance
         run: node --import tsx scripts/chat-smoke.ts
       - name: Screenshot input and panel resize acceptance
@@ -62,6 +64,10 @@ jobs:
           AIREADER_CI: "1"
       - name: Packaged cross-page ink acceptance
         run: node scripts/ink-packaged-smoke.mjs release/win-unpacked/AIReader.exe
+        env:
+          AIREADER_CI: "1"
+      - name: Packaged canvas objects acceptance
+        run: node scripts/objects-packaged-smoke.mjs release/win-unpacked/AIReader.exe
         env:
           AIREADER_CI: "1"
       - name: Packaged desktop smoke test

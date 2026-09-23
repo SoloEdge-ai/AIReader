@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { RegionExcerptInputSchema, type WorkspaceCard } from "../../../packages/protocol/src/workspace";
+import { RegionExcerptInputSchema, WorkspaceCommandBatchSchema,
+  type WorkspaceCard } from "../../../packages/protocol/src/workspace";
 import { PDFDocument } from "pdf-lib";
 import { decodeImage } from "./chat-images";
 import { Library } from "./library";
@@ -47,6 +48,36 @@ export class WorkspaceAssets {
       throw new Error("PDF 页面裁剪范围无效");
     this.library.store.put("pdf-page-bounds", key, bookId, bounds);
     return bounds;
+  }
+  async validateCommandObjects(bookId: string, raw: unknown) {
+    const batch = WorkspaceCommandBatchSchema.parse(raw);
+    if (batch.bookId !== bookId) throw new Error("工作区命令与书籍不匹配");
+    if (this.library.store.get("workspace-command", `${bookId}:${batch.commandId}`)) return batch;
+    const book = this.library.book(bookId);
+    const bounds = new Map<number, [number, number, number, number]>();
+    for (const change of batch.changes) {
+      if (change.type !== "upsert-object") continue;
+      const object = change.object;
+      const areas = object.kind === "ink" ? object.segments.map((segment) => ({
+        surface: segment.surface, points: segment.points,
+      })) : [{ surface: object.surface, points: [
+        [object.x, object.y], [object.x + object.width, object.y + object.height],
+      ] }];
+      for (const area of areas) {
+        if (area.surface.kind !== "pdf") continue;
+        if (area.surface.fingerprint !== book.fingerprint || area.surface.page > book.pages)
+          throw new Error("画布对象不属于此 PDF");
+        let page = bounds.get(area.surface.page);
+        if (!page) {
+          page = await this.pageBounds(bookId, area.surface.page);
+          bounds.set(area.surface.page, page);
+        }
+        if (area.points.some(([x, y]) => x < page![0] - 1 || x > page![2] + 1 ||
+            y < page![1] - 1 || y > page![3] + 1))
+          throw new Error("画布对象超出 PDF 页面范围");
+      }
+    }
+    return batch;
   }
   async createRegion(bookId: string, raw: unknown) {
     const input = RegionExcerptInputSchema.parse(raw);

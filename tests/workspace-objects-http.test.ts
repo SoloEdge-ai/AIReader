@@ -14,7 +14,7 @@ test("text, shapes and their relations are book-scoped, atomic and reversible", 
     const cookie = (await fetch(origin + "/api/session", { method: "POST", headers: { Origin: origin } }))
       .headers.get("set-cookie")!.split(";")[0];
     const pdf = await PDFDocument.create();
-    pdf.addPage([400, 320]);
+    pdf.addPage([400, 320]).setMediaBox(-100, -50, 400, 320);
     const imported = await fetch(origin + "/api/books", { method: "POST",
       headers: { Origin: origin, Cookie: cookie }, body: Buffer.from(await pdf.save()) });
     const book = await imported.json();
@@ -46,12 +46,41 @@ test("text, shapes and their relations are book-scoped, atomic and reversible", 
     expect((await command("negative-board", 1, [{ type: "upsert-object", object: {
       ...shape, id: "negative", x: -1,
     } }])).status).toBe(400);
+    const outsidePage = await command("outside-page", 1, [{ type: "upsert-object", object: {
+      ...text, id: "outside", x: -130,
+    } }]);
+    expect(outsidePage.status).toBe(400);
+    expect((await outsidePage.json()).error).toContain("页面范围");
     const removed = await command("delete-shape", 1, [{ type: "delete-object", id: shape.id }]);
     expect((await removed.json()).links).toEqual([]);
     const restored = await command("undo-delete", 2, [
       { type: "upsert-object", object: shape }, { type: "upsert-link", link },
     ]);
     expect((await restored.json()).links).toEqual([link]);
+    const annotationResponse = await fetch(`${origin}/api/books/${book.id}/annotations`, {
+      method: "POST", headers: { Origin: origin, Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "highlight", color: "yellow", quote: "source",
+        anchors: [{ page: 1, rects: [[20, 30, 80, 45]] }] }),
+    });
+    expect(annotationResponse.status).toBe(201);
+    const annotation = await annotationResponse.json();
+    const sourceLink = { id: "source-link", from: annotation.id, to: text.id, label: "源批注" };
+    expect((await command("link-source", 3, [{ type: "upsert-link", link: sourceLink }])).status).toBe(200);
+    const removedSource = await fetch(`${origin}/api/books/${book.id}/annotations/${annotation.id}`, {
+      method: "DELETE", headers: { Origin: origin, Cookie: cookie },
+    });
+    expect(removedSource.status).toBe(200);
+    const afterRemoval = await (await fetch(`${origin}/api/books/${book.id}/workspace`,
+      { headers: { Origin: origin, Cookie: cookie } })).json();
+    expect(afterRemoval.revision).toBe(5);
+    expect(afterRemoval.links).toEqual([link]);
+    const restoredSource = await fetch(`${origin}/api/books/${book.id}/annotations/${annotation.id}/restore`, {
+      method: "POST", headers: { Origin: origin, Cookie: cookie },
+    });
+    expect(restoredSource.status).toBe(200);
+    const afterRestore = await (await fetch(`${origin}/api/books/${book.id}/workspace`,
+      { headers: { Origin: origin, Cookie: cookie } })).json();
+    expect(afterRestore.links).toContainEqual(sourceLink);
   } finally {
     core.close();
     await rm(directory, { recursive: true, force: true });
