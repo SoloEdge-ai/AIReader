@@ -13,8 +13,11 @@ function difference(before: BookWorkspace, after: BookWorkspace): WorkspaceComma
     const old = new Map(previous.map((value) => [value.id, value]));
     const fresh = new Map(next.map((value) => [value.id, value]));
     for (const id of old.keys()) if (!fresh.has(id)) changes.push(remove(id));
-    for (const value of next)
-      if (JSON.stringify(old.get(value.id)) !== JSON.stringify(value)) changes.push(upsert(value));
+    for (const value of next) {
+      const previousValue = old.get(value.id);
+      if (previousValue !== value && JSON.stringify(previousValue) !== JSON.stringify(value))
+        changes.push(upsert(value));
+    }
   };
   if (before.cards !== after.cards)
     compare(before.cards, after.cards, (card) => ({ type: "upsert-card", card }), (id) => ({ type: "delete-card", id }));
@@ -153,9 +156,10 @@ export function useWorkspace(bookId: string) {
     finally { pending.current = undefined; }
   }
 
-  function change(next: BookWorkspace, remember = true) {
+  function change(update: BookWorkspace | ((current: BookWorkspace) => BookWorkspace), remember = true) {
     const previous = draft.current;
     if (!previous) return;
+    let next = typeof update === "function" ? update(previous) : update;
     const remaining = new Set([...next.cards.map((card) => card.id),
       ...next.objects.map((object) => object.id)]);
     const links = next.links.filter((link) => remaining.has(link.from) && remaining.has(link.to));

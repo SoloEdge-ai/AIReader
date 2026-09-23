@@ -62,6 +62,13 @@ export const BookWorkspace = forwardRef<
   const [inkError, setInkError] = useState("");
   const inkCanvas = useRef<InkCanvasHandle>(null);
   const projectedInk = useRef<ProjectedInk[]>([]);
+  const projectedCache = useRef<{
+    objects: WorkspaceSnapshot["objects"];
+    pages: number;
+    zoom: number;
+    rotation: number | undefined;
+    strokes: ProjectedInk[];
+  }>(undefined);
   const inkGesture = useRef<
     | { kind: "draw"; brush: "pen" | "highlighter"; style: BrushStyle; points: InkPoint[] }
     | { kind: "erase"; ids: Set<string> }
@@ -356,7 +363,7 @@ export const BookWorkspace = forwardRef<
     if (!gesture || !state.value) return;
     if (gesture.kind === "erase") {
       if (gesture.ids.size)
-        state.change({ ...state.value, objects: state.value.objects.filter((object) => !gesture.ids.has(object.id)) });
+        state.change((current) => ({ ...current, objects: current.objects.filter((object) => !gesture.ids.has(object.id)) }));
       return;
     }
     if (Math.hypot(point[0] - gesture.points.at(-1)![0], point[1] - gesture.points.at(-1)![1]) > .15)
@@ -370,7 +377,7 @@ export const BookWorkspace = forwardRef<
     }
     const stroke: InkStroke = { id: crypto.randomUUID(), kind: "ink", brush: gesture.brush,
       ...gesture.style, segments };
-    state.change({ ...state.value, objects: [...state.value.objects, stroke] });
+    state.change((current) => ({ ...current, objects: [...current.objects, stroke] }));
   }
   function cancelInk() {
     inkGesture.current = undefined;
@@ -381,8 +388,15 @@ export const BookWorkspace = forwardRef<
     pages.current = layout;
     viewport.current = el;
     if (!state.value) return null;
-    const strokes = state.value.objects.filter((object): object is InkStroke => object.kind === "ink")
-      .map((stroke) => projectStroke(stroke, layout));
+    const cached = projectedCache.current;
+    const strokes = cached && cached.objects === state.value.objects &&
+      cached.pages === layout.length && cached.zoom === props.zoom &&
+      cached.rotation === props.rotation ? cached.strokes :
+      state.value.objects.filter((object): object is InkStroke => object.kind === "ink")
+        .map((stroke) => projectStroke(stroke, layout));
+    if (strokes !== cached?.strokes)
+      projectedCache.current = { objects: state.value.objects, pages: layout.length,
+        zoom: props.zoom, rotation: props.rotation, strokes };
     projectedInk.current = strokes;
     const cards = state.value.cards.map((card) =>
       gesture?.id === card.id ? { ...card, ...gesture } : card,
@@ -745,7 +759,7 @@ export const BookWorkspace = forwardRef<
                 state.value.camera?.y !== camera.y ||
                 state.value.camera?.zoom !== camera.zoom)
             )
-              state.change({ ...state.value, camera }, false);
+              state.change((current) => ({ ...current, camera }), false);
           },
           width: Math.max(
             WORKSPACE_DOCUMENT_X * 2 + documentWidth,
@@ -759,6 +773,7 @@ export const BookWorkspace = forwardRef<
           ),
           render: overlay,
           sourceFocus,
+          ink: state.value?.objects.filter((object): object is InkStroke => object.kind === "ink"),
           onInkStart: startInk,
           onInkMove: moveInk,
           onInkEnd: finishInk,
