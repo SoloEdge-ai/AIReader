@@ -78,6 +78,7 @@ jobs:
         env:
           AIREADER_CI: "1"
       - name: Installer, update, and uninstall acceptance
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $installer = @(Get-ChildItem release/AIReader-Setup-*-x64.exe)
