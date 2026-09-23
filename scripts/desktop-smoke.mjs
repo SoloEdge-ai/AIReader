@@ -145,11 +145,39 @@ try {
       pages: await page.locator(".pdf-page").count(),
     }),
   );
+  await page.getByRole("button", { name: "返回书库" }).click();
+  await page.getByRole("heading", { name: "书库", exact: true }).waitFor();
 } finally {
-  if (app) await app.close();
+  let closeError;
+  if (app) {
+    let watchdog;
+    try {
+      await Promise.race([
+        app.close(),
+        new Promise((_, reject) => {
+          watchdog = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "Desktop smoke did not close within 20 seconds; check unsaved draft handling",
+                ),
+              ),
+            20000,
+          );
+        }),
+      ]);
+    } catch (error) {
+      app.process()?.kill();
+      closeError = error;
+    } finally {
+      clearTimeout(watchdog);
+    }
+  }
   if (browser) {
     const session = await browser.newBrowserCDPSession();
     await session.send("Browser.close").catch(() => {});
     await browser.close();
   }
+  if (closeError) throw closeError;
 }
+console.log("Desktop smoke closed cleanly.");

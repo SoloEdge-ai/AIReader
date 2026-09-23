@@ -155,6 +155,7 @@ try {
   $env:AIREADER_EXPECT_EXISTING = '1'
   node scripts/desktop-smoke.mjs (Join-Path $defaultProgramDir 'AIReader.exe')
   if ($LASTEXITCODE -ne 0) { throw 'Installed application could not read its existing book and note.' }
+  Write-Output 'Existing profile continuity passed'
   Remove-Item Env:AIREADER_EXPECT_EXISTING
 
   Write-Output 'Downgrade guard'
