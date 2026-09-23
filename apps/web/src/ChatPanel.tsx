@@ -431,7 +431,13 @@ export function ChatPanel({
       >
         <div className="composer-materials">
           <ChatImageList
-            images={images.map((image) => ({ ...image, url: image.dataUrl }))}
+            images={images.map((image) => ({
+              ...image,
+              url: image.dataUrl,
+              pageLabel: image.source
+                ? book.labels[image.source.page - 1]
+                : undefined,
+            }))}
             onRemove={(id) =>
               updateDraft({
                 images: images.filter((image) => image.id !== id),

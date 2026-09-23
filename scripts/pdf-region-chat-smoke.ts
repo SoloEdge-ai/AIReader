@@ -1,5 +1,5 @@
 import { chromium, expect, type Page } from "@playwright/test";
-import { PDFDocument, rgb } from "pdf-lib";
+import { PDFDocument, PDFName, PDFHexString, rgb } from "pdf-lib";
 import { PNG } from "pngjs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -62,6 +62,12 @@ await mkdir(".local/screenshots", { recursive: true });
 const data = await mkdtemp(resolve(".local/pdf-region-chat-"));
 const pdf = await PDFDocument.create();
 const pdfPage = pdf.addPage([400, 400]);
+pdf.catalog.set(
+  PDFName.of("PageLabels"),
+  pdf.context.obj({
+    Nums: [0, { S: PDFName.of("D"), P: PDFHexString.fromText("fig-"), St: 1 }],
+  }),
+);
 // The central PDF rectangle [100,100,300,300] contains all four known quadrants.
 pdfPage.drawRectangle({
   x: 0,
@@ -149,9 +155,12 @@ try {
     [255, 255, 0],
   ]);
   await expect(page.locator(".composer .image-attachment")).toContainText(
-    "本书第 1 页",
+    "本书第 fig-1 页",
   );
   await page.locator(".composer .image-thumbnail").click();
+  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
+    "本书第 fig-1 页区域（物理页 1）",
+  );
   await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
     "PDF 坐标 100, 100, 300, 300",
   );
