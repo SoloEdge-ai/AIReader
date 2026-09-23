@@ -11,14 +11,12 @@ import {
   type Annotation,
   type AnnotationInputSchema,
   type Note,
+  ToolPreferencesSchema,
+  type ToolPreferences,
 } from "../../../packages/protocol/src";
 import type { z } from "zod";
 import { api, post, base } from "./api";
-import {
-  PdfReader,
-  type AnnotationMode,
-  type QuestionRegion,
-} from "./PdfReader";
+import { type QuestionRegion } from "./PdfReader";
 import { NotesPanel, useBookNotes } from "./NotesPanel";
 import { ChatPanel, type SelectionAction } from "./ChatPanel";
 import { QuestionDraftStore } from "./QuestionDrafts";
@@ -31,6 +29,9 @@ import { IndexPanel } from "./IndexPanel";
 import { ToolPanel } from "./ToolPanel";
 import { BookWorkspace, type BookWorkspaceHandle } from "./BookWorkspace";
 import { WorkspaceRestore } from "./WorkspaceRestore";
+import { ReaderToolPalette } from "./ReaderToolPalette";
+import { SelectionToolbar } from "./SelectionToolbar";
+import { useReaderToolController } from "./ReaderToolController";
 export function App() {
   const workspace = useRef<BookWorkspaceHandle>(null);
   const [navigating, setNavigating] = useState(false);
@@ -87,33 +88,58 @@ export function App() {
   current.current = active;
   const book = books.find((b) => b.id === active);
   const notes = useBookNotes(active);
-  const [mode, setMode] = useState<AnnotationMode>("select");
   const [annotationColor, setAnnotationColor] =
     useState<Annotation["color"]>("yellow");
   const openSequence = useRef(0);
+  const readerTools = useReaderToolController({
+    bookId: active,
+    clearSelection,
+    cancelExternal: () => setQuestionCapture(undefined),
+    onEscape: (event) => {
+      if (document.querySelector('dialog[open],[aria-modal="true"]')) return false;
+      const popover = document.querySelector<HTMLElement>("[popover]:popover-open");
+      if (popover) {
+        event.preventDefault();
+        popover.hidePopover();
+        Array.from(document.querySelectorAll<HTMLButtonElement>("button[popovertarget]"))
+          .find((button) => button.getAttribute("popovertarget") === popover.id)
+          ?.focus({ preventScroll: true });
+      }
+      const editing = (event.target as HTMLElement)?.closest(".workspace-card input,.workspace-card textarea,.notes-panel input,.notes-panel textarea,.notes-panel [contenteditable]");
+      if (editing) {
+        (editing as HTMLElement).blur();
+        void Promise.all([workspace.current?.flush(), notes.flush()]).then((results) => {
+          if (results.some((ok) => ok === false)) setError("编辑内容保存失败，草稿仍保留；请重试保存。");
+        });
+      } else if (!popover && !(event.target as HTMLElement)?.closest(".reader-popover") &&
+                 (event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) return false;
+      if (questionCapture) cancelQuestionCapture();
+      return true;
+    },
+  });
+  const {
+    tool: mode,
+    preferences: toolPreferences,
+    setPreferences: setToolPreferences,
+    selectionPinned,
+  } = readerTools;
   function cancelQuestionCapture() {
     setQuestionCapture(undefined);
+    readerTools.finish();
     if (questionCapture?.bookId === active && viewportWidth <= 1180)
       updateLayout({ ...layout, panel: "chat" });
   }
-  useEffect(() => {
-    if (!questionCapture) return;
-    const cancel = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        cancelQuestionCapture();
-      }
-    };
-    window.addEventListener("keydown", cancel);
-    return () => window.removeEventListener("keydown", cancel);
-  }, [questionCapture, layout, viewportWidth]);
+  function updateToolPreferences(next: ToolPreferences) {
+    setToolPreferences(next);
+    void api<ToolPreferences>("tool-preferences", { method: "PUT", body: JSON.stringify(next) })
+      .catch((e) => setError(`工具盘设置未保存：${String(e)}`));
+  }
   useEffect(() => {
     if (layout.panel === "notes") setQuestionCapture(undefined);
   }, [layout.panel]);
   function startQuestionCapture(sessionId: string) {
     if (!book) return;
-    clearSelection();
-    setMode("select");
+    readerTools.finish("region");
     setQuestionCapture({
       bookId: book.id,
       fingerprint: book.fingerprint,
@@ -135,6 +161,7 @@ export function App() {
     )
       return;
     setQuestionCapture(undefined);
+    readerTools.finish();
     const bytes = Uint8Array.from(atob(region.image.split(",")[1]), (c) =>
       c.charCodeAt(0),
     );
@@ -178,10 +205,8 @@ export function App() {
       );
       await notes.refresh();
       notes.setSelected(a.noteId);
-      setSelection(undefined);
-      setMode("select");
+      readerTools.finish(value.kind === "sticky" || value.kind === "region" ? "pointer" : "text");
       updateLayout({ ...layout, panel: "notes" });
-      getSelection()?.removeAllRanges();
     } catch (e) {
       setError(String(e));
     }
@@ -191,13 +216,15 @@ export function App() {
     let live = true;
     void post("session", {})
       .then(async () => {
-        const [list, p] = await Promise.all([
+        const [list, p, toolPrefs] = await Promise.all([
           api<Book[]>("books"),
           api<ReaderPreferences>("preferences"),
+          api<ToolPreferences>("tool-preferences"),
         ]);
         if (!live) return;
         setBooks(list);
         setPrefs(p);
+        setToolPreferences(ToolPreferencesSchema.parse(toolPrefs));
         socket = new WebSocket(
           (base || location.origin).replace("http:", "ws:") + "/events",
         );
@@ -265,7 +292,6 @@ export function App() {
     setQuery("");
     setHighlight(undefined);
     setBookMenu(false);
-    setMode("select");
     setQuestionCapture(undefined);
     if (active)
       void api<Bookmark[]>(`books/${active}/bookmarks`)
@@ -631,18 +657,6 @@ export function App() {
             >
               笔记
             </button>
-            <select
-              aria-label="批注工具"
-              value={mode}
-              onChange={(e) => {
-                setQuestionCapture(undefined);
-                setMode(e.target.value as AnnotationMode);
-              }}
-            >
-              <option value="select">选取文字</option>
-              <option value="sticky">页内便签</option>
-              <option value="region">区域摘录</option>
-            </select>
             <button
               aria-label="旋转页面"
               onClick={() =>
@@ -773,7 +787,14 @@ export function App() {
                 )}
               </aside>
             )}
-            <section className="reading">
+            <section
+              className="reading"
+              onPointerDownCapture={(event) => {
+                if (!selection || (event.target as HTMLElement).closest(".selection-bar,.reader-tool-palette")) return;
+                selectionPinned.current = false;
+                clearSelection();
+              }}
+            >
               <BookWorkspace
                 ref={workspace}
                 beforeExport={notes.flush}
@@ -786,10 +807,12 @@ export function App() {
                 onZoom={(zoom) => updateLayout({ ...layout, zoom })}
                 rotation={layout.rotation}
                 onPage={onPage}
-                onSelection={setSelection}
+                onSelection={(next) => {
+                  if (next || !selectionPinned.current) setSelection(next);
+                }}
                 highlight={highlight}
                 annotations={notes.annotations}
-                mode={mode}
+                mode={mode === "text" ? "select" : mode}
                 onCreate={(value) => void createAnnotation(value)}
                 onQuestionRegion={
                   questionCapture?.bookId === book.id
@@ -805,6 +828,12 @@ export function App() {
                   });
                 }}
               />
+              <ReaderToolPalette
+                tool={mode}
+                preferences={toolPreferences}
+                onTool={readerTools.activate}
+                onPreferences={updateToolPreferences}
+              />
               {questionCapture?.bookId === book.id && (
                 <div className="region-question-prompt" role="status">
                   <Icon name="crop" />
@@ -815,84 +844,30 @@ export function App() {
                 </div>
               )}
               {selection && (
-                <div
-                  className="selection-bar"
-                  style={{
-                    left: Math.max(
-                      8,
-                      Math.min(
-                        window.innerWidth - 540,
-                        selection.screen.x - 220,
-                      ),
-                    ),
-                    top: Math.max(
-                      65,
-                      Math.min(
-                        window.innerHeight - 60,
-                        selection.screen.y + 12,
-                      ),
-                    ),
+                <SelectionToolbar
+                  selection={selection}
+                  color={annotationColor}
+                  onColor={setAnnotationColor}
+                  onInteract={() => { selectionPinned.current = true; }}
+                  onExcerpt={() => {
+                    workspace.current?.excerpt(selection);
+                    selectionPinned.current = false;
+                    clearSelection();
                   }}
-                >
-                  <span>{selection.text.length} 字</span>
-                  <button
-                    onClick={() => {
-                      workspace.current?.excerpt(selection);
-                      clearSelection();
-                    }}
-                  >
-                    摘录卡片
-                  </button>
-                  {(["highlight", "underline", "strike"] as const).map(
-                    (kind, i) => (
-                      <button
-                        key={kind}
-                        onClick={() =>
-                          void createAnnotation({
-                            kind,
-                            color: annotationColor,
-                            quote: selection.text,
-                            anchors: selection.anchors,
-                          })
-                        }
-                      >
-                        {["高亮", "下划线", "删除线"][i]}
-                      </button>
-                    ),
-                  )}
-                  <select
-                    aria-label="选区批注颜色"
-                    value={annotationColor}
-                    onChange={(e) =>
-                      setAnnotationColor(e.target.value as Annotation["color"])
-                    }
-                  >
-                    {["yellow", "green", "blue", "pink"].map((c, i) => (
-                      <option key={c} value={c}>
-                        {["黄", "绿", "蓝", "粉"][i]}
-                      </option>
-                    ))}
-                  </select>
-                  {["解释", "总结", "翻译", "提问"].map((name) => (
-                    <button
-                      key={name}
-                      onClick={() => {
-                        updateLayout({ ...layout, panel: "chat" });
-                        setAction({
-                          name,
-                          nonce: Date.now(),
-                          selection: structuredClone(selection),
-                        });
-                        clearSelection();
-                      }}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                  <button aria-label="取消选区" onClick={clearSelection}>
-                    <Icon name="close" />
-                  </button>
-                </div>
+                  onAnnotate={(kind) => void createAnnotation({
+                    kind,
+                    color: annotationColor,
+                    quote: selection.text,
+                    anchors: selection.anchors,
+                  })}
+                  onAi={(name) => {
+                    updateLayout({ ...layout, panel: "chat" });
+                    setAction({ name, nonce: Date.now(), selection: structuredClone(selection) });
+                    selectionPinned.current = false;
+                    clearSelection();
+                  }}
+                  onDismiss={() => { selectionPinned.current = false; clearSelection(); }}
+                />
               )}
             </section>
             {layout.panel !== "none" && (
@@ -944,7 +919,7 @@ export function App() {
                       onActionConsumed={() => setAction(undefined)}
                       onClearSelection={clearSelection}
                       onPickSelection={() => {
-                        setMode("select");
+                        readerTools.activate("text");
                         document
                           .querySelector<HTMLElement>(".pdf-scroll")
                           ?.focus({ preventScroll: true });
@@ -957,8 +932,10 @@ export function App() {
                         if (
                           questionCapture &&
                           questionCapture.sessionId !== sessionId
-                        )
+                        ) {
                           setQuestionCapture(undefined);
+                          readerTools.finish();
+                        }
                       }}
                     />
                   )}

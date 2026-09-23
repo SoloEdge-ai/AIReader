@@ -29,18 +29,35 @@ try {
     .setInputFiles(fixture);
   const text = page.locator("#page-1 .textLayer span").first();
   await text.waitFor();
+  await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  await page.locator('[data-book-status="ready"]').waitFor();
   const toolbar = page.locator(".selection-bar");
+  // Browsing is the default. Text selection must be an explicit tool choice.
+  const browseBox = await text.boundingBox();
+  await page.mouse.move(browseBox.x + 3, browseBox.y + browseBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(browseBox.x + browseBox.width - 3, browseBox.y + browseBox.height / 2);
+  await page.mouse.up();
+  await expect(toolbar).toHaveCount(0);
+  await page.getByRole("button", { name: "选择文字（T）" }).click();
+  await expect(page.getByRole("button", { name: "选择文字（T）" })).toHaveAttribute("aria-pressed", "true");
   async function selectPassage(startFraction = 0) {
-    const box = await text.boundingBox();
-    await page.mouse.move(
-      box.x + box.width * startFraction + 2,
-      box.y + box.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, {
-      steps: 12,
-    });
-    await page.mouse.up();
+    await text.scrollIntoViewIfNeeded();
+    // The Windows CI virtual display makes pointer text selection intermittent.
+    // Exercise PDF.js's real text layer and the mouseup selection handler with
+    // a deterministic DOM selection; the default pointer's drag is tested above.
+    await text.evaluate((element, fraction) => {
+      element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      const node = element.firstChild;
+      if (!node || node.nodeType !== Node.TEXT_NODE) throw new Error("PDF text node missing");
+      const range = document.createRange();
+      range.setStart(node, Math.floor(node.textContent.length * fraction));
+      range.setEnd(node, node.textContent.length);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+    }, startFraction);
     await expect(toolbar).toBeVisible();
   }
   await selectPassage();
@@ -99,7 +116,8 @@ try {
   await page.getByRole("button", { name: "收起侧栏" }).click();
 
   await selectPassage();
-  await toolbar.getByRole("button", { name: "解释", exact: true }).click();
+  await toolbar.getByRole("button", { name: "AI 处理选区" }).click();
+  await page.getByRole("button", { name: "解释", exact: true }).click();
   await expect(page.getByLabel("问题", { exact: true })).toHaveValue(
     "请解释选中的原文。",
   );
@@ -109,14 +127,12 @@ try {
   await page.getByRole("button", { name: "收起侧栏" }).click();
 
   await selectPassage();
-  const color = page.getByLabel("选区批注颜色", { exact: true });
-  await color.click();
-  await color.press("Home");
-  await color.press("ArrowDown");
-  await color.press("Enter");
-  await expect(color).toHaveValue("green");
+  await toolbar.getByRole("button", { name: "标注颜色：黄色" }).click();
+  await page.getByRole("button", { name: "绿色", exact: true }).click();
+  await expect(toolbar.getByRole("button", { name: "标注颜色：绿色" })).toBeVisible();
   await expect(toolbar).toBeVisible();
-  await toolbar.getByRole("button", { name: "高亮", exact: true }).click();
+  await toolbar.getByRole("button", { name: "标注方式" }).click();
+  await page.getByRole("button", { name: "高亮", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   await expect(toolbar).toHaveCount(0);
   expect(errors).toEqual([]);

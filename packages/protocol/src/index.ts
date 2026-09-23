@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./reader-tools";
 export const ReadingSnapshotSchema = z.object({
   bookId: z.string().min(1),
   page: z.number().int().positive(),

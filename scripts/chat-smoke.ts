@@ -65,6 +65,7 @@ try {
   await input.press("Shift+Enter");
   await expect(input).toHaveValue("中文输入中\n");
   async function selectPassage() {
+    await page.getByRole("button", { name: "选择文字（T）" }).click();
     await page
       .locator("#page-1 .textLayer span")
       .first()
@@ -85,8 +86,9 @@ try {
   await selectPassage();
   await page
     .locator(".selection-bar")
-    .getByRole("button", { name: "解释", exact: true })
+    .getByRole("button", { name: "AI 处理选区" })
     .click();
+  await page.getByRole("button", { name: "解释", exact: true }).click();
   await page
     .getByRole("textbox", { name: "问题", exact: true })
     .fill("Explain memory cache");

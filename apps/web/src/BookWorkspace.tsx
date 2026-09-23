@@ -681,7 +681,6 @@ export const BookWorkspace = forwardRef<
           {state.status}
         </span>
       </div>
-      <div className="workspace-hint">右键拖动平移 · Ctrl + 滚轮缩放</div>
       {showOverview && (
         <aside className="workspace-overview" aria-label="工作区总览">
           <header>
