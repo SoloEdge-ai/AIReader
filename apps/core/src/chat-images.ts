@@ -69,11 +69,29 @@ function decode(input: ChatImageInput) {
 export class ChatImages {
   constructor(private library: Library) {}
   create(bookId: string, input: ChatImageInput[]) {
-    this.library.book(bookId);
+    const book = this.library.book(bookId);
     const values = ChatImageInputSchema.array()
       .max(MAX_CHAT_IMAGES)
       .parse(input)
-      .map(decode);
+      .map((input) => {
+        const source = input.source;
+        if (
+          source &&
+          (source.bookId !== bookId ||
+            source.fingerprint !== book.fingerprint ||
+            source.page > book.pages)
+        )
+          throw new Error("图片来源与当前书籍或页码不匹配");
+        return {
+          ...decode(input),
+          source: source
+            ? {
+                ...source,
+                label: book.labels[source.page - 1] ?? String(source.page),
+              }
+            : undefined,
+        };
+      });
     const images: ChatImage[] = [];
     try {
       if (values.length)
@@ -87,6 +105,7 @@ export class ChatImages {
           width: value.width,
           height: value.height,
           bytes: value.buffer.length,
+          ...(value.source ? { source: value.source } : {}),
         };
         writeFileSync(this.path(bookId, image.id), value.buffer, {
           flag: "wx",

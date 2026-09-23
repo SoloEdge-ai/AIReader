@@ -1,6 +1,7 @@
 import type {
   ReadingSelection,
   ReadingSnapshot,
+  PdfRegionSourceInput,
 } from "../../../packages/protocol/src";
 import { MAX_CHAT_IMAGES } from "../../../packages/protocol/src";
 import { prepareQuestionImage, type DraftImage } from "./QuestionImages";
@@ -48,7 +49,7 @@ export class QuestionDraftStore {
     this.drafts.delete(key);
     this.emit();
   }
-  async addImages(key: string, files: File[]) {
+  async addImages(key: string, files: File[], source?: PdfRegionSourceInput) {
     const draft = this.get(key);
     if (
       draft.images.length + draft.preparing + files.length >
@@ -64,7 +65,12 @@ export class QuestionDraftStore {
     for (const file of files) {
       try {
         const image = await prepareQuestionImage(file);
-        this.update(key, { images: [...this.get(key).images, image] });
+        this.update(key, {
+          images: [
+            ...this.get(key).images,
+            { ...image, ...(source ? { source } : {}) },
+          ],
+        });
       } catch (error) {
         this.update(key, {
           imageError: error instanceof Error ? error.message : "图片处理失败",

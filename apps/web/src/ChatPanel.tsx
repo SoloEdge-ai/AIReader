@@ -33,6 +33,8 @@ export function ChatPanel({
   onCitation,
   notes,
   onNoteSaved,
+  onStartRegion,
+  onSessionChange,
 }: {
   book: Book;
   page: number;
@@ -45,6 +47,8 @@ export function ChatPanel({
   onCitation: (page: number, anchor: SourceAnchor) => void;
   notes: Note[];
   onNoteSaved: (note: Note) => Promise<void>;
+  onStartRegion: (sessionId: string) => void;
+  onSessionChange: (sessionId: string) => void;
 }) {
   const ai = useAi();
   const [session, setSession] = useState(""),
@@ -71,6 +75,9 @@ export function ChatPanel({
   const followBottom = useRef(true);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   currentSession.current = session;
+  useEffect(() => {
+    if (session) onSessionChange(session);
+  }, [session, onSessionChange]);
   function updateDraft(patch: Partial<QuestionDraft>) {
     if (currentSession.current)
       savedDrafts.update(book.id + ":" + currentSession.current, patch);
@@ -199,7 +206,11 @@ export function ChatPanel({
       const turn = await post<ChatTurn>(`books/${book.id}/turns`, {
         reading,
         question: question.trim() || "请解释这些图片。",
-        images: images.map(({ name, dataUrl }) => ({ name, dataUrl })),
+        images: images.map(({ name, dataUrl, source }) => ({
+          name,
+          dataUrl,
+          source,
+        })),
         sessionId: session,
         ...ai.choice,
       });
@@ -523,6 +534,15 @@ export function ChatPanel({
             onClick={() => imagePicker.current?.click()}
           >
             <Icon name="image" />
+          </button>
+          <button
+            className="add-image"
+            aria-label="框选书中图表"
+            title="框选书中图表或公式"
+            disabled={!session || creating || !!preparing || images.length >= 4}
+            onClick={() => onStartRegion(session)}
+          >
+            <Icon name="crop" />
           </button>
           <ModelPicker />
           {running ? (
