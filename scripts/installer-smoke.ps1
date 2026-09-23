@@ -86,7 +86,16 @@ function Invoke-Uninstall([object]$Entry, [string]$ExpectedDir) {
         @(Installed-Entry).Count -eq 0) { break }
     Start-Sleep -Seconds 1
   }
-  if (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) { throw 'Uninstall left program files behind.' }
+  if (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) {
+    Write-Output "Expected removal directory: $ExpectedDir"
+    Write-Output "Registered command: $uninstallString"
+    Write-Output (@(Installed-Entry) | ConvertTo-Json -Depth 3)
+    Write-Output (Get-ChildItem -LiteralPath $ExpectedDir | Select-Object Name,Length | ConvertTo-Json)
+    Write-Output "Shortcut state: start=$(Test-Path -LiteralPath $startMenu), desktop=$(Test-Path -LiteralPath $desktop)"
+    $trace = Join-Path $env:TEMP 'AIReader-uninstall-trace.log'
+    if (Test-Path -LiteralPath $trace) { Get-Content -LiteralPath $trace }
+    throw 'Uninstall left program files behind.'
+  }
   if (@(Installed-Entry).Count -ne 0) { throw 'Uninstall left its registration behind.' }
   if ((Test-Path -LiteralPath $startMenu) -or (Test-Path -LiteralPath $desktop)) {
     throw 'Uninstall left its shortcuts behind.'

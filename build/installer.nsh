@@ -19,6 +19,27 @@
   ${EndIf}
 !macroend
 
+; Temporary CI diagnostics: do not alter uninstall behavior or user state.
+!macro aiUninstallTrace stage
+  Push $0
+  Push $1
+  ReadEnvStr $0 AIREADER_CI
+  ${If} $0 == "1"
+    FileOpen $1 "$TEMP\AIReader-uninstall-trace.log" a
+    FileSeek $1 0 END
+    FileWrite $1 "${stage}: INSTDIR=$INSTDIR mode=$installMode cmd=$CMDLINE$\r$\n"
+    FileClose $1
+  ${EndIf}
+  Pop $1
+  Pop $0
+!macroend
+!macro customUnInit
+  !insertmacro aiUninstallTrace "after initMultiUser"
+!macroend
+!macro customUnInstall
+  !insertmacro aiUninstallTrace "before remove files"
+!macroend
+
 !ifndef BUILD_UNINSTALLER
   !include "FileFunc.nsh"
   !include "nsDialogs.nsh"
