@@ -15,7 +15,7 @@ let diagnostic = "";
 child.stderr.on("data", (chunk) => {
   diagnostic = (diagnostic + chunk).slice(-6000);
 });
-const exited = new Promise((done) => child.once("exit", done));
+const closed = new Promise((done) => child.once("close", done));
 try {
   const port = await new Promise((done, fail) => {
     const timer = setTimeout(
@@ -49,7 +49,7 @@ try {
   console.log("Bundled Core startup and authenticated library HTTP passed.");
 } finally {
   if (child.exitCode === null) child.kill();
-  await exited;
+  await closed;
   await rm(directory, {
     recursive: true,
     force: true,
