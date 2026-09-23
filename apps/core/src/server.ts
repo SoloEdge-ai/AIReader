@@ -22,6 +22,10 @@ import {
 import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
 import { Workspaces } from "./workspace";
+import {
+  WorkspaceArchives,
+  MAX_WORKSPACE_ARCHIVE_BYTES,
+} from "./workspace-archive";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export async function body(req: IncomingMessage, limit = 1024 * 1024) {
@@ -60,6 +64,7 @@ export function createCore(
   const library = new Library(directory, emit);
   const notes = new Notes(library);
   const workspaces = new Workspaces(library);
+  const workspaceArchives = new WorkspaceArchives(library);
   library.resume();
   const runtime = new RuntimeManager(directory, (data) =>
     emit({ type: "runtime", data }),
@@ -233,6 +238,20 @@ export function createCore(
             return;
           }
         }
+        if (
+          parts[1] === "workspace-archives" &&
+          parts.length === 2 &&
+          req.method === "POST"
+        ) {
+          send(
+            res,
+            await workspaceArchives.restore(
+              await body(req, MAX_WORKSPACE_ARCHIVE_BYTES),
+            ),
+            201,
+          );
+          return;
+        }
         if (parts[1] === "books" && parts.length === 2) {
           if (req.method === "GET") {
             send(res, library.books());
@@ -255,6 +274,24 @@ export function createCore(
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];
           const book = library.book(id);
+          if (
+            parts[3] === "workspace" &&
+            parts[4] === "archive" &&
+            parts.length === 5 &&
+            req.method === "GET"
+          ) {
+            const bytes = await workspaceArchives.export(id);
+            res
+              .writeHead(200, {
+                "Content-Type": "application/zip",
+                "Content-Disposition": `attachment; filename="AIReader-${id}.aireader"`,
+                "Content-Length": bytes.length,
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+              })
+              .end(bytes);
+            return;
+          }
           if (parts[3] === "workspace" && parts.length === 4) {
             if (req.method === "GET") send(res, workspaces.get(id));
             else if (req.method === "POST")

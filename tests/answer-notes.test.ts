@@ -215,6 +215,52 @@ test("saving is idempotent across restart without overwriting edits, rejects run
   }
 }, 20000);
 
+test("workspace restore retains answer-note evidence and attachments without restoring an account or chat session", async () => {
+  const f = await fixture();
+  try {
+    const book = await f.book();
+    const png = new PNG({ width: 2, height: 3 });
+    const turn = await f.ask(book.id, "Explain memory", [
+      {
+        name: "figure.png",
+        dataUrl:
+          "data:image/png;base64," + PNG.sync.write(png).toString("base64"),
+      },
+    ]);
+    await f.api(`books/${book.id}/turns/${turn.id}/note`, {});
+    const exported = await f.api(`books/${book.id}/workspace/archive`);
+    if (!exported.ok) throw new Error(await exported.text());
+    const restoredResponse = await f.api(
+      "workspace-archives",
+      new Uint8Array(await exported.arrayBuffer()),
+    );
+    if (!restoredResponse.ok) throw new Error(await restoredResponse.text());
+    const restored = await restoredResponse.json();
+    const notes: Note[] = await (
+      await f.api(`books/${restored.id}/notes`)
+    ).json();
+    expect(notes[0].origin?.sources[0]).toMatchObject({
+      text: "Memory cache stores tokens.",
+      anchor: { bookId: restored.id, fingerprint: book.fingerprint },
+    });
+    const imageId = notes[0].origin!.images![0].id;
+    expect(
+      (await f.api(`books/${restored.id}/chat-images/${imageId}`)).status,
+    ).toBe(200);
+    expect(
+      (await f.api(`books/${book.id}/chat-images/${imageId}`)).status,
+    ).toBe(400);
+    expect(
+      (await f.api(`books/${restored.id}/notes/${notes[0].id}/export`)).status,
+    ).toBe(200);
+    expect(await (await f.api(`books/${restored.id}/turns`)).json()).toEqual(
+      [],
+    );
+  } finally {
+    await f.close();
+  }
+}, 20000);
+
 test("notes without citations say so and export does not admit unsafe user-edited rich content", async () => {
   const f = await fixture();
   try {

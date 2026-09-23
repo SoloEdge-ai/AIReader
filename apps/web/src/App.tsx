@@ -30,6 +30,7 @@ import { AccountControls } from "./AiState";
 import { IndexPanel } from "./IndexPanel";
 import { ToolPanel } from "./ToolPanel";
 import { BookWorkspace, type BookWorkspaceHandle } from "./BookWorkspace";
+import { WorkspaceRestore } from "./WorkspaceRestore";
 export function App() {
   const workspace = useRef<BookWorkspaceHandle>(null);
   const [navigating, setNavigating] = useState(false);
@@ -428,6 +429,14 @@ export function App() {
               </p>
             </div>
             <div className="library-actions">
+              <WorkspaceRestore
+                disabled={busy}
+                onError={setError}
+                onRestore={async (restored) => {
+                  setBooks(await api<Book[]>("books"));
+                  await openBook(restored);
+                }}
+              />
               <label className="search-box">
                 <Icon name="search" />
                 <input
@@ -767,6 +776,7 @@ export function App() {
             <section className="reading">
               <BookWorkspace
                 ref={workspace}
+                beforeExport={notes.flush}
                 book={book}
                 page={page}
                 key={active}

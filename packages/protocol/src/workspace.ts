@@ -7,6 +7,16 @@ const identity = z
   .max(100)
   .regex(/^[a-zA-Z0-9_-]+$/);
 const position = z.number().finite().min(0).max(1000000);
+// The document column leaves room for notes on either side. Coordinates are world units.
+export const WORKSPACE_DOCUMENT_X = 1280;
+export const WorkspaceCameraSchema = z
+  .object({
+    x: position,
+    y: position,
+    zoom: z.number().finite().min(0.4).max(3),
+  })
+  .strict();
+export type WorkspaceCamera = z.infer<typeof WorkspaceCameraSchema>;
 export const WorkspaceCardSchema = z
   .object({
     id: identity,
@@ -37,6 +47,8 @@ export const WorkspaceSchema = z
   .object({
     bookId: identity,
     revision: z.number().int().min(0),
+    layoutVersion: z.literal(2).default(2),
+    camera: WorkspaceCameraSchema.optional(),
     cards: WorkspaceCardSchema.array().max(500),
     links: z
       .array(

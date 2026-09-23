@@ -55,13 +55,13 @@ export class Library {
     this.book(id);
     return join(this.directory, "books", id + ".pdf");
   }
-  async import(bytes: Buffer, name: string) {
+  async import(bytes: Buffer, name: string, asCopy = false) {
     if (!bytes.subarray(0, 1024).includes(Buffer.from("%PDF-")))
       throw new Error("请选择有效的 PDF 文件");
     const fingerprint = createHash("sha256").update(bytes).digest("hex");
     const existing = this.books().find((b) => b.fingerprint === fingerprint);
-    if (existing) return existing;
-    const id = fingerprint.slice(0, 24);
+    if (existing && !asCopy) return existing;
+    const id = asCopy ? randomUUID() : fingerprint.slice(0, 24);
     await mkdir(join(this.directory, "books"), { recursive: true });
     const target = join(this.directory, "books", id + ".pdf");
     await writeFile(target + ".tmp", bytes);

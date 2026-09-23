@@ -44,18 +44,73 @@ try {
     page.getByRole("status", { name: "工作区保存状态" }),
   ).toContainText("已保存");
 
+  // Cards dock beside the document even when keyboard movement aims into its column.
+  const card = page.locator(".workspace-card").first();
+  await card.locator("header").focus();
+  for (let step = 0; step < 8; step++)
+    await page.keyboard.press("Shift+ArrowLeft");
+  const cardRect = (await card.boundingBox())!;
+  const pdfRect = (await page.locator("#page-1").boundingBox())!;
+  expect(
+    cardRect.x >= pdfRect.x + pdfRect.width ||
+      cardRect.x + cardRect.width <= pdfRect.x,
+  ).toBe(true);
+  await page.getByRole("button", { name: "定位正文", exact: true }).click();
+  const centered = (await page.locator("#page-1").boundingBox())!;
+  const view = (await page.locator(".pdf-scroll").boundingBox())!;
+  const clientWidth = await page
+    .locator(".pdf-scroll")
+    .evaluate((el) => el.clientWidth);
+  expect(
+    Math.abs(centered.x + centered.width / 2 - view.x - clientWidth / 2),
+  ).toBeLessThan(2);
+  // Empty-canvas drag pans both the document and card by the same distance.
+  const initialPdf = centered,
+    initialCard = (await card.boundingBox())!;
+  await page.mouse.move(view.x + 12, view.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(view.x + 112, view.y + 240, { steps: 6 });
+  await page.mouse.up();
+  const pannedPdf = (await page.locator("#page-1").boundingBox())!;
+  const pannedCard = (await card.boundingBox())!;
+  expect(
+    Math.abs(pannedCard.x - initialCard.x - (pannedPdf.x - initialPdf.x)),
+  ).toBeLessThan(2);
+  expect(pannedPdf.x - initialPdf.x).toBeGreaterThan(90);
+  const text = page
+    .locator("#page-1 .textLayer span")
+    .filter({ hasText: "An excerpt" });
+  const textBox = (await text.boundingBox())!;
+  await page.mouse.move(textBox.x + 2, textBox.y + textBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    textBox.x + textBox.width - 2,
+    textBox.y + textBox.height / 2,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  expect(await page.evaluate(() => getSelection()?.toString())).toContain(
+    "excerpt",
+  );
+  const pdfBeforeRightDrag = (await page.locator("#page-1").boundingBox())!;
+  await page.mouse.move(textBox.x + 15, textBox.y + 200);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(textBox.x + 95, textBox.y + 200, { steps: 6 });
+  await page.mouse.up({ button: "right" });
+  expect(
+    (await page.locator("#page-1").boundingBox())!.x - pdfBeforeRightDrag.x,
+  ).toBeGreaterThan(70);
+
   const measure = () =>
-    page
-      .locator(".pdf-scroll")
-      .evaluate((el) => ({
-        left: el.scrollLeft,
-        top: el.scrollTop,
-        scale: Number(
-          (
-            el.querySelector(".workspace-objects") as HTMLElement
-          ).style.transform.match(/scale\(([^)]+)\)/)![1],
-        ),
-      }));
+    page.locator(".pdf-scroll").evaluate((el) => ({
+      left: el.scrollLeft,
+      top: el.scrollTop,
+      scale: Number(
+        (
+          el.querySelector(".workspace-objects") as HTMLElement
+        ).style.transform.match(/scale\(([^)]+)\)/)![1],
+      ),
+    }));
   const box = (await page.locator(".pdf-scroll").boundingBox())!;
   const x = 300,
     y = 250;

@@ -1,0 +1,460 @@
+import { createHash, randomUUID } from "node:crypto";
+import { readFile, mkdir, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { z } from "zod";
+import {
+  AnnotationInputSchema,
+  PdfAnchorSchema,
+  PdfRegionSourceInputSchema,
+  ReaderPreferencesSchema,
+  type Annotation,
+  type Note,
+  type Book,
+} from "../../../packages/protocol/src";
+import { WorkspaceSchema } from "../../../packages/protocol/src/workspace";
+import { Library } from "./library";
+import { richDocument } from "./notes";
+import { Workspaces } from "./workspace";
+import { ChatImages, decodeImage } from "./chat-images";
+
+export const MAX_WORKSPACE_ARCHIVE_BYTES = 384 * 1024 * 1024;
+const id = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[a-zA-Z0-9_-]+$/);
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const sha = (bytes: Uint8Array) =>
+  createHash("sha256").update(bytes).digest("hex");
+const anchor = PdfAnchorSchema.extend({
+  // Retrieval citations use normalized [x, y, width, height], unlike PDF-space annotations.
+  rects: z
+    .array(
+      z.tuple([
+        z.number().finite().min(0).max(1000),
+        z.number().finite().min(0).max(1000),
+        z.number().finite().min(0).max(1000),
+        z.number().finite().min(0).max(1000),
+      ]),
+    )
+    .max(20000),
+  bookId: id,
+  fingerprint: digest,
+  passageId: z.string().min(1).max(200),
+  indexVersion: z.number().int().nonnegative(),
+  label: z.string().max(200),
+});
+const image = z.object({
+  id,
+  name: z.string().max(100),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  bytes: z.number().int().positive(),
+  source: PdfRegionSourceInputSchema.safeExtend({
+    label: z.string().max(200),
+  }).optional(),
+});
+const annotation = AnnotationInputSchema.omit({ image: true })
+  .extend({
+    id,
+    bookId: id,
+    fingerprint: digest,
+    noteId: id,
+    assetId: id.optional(),
+    revision: z.number().int().nonnegative(),
+    createdAt: z.string().max(100),
+    updatedAt: z.string().max(100),
+    deletedAt: z.string().max(100).optional(),
+  })
+  .strict();
+const note = z
+  .object({
+    id,
+    bookId: id,
+    annotationId: id.optional(),
+    title: z.string().max(200),
+    document: z.unknown().transform(richDocument),
+    revision: z.number().int().nonnegative(),
+    createdAt: z.string().max(100),
+    updatedAt: z.string().max(100),
+    deletedAt: z.string().max(100).optional(),
+    origin: z
+      .object({
+        kind: z.literal("chat"),
+        turnId: id,
+        question: z.string().max(100000),
+        createdAt: z.string().max(100),
+        model: z.string().max(200).optional(),
+        effort: z.string().max(100).optional(),
+        sources: z
+          .array(z.object({ anchor, text: z.string().max(100000) }))
+          .max(500),
+        images: z.array(image).max(4).optional(),
+      })
+      .optional(),
+  })
+  .strict();
+const manifestSchema = z
+  .object({
+    format: z.literal("AIReader-workspace"),
+    version: z.literal(1),
+    bookId: id,
+    title: z.string().min(1).max(300),
+    fingerprint: digest,
+    pages: z.number().int().positive().max(100000),
+    progress: z.number().int().positive(),
+    workspace: WorkspaceSchema,
+    preferences: ReaderPreferencesSchema,
+    annotations: z.array(annotation).max(5000),
+    notes: z.array(note).max(5000),
+    bookmarks: z
+      .array(
+        z.object({
+          id,
+          bookId: id,
+          page: z.number().int().positive(),
+          note: z.string().max(20000),
+        }),
+      )
+      .max(5000),
+    assets: z.record(id, digest),
+  })
+  .strict();
+
+/** Portable book workspace only: no account, executable, database or personal config. */
+export class WorkspaceArchives {
+  constructor(private library: Library) {}
+  async export(bookId: string) {
+    const book = this.library.book(bookId);
+    if (book.status !== "ready") throw new Error("请等待 PDF 解析完成后再打包");
+    const chatImages = new ChatImages(this.library);
+    const allNotes = this.library.store.list<Note>("note", bookId);
+    const allAnnotations = this.library.store.list<Annotation>(
+      "annotation",
+      bookId,
+    );
+    // Retain referenced tombstones so a deleted note does not break a visible annotation.
+    const values = allNotes.filter(
+      (n) =>
+        !n.deletedAt ||
+        allAnnotations.some((a) => !a.deletedAt && a.noteId === n.id),
+    );
+    const annotations = allAnnotations.filter(
+      (a) =>
+        !a.deletedAt ||
+        allNotes.some((n) => !n.deletedAt && n.annotationId === a.id),
+    );
+    const files: Record<string, Uint8Array> = {
+      "document.pdf": await readFile(this.library.file(bookId)),
+    };
+    const assets: Record<string, string> = {};
+    for (const a of annotations)
+      if (a.assetId) {
+        const bytes = await readFile(
+          join(
+            this.library.directory,
+            "annotations",
+            bookId,
+            id.parse(a.assetId) + ".png",
+          ),
+        );
+        files[`assets/${a.assetId}.png`] = bytes;
+        assets[a.assetId] = sha(bytes);
+      }
+    for (const n of values)
+      for (const img of n.origin?.images ?? []) {
+        const bytes = await readFile(chatImages.asset(bookId, img.id));
+        files[`assets/${img.id}.png`] = bytes;
+        assets[img.id] = sha(bytes);
+      }
+    const manifest = manifestSchema.parse({
+      format: "AIReader-workspace",
+      version: 1,
+      bookId,
+      title: book.title,
+      fingerprint: book.fingerprint,
+      pages: book.pages,
+      progress: book.progress,
+      workspace: new Workspaces(this.library).get(bookId),
+      preferences: this.library.store.get("reader", bookId) ?? {},
+      annotations,
+      notes: values,
+      bookmarks: this.library.store.list("bookmark", bookId),
+      assets,
+    });
+    files["workspace.json"] = strToU8(JSON.stringify(manifest));
+    if (
+      Object.values(files).reduce((total, value) => total + value.length, 0) >
+      MAX_WORKSPACE_ARCHIVE_BYTES - 1024 * 1024
+    )
+      throw new Error("工作区超过 383 MB，暂无法打包");
+    return Buffer.from(zipSync(files, { level: 0 }));
+  }
+  async restore(bytes: Buffer): Promise<Book> {
+    let total = 0;
+    const names = new Set<string>();
+    const files = unzipSync(bytes, {
+      filter: (file) => {
+        if (
+          !/^(document\.pdf|workspace\.json|assets\/[a-zA-Z0-9_-]{1,100}\.png)$/.test(
+            file.name,
+          ) ||
+          names.has(file.name) ||
+          names.size >= 10002
+        )
+          throw new Error("工作区包含不支持或重复的文件路径");
+        names.add(file.name);
+        total += file.originalSize;
+        if (
+          total > MAX_WORKSPACE_ARCHIVE_BYTES ||
+          (file.name === "workspace.json" &&
+            file.originalSize > 16 * 1024 * 1024) ||
+          (file.name === "document.pdf" &&
+            file.originalSize > 256 * 1024 * 1024) ||
+          (file.name.startsWith("assets/") &&
+            file.originalSize > 8 * 1024 * 1024)
+        )
+          throw new Error("工作区文件过大");
+        return true;
+      },
+    });
+    if (!files["workspace.json"] || !files["document.pdf"])
+      throw new Error("工作区缺少 PDF 或数据文件");
+    const data = manifestSchema.parse(
+      JSON.parse(strFromU8(files["workspace.json"])),
+    );
+    if (
+      sha(files["document.pdf"]) !== data.fingerprint ||
+      data.workspace.bookId !== data.bookId ||
+      data.progress > data.pages
+    )
+      throw new Error("工作区的 PDF 或书籍标识不匹配");
+    const noteIds = new Set(data.notes.map((n) => n.id)),
+      annotationIds = new Set(data.annotations.map((a) => a.id));
+    if (
+      noteIds.size !== data.notes.length ||
+      annotationIds.size !== data.annotations.length
+    )
+      throw new Error("工作区记录标识重复");
+    const validAnchor = (a: z.infer<typeof PdfAnchorSchema>) => {
+      if (
+        a.page > data.pages ||
+        a.rects.some((r) => r[2] <= r[0] || r[3] <= r[1])
+      )
+        throw new Error("工作区原文位置无效");
+    };
+    const referencedAssets = new Set<string>();
+    for (const a of data.annotations) {
+      if (
+        a.bookId !== data.bookId ||
+        a.fingerprint !== data.fingerprint ||
+        !noteIds.has(a.noteId) ||
+        data.notes.find((n) => n.id === a.noteId)?.annotationId !== a.id ||
+        (a.kind === "region") !== !!a.assetId
+      )
+        throw new Error("批注与笔记或原文不匹配");
+      a.anchors.forEach(validAnchor);
+      if (a.assetId) referencedAssets.add(a.assetId);
+    }
+    for (const n of data.notes) {
+      if (
+        n.bookId !== data.bookId ||
+        (n.annotationId &&
+          (!annotationIds.has(n.annotationId) ||
+            data.annotations.find((a) => a.id === n.annotationId)?.noteId !==
+              n.id))
+      )
+        throw new Error("笔记所属书籍或批注不匹配");
+      for (const s of n.origin?.sources ?? []) {
+        if (
+          s.anchor.bookId !== data.bookId ||
+          s.anchor.fingerprint !== data.fingerprint
+        )
+          throw new Error("笔记原文来源不匹配");
+        if (s.anchor.page > data.pages) throw new Error("笔记原文页码无效");
+      }
+      for (const img of n.origin?.images ?? []) {
+        if (
+          img.source &&
+          (img.source.bookId !== data.bookId ||
+            img.source.fingerprint !== data.fingerprint ||
+            img.source.page > data.pages)
+        )
+          throw new Error("笔记图片来源不匹配");
+        referencedAssets.add(img.id);
+      }
+    }
+    for (const b of data.bookmarks)
+      if (b.bookId !== data.bookId || b.page > data.pages)
+        throw new Error("书签不属于此文档");
+    const cards = new Set(data.workspace.cards.map((card) => card.id));
+    if (
+      cards.size !== data.workspace.cards.length ||
+      new Set(data.workspace.links.map((link) => link.id)).size !==
+        data.workspace.links.length
+    )
+      throw new Error("卡片或关系标识重复");
+    for (const card of data.workspace.cards)
+      if (card.source) {
+        if (card.source.fingerprint !== data.fingerprint)
+          throw new Error("摘录不属于此文档");
+        card.source.anchors.forEach(validAnchor);
+      }
+    for (const link of data.workspace.links)
+      if (!cards.has(link.from) || !cards.has(link.to) || link.from === link.to)
+        throw new Error("关系指向不存在的卡片");
+    if (
+      referencedAssets.size !== Object.keys(data.assets).length ||
+      names.size !== referencedAssets.size + 2
+    )
+      throw new Error("工作区附件不完整");
+    const decoded = new Map<string, ReturnType<typeof decodeImage>>();
+    for (const assetId of referencedAssets) {
+      const asset = files[`assets/${assetId}.png`];
+      if (!asset || sha(asset) !== data.assets[assetId])
+        throw new Error("工作区附件缺失或校验失败");
+      decoded.set(
+        assetId,
+        decodeImage({
+          name: "摘录图片",
+          dataUrl: `data:image/png;base64,${Buffer.from(asset).toString("base64")}`,
+        }),
+      );
+    }
+    let book: Book | undefined;
+    try {
+      book = await this.library.import(
+        Buffer.from(files["document.pdf"]),
+        `${data.title}（恢复副本）.pdf`,
+        true,
+      );
+      book = await this.library.waitForBook(book.id);
+      if (book.status !== "ready" || book.pages !== data.pages)
+        throw new Error("工作区 PDF 无法解析或页数不匹配");
+      const bookId = book.id;
+      const ids = new Map(
+        [...noteIds, ...annotationIds, ...referencedAssets].map((old) => [
+          old,
+          randomUUID(),
+        ]),
+      );
+      const mapped = (old: string) => ids.get(old)!;
+      const restoredNotes: Note[] = data.notes.map((n) => ({
+        ...n,
+        id: mapped(n.id),
+        bookId,
+        revision: 1,
+        annotationId: n.annotationId ? mapped(n.annotationId) : undefined,
+        origin: n.origin
+          ? {
+              ...n.origin,
+              sources: n.origin.sources.map((s) => ({
+                ...s,
+                anchor: { ...s.anchor, bookId },
+              })),
+              images: n.origin.images?.map((img) => {
+                const normalized = decoded.get(img.id)!;
+                return {
+                  ...img,
+                  id: mapped(img.id),
+                  width: normalized.width,
+                  height: normalized.height,
+                  bytes: normalized.buffer.length,
+                  source: img.source ? { ...img.source, bookId } : undefined,
+                };
+              }),
+            }
+          : undefined,
+      }));
+      const restoredAnnotations: Annotation[] = data.annotations.map((a) => ({
+        ...a,
+        id: mapped(a.id),
+        bookId,
+        noteId: mapped(a.noteId),
+        assetId: a.assetId ? mapped(a.assetId) : undefined,
+        revision: 1,
+      }));
+      for (const kind of ["annotations", "chat-images"])
+        await mkdir(join(this.library.directory, kind, bookId), {
+          recursive: true,
+        });
+      for (const a of data.annotations)
+        if (a.assetId)
+          await writeFile(
+            join(
+              this.library.directory,
+              "annotations",
+              bookId,
+              mapped(a.assetId) + ".png",
+            ),
+            decoded.get(a.assetId)!.buffer,
+            { flag: "wx" },
+          );
+      const writtenImages = new Set<string>();
+      for (const n of data.notes)
+        for (const img of n.origin?.images ?? [])
+          if (!writtenImages.has(img.id)) {
+            await writeFile(
+              join(
+                this.library.directory,
+                "chat-images",
+                bookId,
+                mapped(img.id) + ".png",
+              ),
+              decoded.get(img.id)!.buffer,
+              { flag: "wx" },
+            );
+            writtenImages.add(img.id);
+          }
+      this.library.store.transaction(() => {
+        for (const n of restoredNotes)
+          this.library.store.put("note", n.id, bookId, n);
+        for (const a of restoredAnnotations)
+          this.library.store.put("annotation", a.id, bookId, a);
+        for (const mark of data.bookmarks) {
+          const id = randomUUID();
+          this.library.store.put("bookmark", id, bookId, {
+            ...mark,
+            id,
+            bookId,
+          });
+        }
+        new Workspaces(this.library).save(bookId, {
+          ...data.workspace,
+          bookId,
+          revision: 0,
+        });
+        this.library.store.put("reader", bookId, bookId, data.preferences);
+        book!.progress = data.progress;
+        this.library.store.put("book", bookId, bookId, book);
+      });
+      return book;
+    } catch (error) {
+      // Roll back only the freshly generated copy, never an existing user book.
+      if (book) {
+        const copyId = book.id;
+        this.library.store.transaction(() => {
+          this.library.store.db
+            .prepare("DELETE FROM records WHERE book_id=?")
+            .run(copyId);
+          this.library.store.db
+            .prepare("DELETE FROM passages WHERE book_id=?")
+            .run(copyId);
+          this.library.store.db
+            .prepare("DELETE FROM search WHERE book_id=?")
+            .run(copyId);
+        });
+        await rm(join(this.library.directory, "books", copyId + ".pdf"), {
+          force: true,
+        });
+        for (const kind of ["annotations", "chat-images"])
+          await rm(join(this.library.directory, kind, copyId), {
+            recursive: true,
+            force: true,
+          });
+      }
+      throw error;
+    }
+  }
+}

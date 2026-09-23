@@ -1,16 +1,27 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type {
   Book,
   ReadingSelection,
   PdfAnchor,
 } from "../../../packages/protocol/src";
 import type { WorkspaceCard } from "../../../packages/protocol/src/workspace";
+import { WORKSPACE_DOCUMENT_X } from "../../../packages/protocol/src/workspace";
 import {
   PdfReader,
   type PdfReaderProps,
   type WorkspacePage,
 } from "./PdfReader";
 import { useWorkspace } from "./WorkspaceState";
+import { dockBesideDocument } from "./WorkspaceLayout";
+import { Icon } from "./Icon";
+import { base } from "./api";
 import "./workspace.css";
 
 export interface BookWorkspaceHandle {
@@ -19,12 +30,26 @@ export interface BookWorkspaceHandle {
 }
 export const BookWorkspace = forwardRef<
   BookWorkspaceHandle,
-  PdfReaderProps & { book: Book; page: number }
+  PdfReaderProps & {
+    book: Book;
+    page: number;
+    beforeExport?: () => Promise<boolean>;
+  }
 >(function BookWorkspace(props, ref) {
   const state = useWorkspace(props.book.id);
   const [selected, setSelected] = useState<string>();
   const [linkFrom, setLinkFrom] = useState<string>();
   const [focus, setFocus] = useState(false);
+  const [showOverview, setShowOverview] = useState(false);
+  const [documentWidth, setDocumentWidth] = useState(0);
+  const [navigation, setNavigation] = useState<{
+    key: number;
+    x: number;
+    y: number;
+    zoom: number;
+  }>();
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [sourceFocus, setSourceFocus] = useState<PdfAnchor[]>();
   const [returnPosition, setReturnPosition] = useState<{
     x: number;
@@ -49,6 +74,85 @@ export const BookWorkspace = forwardRef<
       }
     | undefined
   >(undefined);
+  useEffect(() => {
+    if (!state.value || !documentWidth) return;
+    const cards = state.value.cards.map((card) =>
+      dockBesideDocument(card, documentWidth),
+    );
+    if (cards.some((card, index) => card.x !== state.value!.cards[index].x))
+      state.change({ ...state.value, cards }, false);
+  }, [documentWidth, state.value]);
+  function navigate(x: number, y: number, zoom = props.zoom) {
+    setNavigation((old) => ({
+      key: (old?.key ?? 0) + 1,
+      x: Math.max(0, x),
+      y: Math.max(0, y),
+      zoom,
+    }));
+    if (zoom !== props.zoom) props.onZoom?.(zoom);
+  }
+  function locateDocument() {
+    const el = viewport.current;
+    if (!el) return;
+    const page = pages.current.find((item) => item.page === props.page);
+    navigate(
+      WORKSPACE_DOCUMENT_X +
+        documentWidth / 2 -
+        el.clientWidth / props.zoom / 2,
+      page?.y ?? 40,
+    );
+    setFocus(false);
+  }
+  function overview() {
+    setShowOverview(true);
+    const el = viewport.current;
+    if (!el || !pages.current.length) return;
+    const cards = state.value?.cards ?? [];
+    const bounds = [...pages.current, ...cards];
+    const left = Math.min(...bounds.map((item) => item.x)) - 40;
+    const top = Math.min(...bounds.map((item) => item.y)) - 40;
+    const right = Math.max(...bounds.map((item) => item.x + item.width)) + 40;
+    const bottom = Math.max(...bounds.map((item) => item.y + item.height)) + 40;
+    const zoom = Math.max(
+      0.4,
+      Math.min(
+        1,
+        el.clientWidth / (right - left),
+        (el.clientHeight - 90) / (bottom - top),
+      ),
+    );
+    navigate(
+      left - Math.max(0, el.clientWidth / zoom - (right - left)) / 2,
+      top,
+      zoom,
+    );
+    setFocus(false);
+  }
+  async function exportWorkspace() {
+    setExporting(true);
+    setExportError("");
+    try {
+      if (props.beforeExport && !(await props.beforeExport()))
+        throw new Error("请先保存笔记后再打包");
+      if (!(await state.flush())) throw new Error("请先保存工作区后再打包");
+      const response = await fetch(
+        `${base}/api/books/${props.book.id}/workspace/archive`,
+        { credentials: "include" },
+      );
+      if (!response.ok)
+        throw new Error((await response.json()).error ?? "打包失败");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${props.book.title.replace(/[<>:"/\\|?*]/g, "_")}.aireader`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      setExportError(String(error));
+    } finally {
+      setExporting(false);
+    }
+  }
   function add(selection?: ReadingSelection) {
     if (!state.value) return;
     const page = pages.current.find(
@@ -63,10 +167,10 @@ export const BookWorkspace = forwardRef<
         : "新笔记",
       text: selection?.text ?? "",
       comment: "",
-      x: page.x + page.width + 72,
+      x: WORKSPACE_DOCUMENT_X + documentWidth + 40,
       y: Math.max(page.y, (viewport.current?.scrollTop ?? 0) / props.zoom + 60),
-      width: 300,
-      height: 260,
+      width: selection ? 280 : 250,
+      height: selection ? 240 : 170,
       ...(selection
         ? {
             source: {
@@ -103,7 +207,9 @@ export const BookWorkspace = forwardRef<
       state.change({
         ...state.value,
         cards: state.value.cards.map((card) =>
-          card.id === id ? { ...card, ...change } : card,
+          card.id === id
+            ? dockBesideDocument({ ...card, ...change }, documentWidth)
+            : card,
         ),
       });
   }
@@ -153,7 +259,12 @@ export const BookWorkspace = forwardRef<
     return (
       <div
         className={`workspace-objects${focus ? " focus-document" : ""}`}
-        style={{ transform: `scale(${props.zoom})` }}
+        style={
+          {
+            transform: `scale(${props.zoom})`,
+            "--workspace-zoom": props.zoom,
+          } as CSSProperties
+        }
       >
         <svg
           className="workspace-links"
@@ -171,13 +282,34 @@ export const BookWorkspace = forwardRef<
             const from = cards.find((card) => card.id === link.from),
               to = cards.find((card) => card.id === link.to);
             if (!from || !to) return null;
-            const x1 = from.x + from.width / 2,
-              y1 = from.y + from.height / 2,
-              x2 = to.x + to.width / 2,
-              y2 = to.y + to.height / 2;
+            const forward = from.x < to.x;
+            const vertical =
+              Math.abs(from.x + from.width / 2 - to.x - to.width / 2) <
+                (from.width + to.width) / 2 &&
+              Math.abs(from.y - to.y) > (from.height + to.height) / 2;
+            const down = from.y < to.y;
+            const x1 = vertical
+                ? from.x + from.width / 2
+                : forward
+                  ? from.x + from.width
+                  : from.x,
+              y1 = vertical
+                ? from.y + (down ? from.height : 0)
+                : from.y + from.height / 2,
+              x2 = vertical
+                ? to.x + to.width / 2
+                : forward
+                  ? to.x
+                  : to.x + to.width,
+              y2 = vertical
+                ? to.y + (down ? 0 : to.height)
+                : to.y + to.height / 2;
+            const path = vertical
+              ? `M ${x1} ${y1} C ${x1} ${y1 + (down ? 50 : -50)}, ${x2} ${y2 + (down ? -50 : 50)}, ${x2} ${y2}`
+              : `M ${x1} ${y1} C ${x1 + (forward ? 60 : -60)} ${y1}, ${x2 + (forward ? -60 : 60)} ${y2}, ${x2} ${y2}`;
             return (
               <g key={link.id}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} />
+                <path d={path} />
                 <foreignObject
                   x={(x1 + x2) / 2 - 80}
                   y={(y1 + y2) / 2 - 16}
@@ -202,7 +334,7 @@ export const BookWorkspace = forwardRef<
         {cards.map((card) => (
           <article
             key={card.id}
-            className={`workspace-card${selected === card.id ? " selected" : ""}`}
+            className={`workspace-card ${card.kind}${selected === card.id ? " selected" : ""}`}
             data-card-id={card.id}
             style={{
               left: card.x,
@@ -269,62 +401,88 @@ export const BookWorkspace = forwardRef<
               onPointerUp={finish}
               onPointerCancel={cancel}
             >
-              <span>{card.kind === "excerpt" ? "原文摘录" : "个人笔记"}</span>
-              {card.source && (
-                <button onClick={() => source(card)}>回到原文 ↗</button>
-              )}
+              <span>
+                <Icon name={card.kind === "excerpt" ? "book" : "note"} />
+                {card.kind === "excerpt" ? "原文摘录" : "笔记"}
+              </span>
+              <span className="workspace-grip" aria-hidden="true">
+                ⠿
+              </span>
             </header>
-            <input
-              aria-label="卡片标题"
-              value={card.title}
-              maxLength={200}
-              onChange={(e) => update(card.id, { title: e.target.value })}
-            />
-            {card.kind === "excerpt" ? (
-              <blockquote>{card.text}</blockquote>
-            ) : (
-              <textarea
-                aria-label="个人笔记内容"
-                placeholder="写下你的理解…"
-                value={card.text}
-                maxLength={20000}
-                onChange={(e) => update(card.id, { text: e.target.value })}
+            <div className="workspace-card-body">
+              <input
+                aria-label="卡片标题"
+                value={card.title}
+                maxLength={200}
+                onChange={(e) => update(card.id, { title: e.target.value })}
               />
-            )}
-            {card.kind === "excerpt" && (
-              <textarea
-                aria-label="摘录个人评论"
-                placeholder="添加个人理解（不改变原文）…"
-                value={card.comment}
-                maxLength={10000}
-                onChange={(e) => update(card.id, { comment: e.target.value })}
-              />
-            )}
+              {card.kind === "excerpt" ? (
+                <blockquote>{card.text}</blockquote>
+              ) : (
+                <textarea
+                  aria-label="个人笔记内容"
+                  placeholder="写下你的理解…"
+                  value={card.text}
+                  maxLength={20000}
+                  onChange={(e) => update(card.id, { text: e.target.value })}
+                />
+              )}
+              {card.kind === "excerpt" && (
+                <textarea
+                  aria-label="摘录个人评论"
+                  className="workspace-comment"
+                  placeholder="添加你的理解…"
+                  value={card.comment}
+                  maxLength={10000}
+                  onChange={(e) => update(card.id, { comment: e.target.value })}
+                />
+              )}
+            </div>
             <footer>
-              <button
-                aria-pressed={linkFrom === card.id}
-                onClick={() =>
-                  setLinkFrom(linkFrom === card.id ? undefined : card.id)
-                }
-              >
-                连接
-              </button>
-              <button
-                onClick={() => {
-                  state.change({
-                    ...state.value!,
-                    cards: state.value!.cards.filter(
-                      (item) => item.id !== card.id,
-                    ),
-                    links: state.value!.links.filter(
-                      (link) => link.from !== card.id && link.to !== card.id,
-                    ),
-                  });
-                  if (linkFrom === card.id) setLinkFrom(undefined);
-                }}
-              >
-                删除
-              </button>
+              {card.source ? (
+                <button
+                  className="workspace-source"
+                  onClick={() => source(card)}
+                  title="回到原文"
+                >
+                  <Icon name="outward" />第{" "}
+                  {props.book.labels[card.source.anchors[0].page - 1] ??
+                    card.source.anchors[0].page}{" "}
+                  页
+                </button>
+              ) : (
+                <span className="workspace-personal">个人理解</span>
+              )}
+              <div className="workspace-card-actions">
+                <button
+                  aria-label="连接卡片"
+                  title="连接卡片"
+                  aria-pressed={linkFrom === card.id}
+                  onClick={() =>
+                    setLinkFrom(linkFrom === card.id ? undefined : card.id)
+                  }
+                >
+                  <Icon name="link" />
+                </button>
+                <button
+                  aria-label="删除卡片"
+                  title="删除卡片"
+                  onClick={() => {
+                    state.change({
+                      ...state.value!,
+                      cards: state.value!.cards.filter(
+                        (item) => item.id !== card.id,
+                      ),
+                      links: state.value!.links.filter(
+                        (link) => link.from !== card.id && link.to !== card.id,
+                      ),
+                    });
+                    if (linkFrom === card.id) setLinkFrom(undefined);
+                  }}
+                >
+                  <Icon name="trash" />
+                </button>
+              </div>
             </footer>
             <button
               className="workspace-resize"
@@ -380,7 +538,7 @@ export const BookWorkspace = forwardRef<
                 }
               }}
             >
-              ⌟
+              <span aria-hidden="true" />
             </button>
           </article>
         ))}
@@ -392,25 +550,30 @@ export const BookWorkspace = forwardRef<
     if (!p) return;
     const dx = (e.clientX - p.x) / props.zoom,
       dy = (e.clientY - p.y) / props.zoom;
-    setGesture({
-      id: p.id,
-      x: Math.max(
-        0,
-        Math.min(1000000, p.card.x + (p.mode === "move" ? dx : 0)),
+    setGesture(
+      dockBesideDocument(
+        {
+          id: p.id,
+          x: Math.max(
+            0,
+            Math.min(1000000, p.card.x + (p.mode === "move" ? dx : 0)),
+          ),
+          y: Math.max(
+            0,
+            Math.min(1000000, p.card.y + (p.mode === "move" ? dy : 0)),
+          ),
+          width: Math.max(
+            220,
+            Math.min(1200, p.card.width + (p.mode === "resize" ? dx : 0)),
+          ),
+          height: Math.max(
+            160,
+            Math.min(1600, p.card.height + (p.mode === "resize" ? dy : 0)),
+          ),
+        },
+        documentWidth,
       ),
-      y: Math.max(
-        0,
-        Math.min(1000000, p.card.y + (p.mode === "move" ? dy : 0)),
-      ),
-      width: Math.max(
-        220,
-        Math.min(1200, p.card.width + (p.mode === "resize" ? dx : 0)),
-      ),
-      height: Math.max(
-        160,
-        Math.min(1600, p.card.height + (p.mode === "resize" ? dy : 0)),
-      ),
-    });
+    );
   }
   function finish() {
     if (gesture && pointer.current) {
@@ -428,8 +591,15 @@ export const BookWorkspace = forwardRef<
       <PdfReader
         {...props}
         workspace={{
+          ready: !!state.value,
+          camera: state.value?.camera,
+          onDocumentWidth: setDocumentWidth,
+          navigation,
+          onCamera: (camera) => {
+            if (state.value) state.change({ ...state.value, camera }, false);
+          },
           width: Math.max(
-            1600,
+            WORKSPACE_DOCUMENT_X * 2 + documentWidth,
             ...(state.value?.cards.map((card) => card.x + card.width + 100) ??
               []),
           ),
@@ -443,18 +613,36 @@ export const BookWorkspace = forwardRef<
         }}
       />
       <div className="workspace-toolbar" role="toolbar" aria-label="工作区工具">
-        <button disabled={!state.value} onClick={() => add()}>
-          ＋ 笔记卡片
+        <button
+          aria-label="＋ 笔记卡片"
+          disabled={!state.value}
+          onClick={() => add()}
+        >
+          <Icon name="plus" /> 笔记
         </button>
         <button
           aria-label="撤销工作区修改"
           disabled={!state.canUndo}
           onClick={state.undo}
         >
-          撤销
+          <Icon name="undo" />
         </button>
-        <button aria-pressed={focus} onClick={() => setFocus(!focus)}>
-          聚焦正文
+        <i className="workspace-toolbar-divider" />
+        <button onClick={locateDocument} title="回到当前阅读页">
+          <Icon name="book" />
+          定位正文
+        </button>
+        <button onClick={overview} title="缩小并查看画布内容">
+          <Icon name="fit" />
+          查看全部
+        </button>
+        <button
+          aria-label="聚焦正文"
+          title="淡化笔记，聚焦正文"
+          aria-pressed={focus}
+          onClick={() => setFocus(!focus)}
+        >
+          <Icon name="focus" />
         </button>
         {returnPosition && (
           <button
@@ -470,10 +658,73 @@ export const BookWorkspace = forwardRef<
             返回卡片位置
           </button>
         )}
+        <i className="workspace-toolbar-divider" />
+        <button
+          aria-label="打包工作区"
+          title="打包 PDF、笔记、连线及附件"
+          disabled={exporting || !state.value}
+          onClick={() => void exportWorkspace()}
+        >
+          <Icon name="download" />
+        </button>
         <span role="status" aria-label="工作区保存状态">
-          工作区 · {state.status}
+          {state.status}
         </span>
       </div>
+      <div className="workspace-hint">右键拖动平移 · Ctrl + 滚轮缩放</div>
+      {showOverview && (
+        <aside className="workspace-overview" aria-label="工作区总览">
+          <header>
+            <strong>工作区总览</strong>
+            <button
+              aria-label="关闭总览"
+              onClick={() => setShowOverview(false)}
+            >
+              <Icon name="close" />
+            </button>
+          </header>
+          <button
+            onClick={() => {
+              locateDocument();
+              setShowOverview(false);
+            }}
+          >
+            <Icon name="book" />
+            <span>
+              正文<small>{props.book.pages} 页</small>
+            </span>
+          </button>
+          {state.value?.cards.map((card) => (
+            <button
+              key={card.id}
+              onClick={() => {
+                navigate(card.x - 40, card.y - 40, 1);
+                setSelected(card.id);
+                setShowOverview(false);
+              }}
+            >
+              <Icon name={card.kind === "excerpt" ? "book" : "note"} />
+              <span>
+                {card.title || "未命名笔记"}
+                <small>
+                  {card.source
+                    ? `第 ${props.book.labels[card.source.anchors[0].page - 1] ?? card.source.anchors[0].page} 页摘录`
+                    : "个人笔记"}
+                </small>
+              </span>
+            </button>
+          ))}
+          {!state.value?.cards.length && <p>选中原文创建摘录，或添加笔记。</p>}
+        </aside>
+      )}
+      {exportError && (
+        <div className="workspace-error" role="alert">
+          {exportError}
+          <button onClick={() => setExportError("")} aria-label="关闭打包错误">
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
       {linkFrom && (
         <div className="workspace-notice">
           点击另一张卡片建立连接{" "}

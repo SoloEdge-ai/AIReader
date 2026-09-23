@@ -18,6 +18,10 @@ import type {
 import type { z } from "zod";
 import { fileUrl } from "./api";
 import { zoomWorkspaceAtPointer } from "./WorkspaceViewport";
+import {
+  WORKSPACE_DOCUMENT_X,
+  type WorkspaceCamera,
+} from "../../../packages/protocol/src/workspace";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 export type AnnotationMode = "select" | "sticky" | "region";
 export type QuestionRegion = {
@@ -365,6 +369,11 @@ export interface PdfReaderProps {
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
   workspace?: {
+    ready: boolean;
+    onDocumentWidth: (width: number) => void;
+    camera?: WorkspaceCamera;
+    onCamera: (camera: WorkspaceCamera) => void;
+    navigation?: { key: number; x: number; y: number; zoom: number };
     width: number;
     height: number;
     render: (
@@ -396,9 +405,23 @@ export function PdfReader({
     position = useRef({ page: initialPage, x: 0, y: 0 }),
     views = useRef<View[]>([]);
   const pan = useRef<
-    { x: number; y: number; left: number; top: number } | undefined
+    | {
+        x: number;
+        y: number;
+        left: number;
+        top: number;
+        button: number;
+        moved: boolean;
+      }
+    | undefined
   >(undefined);
   const space = useRef(false);
+  const suppressContextMenu = useRef(false);
+  const suppressSelection = useRef(false);
+  const [panReady, setPanReady] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const restoredCamera = useRef(false);
+  const navigationKey = useRef<number | undefined>(undefined);
   const worldCamera = useRef<
     { left: number; top: number; zoom: number } | undefined
   >(undefined);
@@ -447,6 +470,9 @@ export function PdfReader({
   useEffect(() => {
     const clear = () => {
       space.current = false;
+      setPanReady(false);
+      pan.current = undefined;
+      setPanning(false);
     };
     window.addEventListener("keyup", clear);
     window.addEventListener("blur", clear);
@@ -525,17 +551,24 @@ export function PdfReader({
       ),
     };
   views.current = cache.current.value;
+  const documentWidth = Math.max(
+    0,
+    ...views.current.map((view) => view.width / zoom),
+  );
+  useLayoutEffect(() => {
+    if (documentWidth) workspace?.onDocumentWidth(documentWidth);
+  }, [documentWidth]);
   let bottom = 40;
   const worldPages = views.current.map((view, index) => {
     const page = {
       page: index + 1,
-      x: 40,
+      x: WORKSPACE_DOCUMENT_X + (documentWidth - view.width / zoom) / 2,
       y: bottom,
       width: view.width / zoom,
       height: view.height / zoom,
       locate: (rect: Rect) => {
         const box = ordered(view.convertToViewportRectangle(rect));
-        return { x: 40 + box[0] / zoom, y: page.y + box[1] / zoom };
+        return { x: page.x + box[0] / zoom, y: page.y + box[1] / zoom };
       },
     };
     bottom += page.height + 24;
@@ -545,6 +578,34 @@ export function PdfReader({
     const el = scroll.current,
       p = position.current,
       node = el?.querySelector<HTMLElement>(`[data-page="${p.page}"]`);
+    if (workspace && (!workspace.ready || !pages.length)) return;
+    if (el && workspace && !restoredCamera.current) {
+      const camera = workspace.camera;
+      if (camera && Math.abs(camera.zoom - zoom) > 0.001 && onZoom) {
+        onZoom(camera.zoom);
+        return;
+      }
+      restoredCamera.current = true;
+      el.scrollTo({
+        left: camera
+          ? camera.x * zoom
+          : (WORKSPACE_DOCUMENT_X + documentWidth / 2) * zoom -
+            el.clientWidth / 2,
+        top: camera
+          ? camera.y * zoom
+          : (worldPages[initialPage - 1]?.y ?? 40) * zoom - 20,
+      });
+      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+      return;
+    }
+    const navigation = workspace?.navigation;
+    if (el && navigation && navigation.key !== navigationKey.current) {
+      if (Math.abs(navigation.zoom - zoom) > 0.001) return;
+      navigationKey.current = navigation.key;
+      el.scrollTo({ left: navigation.x * zoom, top: navigation.y * zoom });
+      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+      return;
+    }
     if (el && wheelPosition.current) {
       el.scrollTo(wheelPosition.current);
       wheelPosition.current = undefined;
@@ -570,7 +631,7 @@ export function PdfReader({
         node.offsetLeft + p.x * node.offsetWidth - el.clientWidth / 2,
       );
     }
-  }, [pages, zoom, rotation]);
+  }, [pages, zoom, rotation, workspace?.ready, workspace?.navigation]);
   const report = () => {
     const el = scroll.current;
     if (!el) return;
@@ -580,6 +641,12 @@ export function PdfReader({
         top: el.scrollTop,
         zoom,
       };
+    if (workspace && restoredCamera.current)
+      workspace.onCamera({
+        x: el.scrollLeft / zoom,
+        y: el.scrollTop / zoom,
+        zoom,
+      });
     const top = el.scrollTop + 20,
       node = Array.from(el.querySelectorAll<HTMLElement>("[data-page]")).find(
         (p) => p.offsetTop + p.offsetHeight > top,
@@ -598,7 +665,7 @@ export function PdfReader({
   return (
     <div
       ref={scroll}
-      className={`pdf-scroll${workspace ? " workspace-scroll" : ""}`}
+      className={`pdf-scroll${workspace ? " workspace-scroll" : ""}${panReady ? " pan-ready" : ""}${panning ? " panning" : ""}`}
       tabIndex={-1}
       onKeyDown={(event) => {
         if (
@@ -610,46 +677,76 @@ export function PdfReader({
         ) {
           event.preventDefault();
           space.current = true;
+          setPanReady(true);
         }
       }}
       onPointerDownCapture={(event) => {
         if (!workspace) return;
         const target = event.target as HTMLElement;
+        suppressContextMenu.current = false;
+        suppressSelection.current = false;
         if (
           event.button === 1 ||
           space.current ||
+          (event.button === 2 &&
+            !target.closest(
+              ".workspace-card,button,input,textarea,select,[contenteditable]",
+            )) ||
           (event.button === 0 &&
             (target === scroll.current ||
               target.classList.contains("pdf-world")))
         ) {
-          event.preventDefault();
+          if (event.button !== 2) event.preventDefault();
           event.stopPropagation();
           const el = scroll.current!;
           el.focus({ preventScroll: true });
           el.setPointerCapture(event.pointerId);
+          setPanning(event.button !== 2);
           pan.current = {
             x: event.clientX,
             y: event.clientY,
             left: el.scrollLeft,
             top: el.scrollTop,
+            button: event.button,
+            moved: false,
           };
         }
       }}
       onPointerMove={(event) => {
-        if (pan.current && scroll.current)
+        if (pan.current && scroll.current) {
+          const distance = Math.hypot(
+            event.clientX - pan.current.x,
+            event.clientY - pan.current.y,
+          );
+          if (distance < 5 && !pan.current.moved) return;
+          pan.current.moved = true;
+          suppressSelection.current = true;
+          if (pan.current.button === 2) suppressContextMenu.current = true;
+          setPanning(true);
+          event.preventDefault();
           scroll.current.scrollTo({
             left: pan.current.left + pan.current.x - event.clientX,
             top: pan.current.top + pan.current.y - event.clientY,
           });
+        }
+      }}
+      onContextMenu={(event) => {
+        if (suppressContextMenu.current) {
+          event.preventDefault();
+          suppressContextMenu.current = false;
+        }
       }}
       onPointerUp={() => {
         pan.current = undefined;
+        setPanning(false);
       }}
       onPointerCancel={() => {
         pan.current = undefined;
+        setPanning(false);
       }}
       onScroll={report}
       onMouseUp={(e) => {
+        if (e.button !== 0 || suppressSelection.current) return;
         if (mode !== "select" || onQuestionRegion) return;
         const s = getSelection();
         if (!s?.rangeCount || !s.toString().trim()) {
@@ -734,7 +831,7 @@ export function PdfReader({
                   width:
                     Math.max(
                       workspace.width,
-                      ...worldPages.map((page) => page.width + 440),
+                      WORKSPACE_DOCUMENT_X * 2 + documentWidth,
                     ) * zoom,
                   height: Math.max(workspace.height, bottom + 40) * zoom,
                 }

@@ -1,5 +1,6 @@
 import {
   WorkspaceSchema,
+  WORKSPACE_DOCUMENT_X,
   type BookWorkspace,
 } from "../../../packages/protocol/src/workspace";
 import { Library } from "./library";
@@ -9,10 +10,22 @@ export class Workspaces {
   constructor(private readonly library: Library) {}
   get(bookId: string): BookWorkspace {
     this.library.book(bookId);
+    const saved = this.library.store.get<BookWorkspace>("workspace", bookId);
+    if (saved && !saved.layoutVersion) {
+      return WorkspaceSchema.parse({
+        ...saved,
+        layoutVersion: 2,
+        cards: saved.cards.map((card) => ({
+          ...card,
+          x: Math.min(1000000, card.x + WORKSPACE_DOCUMENT_X - 40),
+        })),
+      });
+    }
     return (
-      this.library.store.get<BookWorkspace>("workspace", bookId) ?? {
+      saved ?? {
         bookId,
         revision: 0,
+        layoutVersion: 2,
         cards: [],
         links: [],
       }

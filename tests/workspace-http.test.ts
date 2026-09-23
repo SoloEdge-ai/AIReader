@@ -79,6 +79,7 @@ test("workspace survives restart without allowing cross-book or stale writes", a
     };
     const draft = {
       ...initial,
+      camera: { x: 520, y: 320, zoom: 1.25 },
       cards: [card, excerpt],
       links: [
         {

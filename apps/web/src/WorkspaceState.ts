@@ -114,7 +114,7 @@ export function useWorkspace(bookId: string) {
   }
   function undo() {
     const previous = history.current.pop();
-    if (previous) change(previous, false);
+    if (previous) change({ ...previous, camera: draft.current?.camera }, false);
   }
   return {
     value,
