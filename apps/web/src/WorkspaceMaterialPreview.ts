@@ -83,8 +83,22 @@ export function captureMaterialPreviews(ids: string[], workspace: BookWorkspace,
           [rect[0], rect[3]], [rect[2], rect[3]]].map((point) => page.toWorld(point as InkPoint)));
         add({ kind: "pdf", page: anchor.page }, annotation.id, { id: annotation.id, rect: world,
           draw(context) {
-            context.save(); context.fillStyle = colors[annotation.color]; context.globalAlpha = .35;
-            context.fillRect(world.x, world.y, world.width, world.height);
+            context.save();
+            const color = colors[annotation.color];
+            if (annotation.kind === "underline" || annotation.kind === "strike") {
+              const y = annotation.kind === "underline" ? rect[1] : (rect[1] + rect[3]) / 2;
+              const start = page.toWorld([rect[0], y]), end = page.toWorld([rect[2], y]);
+              context.strokeStyle = color; context.lineWidth = 2;
+              context.beginPath(); context.moveTo(start[0], start[1]);
+              context.lineTo(end[0], end[1]); context.stroke();
+            } else {
+              context.fillStyle = color; context.globalAlpha = annotation.kind === "sticky" ? 1 : .3;
+              context.fillRect(world.x, world.y, world.width, world.height);
+              if (annotation.kind === "sticky") {
+                context.globalAlpha = 1; context.fillStyle = "#333";
+                context.font = "15px sans-serif"; context.fillText("▤", world.x + 1, world.y + 15);
+              }
+            }
             context.restore();
           } });
       }

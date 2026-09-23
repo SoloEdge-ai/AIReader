@@ -8,6 +8,7 @@ import type {
   Note,
   PdfAnchor,
 } from "../../../packages/protocol/src";
+import { MAX_QUESTION_MATERIALS, questionMaterialCount } from "../../../packages/protocol/src";
 import { api, post, base } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
 import { Icon } from "./Icon";
@@ -181,10 +182,10 @@ export function ChatPanel({
   const valid = chosen?.supportedReasoningEfforts.some(
     (e) => e.reasoningEffort === ai.choice?.effort,
   );
+  const materialCount = questionMaterialCount(materials, images.length, Boolean(attachment));
   const canSubmit =
     (!!question.trim() || !!images.length || !!materials.length) &&
-    materials.reduce((count, material) => count + material.itemCount,
-      images.length + Number(Boolean(attachment))) <= 20 &&
+    materialCount <= MAX_QUESTION_MATERIALS &&
     !preparing &&
     !!session &&
     !!valid &&
@@ -438,9 +439,7 @@ export function ChatPanel({
       >
         <div className="composer-materials">
           {(!!materials.length || !!images.length || !!attachment) &&
-            <span className="question-material-heading">本轮材料 · {
-              materials.reduce((n, item) => n + item.itemCount, 0) + images.length + Number(Boolean(attachment))
-            } 项</span>}
+            <span className="question-material-heading">本轮材料 · {materialCount} 项</span>}
           {!!materials.length && <div className="question-material-list" aria-label="本轮材料">
             {materials.map((material) => {
               const anchors = material.sections.flatMap((section) => section.anchors ?? []);
@@ -459,16 +458,18 @@ export function ChatPanel({
                         section.kind === "relation" ? "关系" : "用户材料"}</small>
                     {section.text}
                   </p>)}
-                  {material.images.map((image) => <img key={image.id}
-                    src={`${base}/api/books/${book.id}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(session)}`}
-                    alt={`${material.title}的冻结预览`} />)}
+                  {material.images.map((image) => <figure key={image.id}>
+                    <img src={`${base}/api/books/${book.id}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(session)}`}
+                      alt={`${material.title}的冻结预览`} />
+                    <figcaption>{image.includesPdfBackground ? `包含 PDF 第 ${image.page} 页背景` : "仅所选个人对象"}
+                      {image.userRendered && " · 用户选择的视觉预览，非核验原文"}</figcaption>
+                  </figure>)}
                 </details>
               </div>;
             })}
           </div>}
           {materialError && <p className="error" role="alert">{materialError}</p>}
-          {materials.reduce((count, material) => count + material.itemCount,
-            images.length + Number(Boolean(attachment))) > 20 &&
+          {materialCount > MAX_QUESTION_MATERIALS &&
             <p className="error" role="alert">本轮材料最多 20 项，请移除部分内容。</p>}
           <ChatImageList
             images={images.map((image) => ({

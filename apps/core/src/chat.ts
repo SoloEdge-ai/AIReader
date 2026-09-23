@@ -4,6 +4,8 @@ import type {
   ReadingSnapshot,
   ChatImageInput,
 } from "../../../packages/protocol/src";
+import { MAX_CHAT_IMAGES, MAX_QUESTION_MATERIALS, questionMaterialCount,
+  questionMaterialImageCount } from "../../../packages/protocol/src";
 import { ChatImages } from "./chat-images";
 import { Library } from "./library";
 import { CodexAdapter } from "./codex";
@@ -95,10 +97,9 @@ export class ChatService {
     )
       throw new Error("请先停止当前回答。");
     const materials = this.materials.resolveForTurn(reading.bookId, sessionId, materialIds);
-    if (materials.reduce((count, value) => count + value.itemCount, imageInputs.length +
-        Number(Boolean(reading.selection))) > 20)
+    if (questionMaterialCount(materials, imageInputs.length, Boolean(reading.selection)) > MAX_QUESTION_MATERIALS)
       throw new Error("本轮材料最多 20 项，请移除部分截图、原文或个人材料");
-    if (materials.reduce((count, value) => count + value.images.length, imageInputs.length) > 4)
+    if (questionMaterialImageCount(materials, imageInputs.length) > MAX_CHAT_IMAGES)
       throw new Error("本轮图片输入最多 4 张，请移除部分截图或材料");
     const images = this.images.create(reading.bookId, imageInputs);
     let context: ReturnType<typeof buildContext>;

@@ -226,7 +226,9 @@ export class Notes {
           dataUrl: `data:image/png;base64,${bytes.toString("base64")}` }])[0];
         copiedImages.push(copy);
         mapped.set(image.id, copy.id);
-        return copy;
+        return { ...copy, userRendered: image.userRendered,
+          includesPdfBackground: image.includesPdfBackground,
+          surface: image.surface, page: image.page };
       });
       return { title: material.title, images,
         sections: material.sections.map(({ targetId: _targetId, ...section }) => ({

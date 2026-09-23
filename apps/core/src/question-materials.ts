@@ -3,6 +3,9 @@ import { mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "n
 import { join } from "node:path";
 import {
   QuestionMaterialInputSchema,
+  MAX_QUESTION_MATERIALS,
+  MAX_CHAT_IMAGES,
+  questionMaterialCount,
   type Annotation,
   type Note,
   type QuestionMaterialImage,
@@ -31,7 +34,9 @@ const surfaceKey = (id: string, surface: { kind: "board" } | { kind: "pdf"; page
 /** Freezes user-selected local material without conferring original-text citation authority. */
 export class QuestionMaterials {
   constructor(private readonly library: Library, private readonly workspaces: Workspaces,
-    private readonly notes: Notes, private readonly workspaceAssets: WorkspaceAssets) {}
+    private readonly notes: Notes, private readonly workspaceAssets: WorkspaceAssets) {
+    this.cleanup();
+  }
 
   private directory(bookId: string, materialId: string) {
     return join(this.library.directory, "question-materials", bookId, materialId);
@@ -52,11 +57,12 @@ export class QuestionMaterials {
     return this.imagePath(bookId, materialId, imageId);
   }
   resolveForTurn(bookId: string, sessionId: string, ids: string[]) {
-    if (ids.length > 20 || new Set(ids).size !== ids.length) throw new Error("每轮最多 20 项不重复材料");
+    if (ids.length > MAX_QUESTION_MATERIALS || new Set(ids).size !== ids.length)
+      throw new Error("每轮最多 20 项不重复材料");
     const values = ids.map((id) => this.get(bookId, sessionId, id));
     if (values.some((value) => value.committedTurnId))
       throw new Error("材料快照已用于上一轮，请重新添加以生成新快照");
-    if (values.reduce((count, value) => count + value.itemCount, 0) > 20)
+    if (questionMaterialCount(values) > MAX_QUESTION_MATERIALS)
       throw new Error("每轮最多 20 项材料，请移除部分材料");
     return values;
   }
@@ -105,7 +111,7 @@ export class QuestionMaterials {
       input.targets.some((target) => target.kind === "relation" && target.id === link.id) ||
       (selected.has(link.from) && selected.has(link.to)));
     if (input.targets.length + includedLinks.filter((link) =>
-      !input.targets.some((target) => target.kind === "relation" && target.id === link.id)).length > 20)
+      !input.targets.some((target) => target.kind === "relation" && target.id === link.id)).length > MAX_QUESTION_MATERIALS)
       throw new Error("关联关系使本轮材料超过 20 项，请缩小选择");
     const materialId = randomUUID();
     const sections: QuestionMaterialSection[] = [];
@@ -199,7 +205,7 @@ export class QuestionMaterials {
     }
     if ([...requiredVisuals].some((key) => !covered.has(key)))
       throw new Error("个人标记缺少可见预览，请重新选择或缩小范围");
-    if (images.length > 4) throw new Error("本轮材料图片最多 4 张，请移除部分选择");
+    if (images.length > MAX_CHAT_IMAGES) throw new Error("本轮材料图片最多 4 张，请移除部分选择");
     const textTokens = Math.ceil(Buffer.byteLength(JSON.stringify(sections), "utf8") / 2);
     if (textTokens > 10000) throw new Error("材料文字超出上下文预算，请缩小选择");
     const snapshot: QuestionMaterialSnapshot = {

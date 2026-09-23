@@ -24,6 +24,7 @@ test("selected canvas materials are frozen, book/session scoped and actually sen
           value === undefined ? undefined : JSON.stringify(value) });
     const pdf = await PDFDocument.create();
     pdf.addPage([400, 320]).drawText("Source book text", { x: 20, y: 260 });
+    pdf.addPage([400, 320]).drawText("Distinct second page evidence about batching", { x: 20, y: 260 });
     const book = await (await request("books", await pdf.save())).json();
     await core.library.waitForBook(book.id);
     const session = await (await request(`books/${book.id}/sessions`, {})).json();
@@ -148,6 +149,7 @@ test("selected canvas materials are frozen, book/session scoped and actually sen
     const savedNote = (await saved.json()).note;
     expect(savedNote.origin.materials[0].sections[0].text).toBe(card.text);
     expect(savedNote.origin.materials[0].images).toHaveLength(1);
+    expect(savedNote.origin.materials[0].images[0].includesPdfBackground).toBe(true);
     const noteExport = await request(`books/${book.id}/notes/${savedNote.id}/export`);
     expect(noteExport.status).toBe(200);
     const noteFiles = unzipSync(new Uint8Array(await noteExport.arrayBuffer()));
@@ -160,6 +162,7 @@ test("selected canvas materials are frozen, book/session scoped and actually sen
     const copy = await restored.json();
     const copyNotes = await (await request(`books/${copy.id}/notes`)).json();
     expect(copyNotes[0].origin.materials[0].sections[0].text).toBe(card.text);
+    expect(copyNotes[0].origin.materials[0].images[0].includesPdfBackground).toBe(true);
     const copiedImage = copyNotes[0].origin.materials[0].images[0].id;
     expect((await request(`books/${copy.id}/chat-images/${copiedImage}`)).status).toBe(200);
     expect((await request(`books/${book.id}/turns`, { reading: { bookId: book.id, page: 1 },
@@ -172,6 +175,28 @@ test("selected canvas materials are frozen, book/session scoped and actually sen
     const secondObservation = JSON.parse((await turns())[1].answer.slice("Materials received: ".length));
     expect(secondObservation.pictures).toEqual([]);
     expect((await turns())[1].context.materials).toEqual([]);
+    const latestWorkspace = await (await request(`books/${book.id}/workspace`)).json();
+    const excerpt = { id: "distant-excerpt", kind: "excerpt", title: "第二页原文摘录",
+      text: "Distinct second page evidence about batching", comment: "", x: 900, y: 500,
+      width: 250, height: 170, source: { fingerprint: book.fingerprint,
+        anchors: [{ page: 2, rects: [[15, 240, 370, 280]] }] } };
+    const distantCreated = await request(`books/${book.id}/workspace/commands`, {
+      bookId: book.id, commandId: "make-distant-excerpt", expectedVersion: latestWorkspace.revision,
+      changes: [{ type: "upsert-card", card: excerpt }],
+    });
+    expect(distantCreated.status).toBe(200);
+    const distantSnapshot = await request(`books/${book.id}/question-materials`, {
+      ...input, requestId: "distant-source", workspaceRevision: (await distantCreated.json()).revision,
+      targets: [{ kind: "card", id: excerpt.id }], previews: [],
+    });
+    expect(distantSnapshot.status).toBe(201);
+    const distant = await distantSnapshot.json();
+    const distantTurnResponse = await request(`books/${book.id}/turns`, { reading: { bookId: book.id,
+      page: 1 }, sessionId: session.id, question: "解释这个", model: "fixture-a", effort: "medium",
+      materialIds: [distant.id] });
+    expect(distantTurnResponse.status).toBe(202);
+    expect((await distantTurnResponse.json()).context.evidence.some((passage: { page: number }) =>
+      passage.page === 2)).toBe(true);
     expect(turn.id).toBe(completed.id);
   } finally {
     core.close();

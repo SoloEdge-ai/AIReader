@@ -1029,6 +1029,10 @@ progress::-webkit-progress-value {
 .question-material-item details small { margin-right: 6px; color: var(--accent); }
 .question-material-item details img { display: block; max-width: 100%; max-height: 140px;
   object-fit: contain; margin-top: 6px; border: 1px solid var(--line); }
+.question-material-item figure, .sent-material figure { margin: 6px 0 0; }
+.question-material-item figcaption, .sent-material figcaption {
+  color: var(--muted); font-size: 11px; margin-top: 4px;
+}
 .sent-materials { margin: 6px 0 12px; color: var(--muted); font-size: 12px; }
 .sent-material { padding: 8px 0; border-top: 1px solid var(--line); }
 .sent-material strong { color: var(--text); margin-right: 8px; }

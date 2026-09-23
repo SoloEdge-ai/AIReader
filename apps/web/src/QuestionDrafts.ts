@@ -4,7 +4,8 @@ import type {
   PdfRegionSourceInput,
   QuestionMaterialSnapshot,
 } from "../../../packages/protocol/src";
-import { MAX_CHAT_IMAGES } from "../../../packages/protocol/src";
+import { MAX_CHAT_IMAGES, MAX_QUESTION_MATERIALS, questionMaterialCount,
+  questionMaterialImageCount } from "../../../packages/protocol/src";
 import { prepareQuestionImage, type DraftImage } from "./QuestionImages";
 
 export type QuestionDraft = {
@@ -56,15 +57,14 @@ export class QuestionDraftStore {
   async addImages(key: string, files: File[], source?: PdfRegionSourceInput) {
     const draft = this.get(key);
     if (
-      draft.images.length + draft.materials.reduce((count, material) => count + material.images.length, 0) +
-        draft.preparing + files.length >
+      questionMaterialImageCount(draft.materials, draft.images.length + draft.preparing + files.length) >
       MAX_CHAT_IMAGES
     ) {
       this.update(key, { imageError: "每次最多添加 4 张图片" });
       return;
     }
-    if (draft.images.length + draft.preparing + files.length + Number(Boolean(draft.attachment)) +
-        draft.materials.reduce((count, material) => count + material.itemCount, 0) > 20) {
+    if (questionMaterialCount(draft.materials, draft.images.length + draft.preparing + files.length,
+        Boolean(draft.attachment)) > MAX_QUESTION_MATERIALS) {
       this.update(key, { imageError: "本轮材料最多 20 项，请移除部分内容" });
       return;
     }
@@ -94,13 +94,12 @@ export class QuestionDraftStore {
   addMaterial(key: string, material: QuestionMaterialSnapshot) {
     const draft = this.get(key);
     if (draft.materials.some((entry) => entry.id === material.id)) return true;
-    if (draft.materials.reduce((count, entry) => count + entry.itemCount, draft.images.length +
-        Number(Boolean(draft.attachment))) + material.itemCount > 20) {
+    if (questionMaterialCount([...draft.materials, material], draft.images.length,
+        Boolean(draft.attachment)) > MAX_QUESTION_MATERIALS) {
       this.update(key, { materialError: "每轮最多 20 项材料，请移除部分选择" });
       return false;
     }
-    const images = draft.images.length + draft.materials.reduce((count, entry) =>
-      count + entry.images.length, 0) + material.images.length;
+    const images = questionMaterialImageCount([...draft.materials, material], draft.images.length);
     if (images > MAX_CHAT_IMAGES) {
       this.update(key, { materialError: "本轮图片最多 4 张，请移除部分截图或材料" });
       return false;

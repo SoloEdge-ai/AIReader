@@ -124,6 +124,8 @@ export function exportNoteArchive(
         lines.push(`### ${escapeText(material.title)}`);
         for (const section of material.sections)
           lines.push(`- ${escapeText(section.title)}（${section.kind}）：${escapeText(section.text)}`);
+        for (const image of material.images)
+          lines.push(`- 图片预览：${image.includesPdfBackground ? `包含 PDF 物理页 ${image.page} 的背景` : "仅所选个人对象"}；${image.userRendered ? "由用户选择的视觉预览，像素未被 Core 核验为原始 PDF" : "已保存的区域截图"}。`);
       }
     }
   }

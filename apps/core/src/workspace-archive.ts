@@ -55,6 +55,12 @@ const image = z.object({
     label: z.string().max(200),
   }).optional(),
 });
+const materialImage = image.extend({
+  userRendered: z.boolean(),
+  includesPdfBackground: z.boolean().optional(),
+  surface: z.enum(["pdf", "board"]).optional(),
+  page: z.number().int().positive().optional(),
+});
 const annotation = AnnotationInputSchema.omit({ image: true })
   .extend({
     id,
@@ -99,7 +105,7 @@ const note = z
             anchors: z.array(PdfAnchorSchema).max(500).optional(),
             imageIds: z.array(id).max(4).optional(),
           })).max(20),
-          images: z.array(image).max(4),
+          images: z.array(materialImage).max(4),
         })).max(20).optional(),
       })
       .optional(),

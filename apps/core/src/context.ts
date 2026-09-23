@@ -57,14 +57,21 @@ export function buildContext(
   const global =
     snapshot.scope === "book" || /整本|全书|核心观点/.test(question);
   const candidates: Passage[] = [];
+  const originalSections = materials.flatMap((material) => material.sections)
+    .filter((section) => section.kind === "book-excerpt" || section.kind === "book-region");
+  const sourcePages = new Set(originalSections.flatMap((section) =>
+    (section.anchors ?? []).map((anchor) => anchor.page)));
+  const sourceQuery = originalSections.filter((section) => section.kind === "book-excerpt")
+    .map((section) => section.text.slice(0, 300)).join(" ").slice(0, 1200);
   const add = (p?: Passage) => {
     if (p && !candidates.some((x) => x.id === p.id)) candidates.push(p);
   };
   const matches = library.search(
     book.id,
-    question + " " + snapshot.selection.slice(0, 200),
+    question + " " + snapshot.selection.slice(0, 200) + " " + sourceQuery,
     30,
   );
+  for (const passage of all.filter((passage) => sourcePages.has(passage.page))) add(passage);
   if (
     snapshot.selection ||
     snapshot.scope === "selection" ||
@@ -101,7 +108,7 @@ export function buildContext(
       add(p);
   for (const p of library.search(
     book.id,
-    question + " " + snapshot.selection.slice(0, 200),
+    question + " " + snapshot.selection.slice(0, 200) + " " + sourceQuery,
     30,
   )) {
     add(p);

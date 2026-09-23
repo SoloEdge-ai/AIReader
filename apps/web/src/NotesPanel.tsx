@@ -387,6 +387,9 @@ export function NotesPanel({
   }, [bookId]);
   const selected = state.notes.find((n) => n.id === state.selected),
     annotation = state.annotations.find((a) => a.id === selected?.annotationId);
+  const materialImageIds = new Set(selected?.origin?.materials?.flatMap((material) =>
+    material.images.map((image) => image.id)) ?? []);
+  const questionImages = selected?.origin?.images?.filter((image) => !materialImageIds.has(image.id)) ?? [];
   const run = (fn: () => Promise<unknown>) =>
     void fn().catch((e) => window.alert(String(e)));
   async function exportNote(note: Note) {
@@ -536,13 +539,11 @@ export function NotesPanel({
                 {!selected.origin.sources.length && (
                   <p>此回答没有已校验的书中出处，请自行核对。</p>
                 )}
-                {!!selected.origin.images?.filter((image) => !selected.origin?.materials?.some((material) =>
-                  material.images.some((item) => item.id === image.id))).length && (
+                {!!questionImages.length && (
                   <>
                     <p>原问题附图 · 用户提供的材料，不是已校验的书中引文</p>
                     <ChatImageList
-                      images={selected.origin.images.filter((image) => !selected.origin?.materials?.some((material) =>
-                        material.images.some((item) => item.id === image.id))).map((image) => ({
+                      images={questionImages.map((image) => ({
                         ...image,
                         url: `${base}/api/books/${bookId}/chat-images/${image.id}`,
                       }))}

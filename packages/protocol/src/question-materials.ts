@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { PdfAnchor } from "./index";
 
+export const MAX_QUESTION_MATERIALS = 20;
+
 const identifier = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
 export const QuestionMaterialTargetSchema = z.object({
   kind: z.enum(["card", "object", "annotation", "note", "relation"]),
@@ -10,7 +12,7 @@ export const QuestionMaterialTargetSchema = z.object({
 export type QuestionMaterialTarget = z.infer<typeof QuestionMaterialTargetSchema>;
 
 export const QuestionMaterialPreviewInputSchema = z.object({
-  objectIds: z.array(identifier).min(1).max(20),
+  objectIds: z.array(identifier).min(1).max(MAX_QUESTION_MATERIALS),
   surface: z.enum(["pdf", "board"]),
   page: z.number().int().positive().optional(),
   includesPdfBackground: z.boolean(),
@@ -24,7 +26,7 @@ export const QuestionMaterialInputSchema = z.object({
   sessionId: identifier,
   requestId: identifier,
   workspaceRevision: z.number().int().nonnegative(),
-  targets: z.array(QuestionMaterialTargetSchema).min(1).max(20),
+  targets: z.array(QuestionMaterialTargetSchema).min(1).max(MAX_QUESTION_MATERIALS),
   previews: z.array(QuestionMaterialPreviewInputSchema).max(4).default([]),
 }).strict();
 export type QuestionMaterialInput = z.infer<typeof QuestionMaterialInputSchema>;
@@ -62,3 +64,12 @@ export type QuestionMaterialSnapshot = {
   images: QuestionMaterialImage[];
   committedTurnId?: string;
 };
+export function questionMaterialCount(materials: Pick<QuestionMaterialSnapshot, "itemCount">[],
+  imageCount = 0, hasSelection = false) {
+  return materials.reduce((count, material) => count + material.itemCount,
+    imageCount + Number(hasSelection));
+}
+export function questionMaterialImageCount(materials: Pick<QuestionMaterialSnapshot, "images">[],
+  imageCount = 0) {
+  return materials.reduce((count, material) => count + material.images.length, imageCount);
+}

@@ -275,7 +275,8 @@ export interface Note {
     materials?: {
       title: string;
       sections: Omit<import("./question-materials").QuestionMaterialSection, "targetId">[];
-      images: ChatImage[];
+      images: (ChatImage & Pick<import("./question-materials").QuestionMaterialImage,
+        "userRendered" | "includesPdfBackground" | "surface" | "page">)[];
     }[];
   };
   title: string;

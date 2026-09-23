@@ -100,9 +100,12 @@ export function ChatMessage({
               <small>{section.kind === "book-excerpt" ? "原文摘录" : section.kind === "book-region" ? "PDF 区域" : "个人材料"}</small>
               {section.text}
             </p>)}
-            {material.images.map((image) => <img key={image.id}
-              src={`${base}/api/books/${turn.bookId}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(turn.sessionId)}`}
-              alt={`${material.title}的本轮冻结图片`} />)}
+            {material.images.map((image) => <figure key={image.id}>
+              <img src={`${base}/api/books/${turn.bookId}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(turn.sessionId)}`}
+                alt={`${material.title}的本轮冻结图片`} />
+              <figcaption>{image.includesPdfBackground ? `包含 PDF 第 ${image.page} 页背景` : "仅所选个人对象"}
+                {image.userRendered && " · 用户选择的视觉预览，非核验原文"}</figcaption>
+            </figure>)}
           </div>;
         })}
       </details>}
