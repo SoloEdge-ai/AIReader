@@ -5,6 +5,19 @@
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
+; The builder's default handler eventually force-kills the running app. Leave
+; its data-saving process alone and ask the user to close it before proceeding.
+!macro customCheckAppRunning
+  !insertmacro IS_POWERSHELL_AVAILABLE
+  !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+  ${If} $R0 == 0
+    IfSilent +2
+      MessageBox MB_ICONEXCLAMATION "请先关闭 AIReader，再继续安装、更新或卸载。"
+    SetErrorLevel 5
+    Quit
+  ${EndIf}
+!macroend
+
 !ifndef BUILD_UNINSTALLER
   !include "FileFunc.nsh"
   !include "nsDialogs.nsh"

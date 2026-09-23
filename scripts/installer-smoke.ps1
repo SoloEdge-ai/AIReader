@@ -19,13 +19,13 @@ $startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'AIReader.lnk'
 $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) 'AIReader.lnk'
 
 function Installed-Entry {
-  @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+  @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
     ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } |
     Where-Object { $_.DisplayName -eq 'AIReader' })
 }
 
 function Machine-Entry {
-  @(Get-ChildItem 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+  @(Get-ChildItem 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
     ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } |
     Where-Object { $_.DisplayName -eq 'AIReader' })
 }
