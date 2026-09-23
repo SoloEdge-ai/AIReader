@@ -399,7 +399,9 @@ export function PdfReader({
     { x: number; y: number; left: number; top: number } | undefined
   >(undefined);
   const space = useRef(false);
-  const worldCamera = useRef<{ x: number; y: number } | undefined>(undefined);
+  const worldCamera = useRef<
+    { left: number; top: number; zoom: number } | undefined
+  >(undefined);
   const wheelPosition = useRef<{ left: number; top: number } | undefined>(
     undefined,
   );
@@ -546,13 +548,19 @@ export function PdfReader({
     if (el && wheelPosition.current) {
       el.scrollTo(wheelPosition.current);
       wheelPosition.current = undefined;
+      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
       return;
     }
     if (el && workspace && worldCamera.current) {
+      const previous = worldCamera.current;
+      const ratio = zoom / previous.zoom;
+      // Use today's viewport width, not the center cached before a sidebar resized it.
+      // A rotation at the same zoom must not translate the workspace camera.
       el.scrollTo({
-        left: worldCamera.current.x * zoom - el.clientWidth / 2,
-        top: worldCamera.current.y * zoom - 20,
+        left: (previous.left + el.clientWidth / 2) * ratio - el.clientWidth / 2,
+        top: (previous.top + 20) * ratio - 20,
       });
+      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
       return;
     }
     if (node && el) {
@@ -568,8 +576,9 @@ export function PdfReader({
     if (!el) return;
     if (workspace)
       worldCamera.current = {
-        x: (el.scrollLeft + el.clientWidth / 2) / zoom,
-        y: (el.scrollTop + 20) / zoom,
+        left: el.scrollLeft,
+        top: el.scrollTop,
+        zoom,
       };
     const top = el.scrollTop + 20,
       node = Array.from(el.querySelectorAll<HTMLElement>("[data-page]")).find(
