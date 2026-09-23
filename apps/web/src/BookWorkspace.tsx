@@ -298,7 +298,8 @@ export const BookWorkspace = forwardRef<
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
   useImperativeHandle(ref, () => ({ flush: state.flush, excerpt: add,
-    escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined); setLinkFrom(undefined); setEditingText(undefined); },
+    escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
+      setSelectedLink(undefined); setStyleOpen(false); setLinkFrom(undefined); setEditingText(undefined); },
   }));
   function update(id: string, change: Partial<WorkspaceCard>) {
     if (state.value)
@@ -1048,7 +1049,7 @@ export const BookWorkspace = forwardRef<
             {styleObject && <>
               <button aria-label="对象格式" aria-expanded={styleOpen} title="对象格式"
                 onClick={() => setStyleOpen((open) => !open)}><Icon name="more" /></button>
-              {styleOpen && <div className="workspace-object-style" role="group" aria-label="对象格式设置">
+              {styleOpen && <div className="workspace-object-style reader-popover" role="group" aria-label="对象格式设置">
                 {styleObject.kind === "text" ? <>
                   <label>字号<input aria-label="文字字号" type="number" min={8} max={120}
                     value={styleObject.fontSize} onChange={(event) => {

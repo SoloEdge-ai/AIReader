@@ -64,7 +64,9 @@ try {
   await page.getByLabel("形状填充透明度").selectOption("0.3");
   await expect.poll(async () => (await workspace()).objects[1].fillOpacity).toBe(.3);
   expect((await workspace()).objects[1]).toMatchObject({ strokeWidth: 4, fill: "#345d84" });
-  await page.getByRole("button", { name: "对象格式" }).click();
+  await page.getByLabel("形状填充透明度").press("Escape");
+  await expect(page.getByRole("group", { name: "对象格式设置" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "添加文本或卡片" }).click();
   await page.getByRole("menuitem", { name: "个人笔记卡片" }).click();
   await page.mouse.click(first.x + first.width + 100, first.y + 190);
