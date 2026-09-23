@@ -1,4 +1,5 @@
 !include "LogicLib.nsh"
+!include "${__FILEDIR__}\uninstall-file-check.nsh"
 
 ; The app is installed for the current Windows user without elevation.
 !macro customInstallMode
@@ -16,6 +17,23 @@
       MessageBox MB_ICONEXCLAMATION "请先关闭 AIReader，再继续安装、更新或卸载。如果仍无法继续，请检查 Windows 进程查询权限。"
     SetErrorLevel 5
     Quit
+  ${EndIf}
+!macroend
+
+!macro customUnInstall
+  ; Upgrades retain electron-builder's existing atomic rename/rollback path.
+  ${IfNot} ${isUpdated}
+    Push $R0
+    ReadRegStr $R0 SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ${If} $R0 == ""
+    ${OrIf} $R0 != $INSTDIR
+      IfSilent +2
+        MessageBox MB_ICONEXCLAMATION "卸载路径与安装记录不一致。请先运行安装包修复安装，再重试卸载。"
+      SetErrorLevel 6
+      Quit
+    ${EndIf}
+    Pop $R0
+    !insertmacro aiRemoveMainExecutable
   ${EndIf}
 !macroend
 

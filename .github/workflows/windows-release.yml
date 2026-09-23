@@ -31,6 +31,8 @@ jobs:
           $manifest.version = '0.1.${{ github.run_number }}'
           $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
       - run: pnpm desktop:windows
+      - name: NSIS file-removal guard regression
+        run: ./scripts/uninstall-file-check-smoke.ps1
       - name: Model control UI acceptance
         run: node scripts/model-control-smoke.mjs
       - name: Chat HTTP and UI acceptance
