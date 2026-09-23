@@ -35,6 +35,8 @@ jobs:
         run: ./scripts/uninstall-file-check-smoke.ps1
       - name: Model control UI acceptance
         run: node scripts/model-control-smoke.mjs
+      - name: Workspace and Ctrl-wheel acceptance
+        run: node --import tsx scripts/workspace-smoke.ts
       - name: Chat HTTP and UI acceptance
         run: node --import tsx scripts/chat-smoke.ts
       - name: Screenshot input and panel resize acceptance

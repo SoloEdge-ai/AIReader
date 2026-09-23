@@ -446,7 +446,11 @@ export const BookWorkspace = forwardRef<
         <button disabled={!state.value} onClick={() => add()}>
           ＋ 笔记卡片
         </button>
-        <button disabled={!state.canUndo} onClick={state.undo}>
+        <button
+          aria-label="撤销工作区修改"
+          disabled={!state.canUndo}
+          onClick={state.undo}
+        >
           撤销
         </button>
         <button aria-pressed={focus} onClick={() => setFocus(!focus)}>
@@ -466,7 +470,9 @@ export const BookWorkspace = forwardRef<
             返回卡片位置
           </button>
         )}
-        <span role="status">{state.status}</span>
+        <span role="status" aria-label="工作区保存状态">
+          工作区 · {state.status}
+        </span>
       </div>
       {linkFrom && (
         <div className="workspace-notice">
