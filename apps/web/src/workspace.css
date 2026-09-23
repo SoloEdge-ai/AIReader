@@ -145,6 +145,20 @@
   line-height: 1.85;
   scrollbar-width: thin;
 }
+.workspace-region-image {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  object-position: center;
+  background: #f4f4f2;
+  border: 1px solid var(--workspace-rule);
+  border-radius: 3px;
+}
+.workspace-card.region .workspace-comment {
+  flex: 0 0 46px;
+}
 .workspace-card textarea.workspace-comment {
   border-top: 1px solid var(--workspace-rule);
   padding-top: 7px;

@@ -34,6 +34,7 @@ const paths = {
   pen: "m4 16 12-12 4 4L8 20H4Zm10-10 4 4",
   crop: "M5 2v17h17M2 5h17v17",
   undo: "M8 5 3 10l5 5M3 10h11a6 6 0 0 1 0 12",
+  redo: "M16 5l5 5-5 5m5-5H10a6 6 0 0 0 0 12",
 };
 export function Icon({ name }: { name: keyof typeof paths }) {
   return (

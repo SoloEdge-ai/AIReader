@@ -1650,6 +1650,49 @@ summary {
   border: 1px solid #3769a7;
   background: #75a7d52a;
 }
+.region-preview {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  background: #5185d017;
+  pointer-events: none;
+}
+.region-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--surface);
+  border-radius: 4px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  pointer-events: auto;
+  touch-action: none;
+}
+.region-handle.corner-0 { left: -6px; top: -6px; cursor: nwse-resize; }
+.region-handle.corner-1 { right: -6px; top: -6px; cursor: nesw-resize; }
+.region-handle.corner-2 { right: -6px; bottom: -6px; cursor: nwse-resize; }
+.region-handle.corner-3 { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.region-actions {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 4px;
+  pointer-events: auto;
+}
+.region-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.region-actions label input { margin: 0; }
+.region-actions [role="alert"] { color: var(--danger); padding: 0 6px; }
 .region-question-prompt {
   position: absolute;
   bottom: 16px;

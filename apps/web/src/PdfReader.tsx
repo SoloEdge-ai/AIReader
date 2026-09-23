@@ -29,6 +29,7 @@ export type QuestionRegion = {
   rect: [number, number, number, number];
   image: string;
 };
+export type RegionAction = "card" | "question" | "annotation";
 type View = ReturnType<pdfjs.PDFPageProxy["getViewport"]>;
 type Rect = [number, number, number, number];
 const ordered = (r: number[]): Rect => [
@@ -92,6 +93,7 @@ function Page({
   onCreate,
   onAnnotation,
   onQuestionRegion,
+  onRegionAction,
   placement,
   sourceFocus,
 }: {
@@ -103,6 +105,7 @@ function Page({
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
+  onRegionAction?: (region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) => void | Promise<void>;
   placement?: { left: number; top: number };
   sourceFocus?: PdfAnchor[];
 }) {
@@ -112,6 +115,11 @@ function Page({
   const [visible, setVisible] = useState(false),
     [renderedView, setRenderedView] = useState<View>(),
     [drag, setDrag] = useState<Rect>();
+  const [pendingRegion, setPendingRegion] = useState<Rect>();
+  const [includePersonalMarks, setIncludePersonalMarks] = useState(false);
+  const [regionBusy, setRegionBusy] = useState(false);
+  const [regionError, setRegionError] = useState("");
+  const resizing = useRef<{ corner: number; original: Rect } | undefined>(undefined);
   const start = useRef<{ point: [number, number]; view: View } | undefined>(
     undefined,
   );
@@ -119,6 +127,8 @@ function Page({
   useLayoutEffect(() => {
     start.current = undefined;
     setDrag(undefined);
+    setPendingRegion(undefined);
+    resizing.current = undefined;
   }, [view, mode]);
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -181,6 +191,58 @@ function Page({
     ] as [number, number];
   };
   const page = proxy.pageNumber;
+  function captureRegion(rect: Rect, withMarks: boolean): QuestionRegion {
+    const source = canvas.current!;
+    const [left, top, right, bottom] = rect;
+    const width = right - left, height = bottom - top;
+    const scale = Math.min(2, 2048 / Math.max(width, height));
+    const crop = document.createElement("canvas");
+    crop.width = Math.ceil(width * scale);
+    crop.height = Math.ceil(height * scale);
+    const context = crop.getContext("2d")!;
+    context.drawImage(source,
+      left * source.width / view.width, top * source.height / view.height,
+      width * source.width / view.width, height * source.height / view.height,
+      0, 0, crop.width, crop.height);
+    if (withMarks) {
+      context.save();
+      context.scale(scale, scale);
+      context.translate(-left, -top);
+      for (const annotation of annotations)
+        for (const anchor of annotation.anchors.filter((item) => item.page === page))
+          for (const pdf of anchor.rects) {
+            const box = ordered(view.convertToViewportRectangle(pdf));
+            context.strokeStyle = context.fillStyle = colors[annotation.color];
+            context.lineWidth = 2;
+            if (annotation.kind === "highlight") {
+              context.globalAlpha = 0.3;
+              context.fillRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+              context.globalAlpha = 1;
+            } else if (annotation.kind === "underline" || annotation.kind === "strike") {
+              const y = annotation.kind === "underline" ? box[3] : (box[1] + box[3]) / 2;
+              context.beginPath(); context.moveTo(box[0], y); context.lineTo(box[2], y); context.stroke();
+            } else if (annotation.kind === "sticky") {
+              context.fillRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+            }
+          }
+      context.restore();
+    }
+    return { page, rect: pdfRect(view, rect), image: crop.toDataURL("image/png") };
+  }
+  async function submitRegion(action: RegionAction) {
+    if (!pendingRegion || !onRegionAction || regionBusy) return;
+    setRegionBusy(true);
+    setRegionError("");
+    try {
+      await onRegionAction(captureRegion(pendingRegion, includePersonalMarks), action, includePersonalMarks);
+      setPendingRegion(undefined);
+      setIncludePersonalMarks(false);
+    } catch (error) {
+      setRegionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRegionBusy(false);
+    }
+  }
   return (
     <div
       ref={outer}
@@ -271,8 +333,11 @@ function Page({
               : "页面绘制中，请稍候"
           }
           onPointerDown={(e) => {
-            if (e.button !== 0 || !ready) return;
+            if (e.button !== 0 || !ready || (e.target as HTMLElement).closest(".region-preview")) return;
             e.preventDefault();
+            setPendingRegion(undefined);
+            setIncludePersonalMarks(false);
+            setRegionError("");
             start.current = { point: point(e), view };
             e.currentTarget.setPointerCapture(e.pointerId);
           }}
@@ -296,6 +361,10 @@ function Page({
               r[3] = Math.min(view.height, r[1] + size);
             }
             if (r[2] - r[0] < 3 || r[3] - r[1] < 3) return;
+            if (mode === "region" && onRegionAction) {
+              setPendingRegion(r);
+              return;
+            }
             let image: string | undefined;
             if (mode === "region" || mode === "ask-region") {
               const c = canvas.current!,
@@ -340,6 +409,52 @@ function Page({
           }}
         >
           {drag && <i className="capture-rectangle" style={rectStyle(drag)} />}
+          {pendingRegion && mode === "region" && onRegionAction && (
+            <div className="region-preview" style={rectStyle(pendingRegion)}>
+              {[0, 1, 2, 3].map((corner) => (
+                <button
+                  key={corner}
+                  className={`region-handle corner-${corner}`}
+                  aria-label={["调整区域左上角", "调整区域右上角", "调整区域右下角", "调整区域左下角"][corner]}
+                  onPointerDown={(event) => {
+                    event.stopPropagation(); event.preventDefault();
+                    resizing.current = { corner, original: pendingRegion };
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }}
+                  onPointerMove={(event) => {
+                    if (!resizing.current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                    const p = point(event), r = resizing.current.original;
+                    setPendingRegion(ordered([
+                      corner === 0 || corner === 3 ? p[0] : r[0],
+                      corner === 0 || corner === 1 ? p[1] : r[1],
+                      corner === 1 || corner === 2 ? p[0] : r[2],
+                      corner === 2 || corner === 3 ? p[1] : r[3],
+                    ]));
+                  }}
+                  onPointerUp={(event) => {
+                    event.stopPropagation();
+                    resizing.current = undefined;
+                  }}
+                  onPointerCancel={(event) => {
+                    event.stopPropagation();
+                    if (resizing.current) setPendingRegion(resizing.current.original);
+                    resizing.current = undefined;
+                  }}
+                />
+              ))}
+              <div className="reader-context-bar region-actions" role="toolbar" aria-label="区域摘录操作"
+                style={{ left: Math.max(8, Math.min(view.width - Math.min(430, view.width - 16) - 8, pendingRegion[0])) - pendingRegion[0],
+                  top: (pendingRegion[3] + 56 < view.height ? pendingRegion[3] + 8 : Math.max(0, pendingRegion[1] - 52)) - pendingRegion[1],
+                  maxWidth: view.width - 16 }}>
+                <button disabled={regionBusy} onClick={() => void submitRegion("card")}>创建图片卡片</button>
+                <button disabled={regionBusy} onClick={() => void submitRegion("question")}>加入提问</button>
+                <label><input type="checkbox" checked={includePersonalMarks} onChange={(event) => setIncludePersonalMarks(event.target.checked)} />包含个人标注</label>
+                <button disabled={regionBusy} title="保留旧区域批注和笔记能力" onClick={() => void submitRegion("annotation")}>批注</button>
+                <button onClick={() => setPendingRegion(undefined)}>取消</button>
+                {regionError && <span role="alert">{regionError}</span>}
+              </div>
+            </div>
+          )}
         </div>
       )}
       <span className="page-number">{page}</span>
@@ -368,6 +483,7 @@ export interface PdfReaderProps {
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
+  onRegionAction?: (region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) => void | Promise<void>;
   workspace?: {
     ready: boolean;
     onDocumentWidth: (width: number) => void;
@@ -397,6 +513,7 @@ export function PdfReader({
   onCreate,
   onAnnotation,
   onQuestionRegion,
+  onRegionAction,
   workspace,
 }: PdfReaderProps) {
   const [pages, setPages] = useState<pdfjs.PDFPageProxy[]>([]),
@@ -851,6 +968,7 @@ export function PdfReader({
               onCreate={onCreate}
               onAnnotation={onAnnotation}
               onQuestionRegion={onQuestionRegion}
+              onRegionAction={onRegionAction}
               sourceFocus={workspace?.sourceFocus}
               placement={
                 workspace

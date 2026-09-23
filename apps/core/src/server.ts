@@ -22,7 +22,8 @@ import {
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
-import { Workspaces } from "./workspace";
+import { Workspaces, WorkspaceConflict } from "./workspace";
+import { WorkspaceAssets } from "./workspace-assets";
 import {
   WorkspaceArchives,
   MAX_WORKSPACE_ARCHIVE_BYTES,
@@ -65,6 +66,7 @@ export function createCore(
   const library = new Library(directory, emit);
   const notes = new Notes(library);
   const workspaces = new Workspaces(library);
+  const workspaceAssets = new WorkspaceAssets(library, workspaces);
   const workspaceArchives = new WorkspaceArchives(library);
   library.resume();
   const runtime = new RuntimeManager(directory, (data) =>
@@ -316,11 +318,28 @@ export function createCore(
           if (parts[3] === "workspace" && parts.length === 4) {
             if (req.method === "GET") send(res, workspaces.get(id));
             else if (req.method === "POST")
-              send(
-                res,
-                workspaces.save(id, await jsonBody(req, 8 * 1024 * 1024)),
-              );
+              send(res, { error: "此版本不接受整份工作区写入，请更新 AIReader" }, 409);
             else send(res, { error: "不支持的操作" }, 405);
+            return;
+          }
+          if (parts[3] === "workspace" && parts[4] === "commands" && parts.length === 5 && req.method === "POST") {
+            send(res, workspaces.command(id, await jsonBody(req, 8 * 1024 * 1024)));
+            return;
+          }
+          if (parts[3] === "workspace" && parts[4] === "camera" && parts.length === 5 && req.method === "PUT") {
+            send(res, workspaces.camera(id, await jsonBody(req)));
+            return;
+          }
+          if (parts[3] === "workspace" && parts[4] === "region-excerpts" && parts.length === 5 && req.method === "POST") {
+            send(res, await workspaceAssets.createRegion(id, await jsonBody(req, 12 * 1024 * 1024)), 201);
+            return;
+          }
+          if (parts[3] === "workspace-assets" && parts[4] && parts.length === 5 && req.method === "GET") {
+            const bytes = await workspaceAssets.read(id, parts[4]);
+            res.writeHead(200, {
+              "Content-Type": "image/png", "Content-Length": bytes.length,
+              "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff",
+            }).end(bytes);
             return;
           }
           if (parts[3] === "annotations" || parts[3] === "notes") {
@@ -744,7 +763,7 @@ export function createCore(
         send(
           res,
           { error: error instanceof Error ? error.message : String(error) },
-          400,
+          error instanceof WorkspaceConflict ? 409 : 400,
         );
       else res.destroy();
     }

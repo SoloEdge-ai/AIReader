@@ -143,6 +143,7 @@ try {
   await page.mouse.down();
   await page.mouse.move(box.x + 200, box.y + 180);
   await page.mouse.up();
+  await page.getByRole("toolbar", { name: "区域摘录操作" }).getByRole("button", { name: "批注" }).click();
   await expect(page.locator(".annotation-region")).toHaveCount(1);
   await expect(page.getByAltText("区域摘录")).toBeVisible();
   await page.getByRole("button", { name: "收起侧栏" }).click();

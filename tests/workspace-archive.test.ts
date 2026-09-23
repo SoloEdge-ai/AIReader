@@ -24,9 +24,9 @@ test("workspace package restores PDF, notes, region image, links and camera as a
       .get("set-cookie")!
       .split(";")[0];
   }
-  const request = (path: string, data?: unknown) =>
+  const request = (path: string, data?: unknown, method = data === undefined ? "GET" : "POST") =>
     fetch(origin + "/api/" + path, {
-      method: data === undefined ? "GET" : "POST",
+      method,
       headers: { Origin: origin, Cookie: cookie },
       body:
         data instanceof Uint8Array
@@ -56,14 +56,15 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     const workspace = await (
       await request(`books/${book.id}/workspace`)
     ).json();
-    await request(`books/${book.id}/workspace`, {
-      ...workspace,
-      camera: { x: 800, y: 20, zoom: 1.2 },
-      cards: [card, { ...card, id: "second-card", x: 1900 }],
-      links: [
-        { id: "link", from: card.id, to: "second-card", label: "supports" },
+    await request(`books/${book.id}/workspace/commands`, {
+      bookId: book.id, commandId: "archive-setup", expectedVersion: workspace.revision,
+      changes: [
+        { type: "upsert-card", card },
+        { type: "upsert-card", card: { ...card, id: "second-card", x: 1900 } },
+        { type: "upsert-link", link: { id: "link", from: card.id, to: "second-card", label: "supports" } },
       ],
     });
+    await request(`books/${book.id}/workspace/camera`, { x: 800, y: 20, zoom: 1.2 }, "PUT");
     const image = PNG.sync.write(new PNG({ width: 2, height: 2 }));
     const annotation = await (
       await request(`books/${book.id}/annotations`, {
@@ -86,9 +87,19 @@ test("workspace package restores PDF, notes, region image, links and camera as a
         ],
       },
     });
+    const regionWorkspace = await (await request(`books/${book.id}/workspace`)).json();
+    const regionResponse = await request(`books/${book.id}/workspace/region-excerpts`, {
+      bookId: book.id, commandId: "region-archive", expectedVersion: regionWorkspace.revision,
+      fingerprint: book.fingerprint, page: 1, rect: [30, 40, 180, 220],
+      image: `data:image/png;base64,${image.toString("base64")}`,
+      includePersonalMarks: true, title: "Diagram", x: 1500, y: 200,
+    });
+    expect(regionResponse.status).toBe(201);
+    const region = await regionResponse.json();
     const download = await request(`books/${book.id}/workspace/archive`);
     expect(download.status).toBe(200);
     const archive = new Uint8Array(await download.arrayBuffer());
+    expect(JSON.parse(strFromU8(unzipSync(archive)["workspace.json"])).version).toBe(2);
     const restoredResponse = await request("workspace-archives", archive);
     expect(restoredResponse.status).toBe(201);
     const restored = await restoredResponse.json();
@@ -104,10 +115,22 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     ).json();
     expect(restoredWorkspace).toMatchObject({
       bookId: restored.id,
-      cards: [card, { ...card, id: "second-card", x: 1900 }],
       camera: { x: 800, y: 20, zoom: 1.2 },
-      links: [{ from: "note-card", to: "second-card", label: "supports" }],
     });
+    expect(restoredWorkspace.cards).toHaveLength(3);
+    expect(restoredWorkspace.cards[0]).toMatchObject({ ...card, id: expect.any(String) });
+    expect(restoredWorkspace.cards[0].id).not.toBe(card.id);
+    expect(restoredWorkspace.cards[1].id).not.toBe("second-card");
+    expect(restoredWorkspace.links[0]).toMatchObject({
+      from: restoredWorkspace.cards[0].id, to: restoredWorkspace.cards[1].id, label: "supports",
+    });
+    const restoredRegion = restoredWorkspace.cards[2];
+    expect(restoredRegion).toMatchObject({ kind: "region", title: "Diagram",
+      region: { fingerprint: book.fingerprint, page: 1, rect: [30, 40, 180, 220], includePersonalMarks: true } });
+    expect(restoredRegion.id).not.toBe(region.cardId);
+    expect(restoredRegion.region.assetId).not.toBe(region.workspace.cards[2].region.assetId);
+    const originalRegionAsset = new Uint8Array(await (await request(`books/${book.id}/workspace-assets/${region.workspace.cards[2].region.assetId}`)).arrayBuffer());
+    expect(new Uint8Array(await (await request(`books/${restored.id}/workspace-assets/${restoredRegion.region.assetId}`)).arrayBuffer())).toEqual(originalRegionAsset);
     const annotations = await (
       await request(`books/${restored.id}/annotations`)
     ).json();
@@ -134,6 +157,22 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     expect(
       (await (await request(`books/${book.id}/annotations`)).json())[0].id,
     ).toBe(annotation.id);
+    const legacyFiles = unzipSync(archive);
+    const legacyManifest = JSON.parse(strFromU8(legacyFiles["workspace.json"]));
+    const oldRegionAsset = legacyManifest.workspace.cards[2].region.assetId;
+    legacyManifest.version = 1;
+    legacyManifest.workspace.cards.pop();
+    delete legacyManifest.workspace.objects;
+    delete legacyManifest.workspace.formatVersion;
+    delete legacyManifest.assets[oldRegionAsset];
+    delete legacyFiles[`assets/${oldRegionAsset}.png`];
+    legacyFiles["workspace.json"] = strToU8(JSON.stringify(legacyManifest));
+    const legacyResponse = await request("workspace-archives", zipSync(legacyFiles));
+    expect(legacyResponse.status).toBe(201);
+    const legacy = await legacyResponse.json();
+    const legacyWorkspace = await (await request(`books/${legacy.id}/workspace`)).json();
+    expect(legacyWorkspace.cards).toHaveLength(2);
+    expect(legacyWorkspace.formatVersion).toBe(4);
     core.close();
     core = createCore(directory, "dist/web");
     await connect();
@@ -156,12 +195,18 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     );
     delete files["../outside.txt"];
     const manifest = JSON.parse(strFromU8(files["workspace.json"]));
+    manifest.version = 3;
+    files["workspace.json"] = strToU8(JSON.stringify(manifest));
+    const newer = await request("workspace-archives", zipSync(files));
+    expect(newer.status).toBe(400);
+    expect((await newer.json()).error).toContain("归档版本");
+    manifest.version = 2;
     manifest.fingerprint = "0".repeat(64);
     files["workspace.json"] = strToU8(JSON.stringify(manifest));
     expect((await request("workspace-archives", zipSync(files))).status).toBe(
       400,
     );
-    expect(await (await request("books")).json()).toHaveLength(2);
+    expect(await (await request("books")).json()).toHaveLength(3);
   } finally {
     core.close();
     await rm(directory, {
