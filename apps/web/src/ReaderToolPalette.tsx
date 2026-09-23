@@ -6,6 +6,9 @@ const tools = [
   { id: "pointer", label: "指针（V）", icon: "pointer" },
   { id: "text", label: "选择文字（T）", icon: "textSelect" },
   { id: "region", label: "区域摘录（R）", icon: "crop" },
+  { id: "pen", label: "画笔（P）", icon: "pen" },
+  { id: "highlighter", label: "荧光笔（H）", icon: "highlighter" },
+  { id: "eraser", label: "整笔橡皮（E）", icon: "eraser" },
   { id: "sticky", label: "页内便签", icon: "sticky" },
 ] as const;
 
@@ -26,6 +29,23 @@ export function ReaderToolPalette({
   const grip = useRef<HTMLButtonElement>(null);
   const dragPointer = useRef<number | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const settings = useRef<HTMLDivElement>(null);
+  const [settingTool, setSettingTool] = useState<"pen" | "highlighter">("pen");
+  function updateBrush(patch: Partial<ToolPreferences["pen"]>) {
+    onPreferences({ ...preferences, [settingTool]: { ...preferences[settingTool], ...patch } });
+  }
+  function openBrush(next: "pen" | "highlighter") {
+    setSettingTool(next);
+    const panel = settings.current;
+    if (!panel || !palette.current) return;
+    panel.showPopover();
+    const bar = palette.current.getBoundingClientRect(), box = panel.getBoundingClientRect();
+    const left = preferences.dock === "right" ? bar.left - box.width - 8
+      : preferences.dock === "left" ? bar.right + 8 : bar.left + bar.width / 2 - box.width / 2;
+    const top = preferences.dock === "bottom" ? bar.top - box.height - 8 : bar.top;
+    panel.style.left = `${Math.max(8, Math.min(window.innerWidth - box.width - 8, left))}px`;
+    panel.style.top = `${Math.max(8, Math.min(window.innerHeight - box.height - 8, top))}px`;
+  }
   useEffect(() => {
     const cancel = () => {
       const pointerId = dragPointer.current;
@@ -129,7 +149,14 @@ export function ReaderToolPalette({
               aria-label={item.label}
               title={item.label}
               aria-pressed={tool === item.id}
-              onClick={() => onTool(item.id)}
+              onClick={() => {
+                if ((item.id === "pen" || item.id === "highlighter") && tool === item.id)
+                  openBrush(item.id);
+                else {
+                  if (settings.current?.matches(":popover-open")) settings.current.hidePopover();
+                  onTool(item.id);
+                }
+              }}
             >
               <Icon name={item.icon} />
             </button>
@@ -144,6 +171,34 @@ export function ReaderToolPalette({
           </button>
         </>
       )}
+      <div ref={settings} popover="auto" role="dialog" aria-label="画笔设置" className="reader-brush-settings">
+        <header>{settingTool === "pen" ? "画笔" : "荧光笔"}<span>再次点击工具可调整</span></header>
+        <div className="brush-swatches" role="group" aria-label="画笔颜色">
+          {["#345d84", "#222222", "#d35e45", "#e6b72d", "#69b28d"].map((color) =>
+            <button key={color} title={color} aria-label={`颜色 ${color}`}
+              aria-pressed={preferences[settingTool].color === color}
+              style={{ background: color }} onClick={() => updateBrush({ color })} />)}
+          <input type="color" aria-label="自定义画笔颜色" value={preferences[settingTool].color}
+            onChange={(event) => updateBrush({ color: event.target.value })} />
+        </div>
+        <label>粗细 <strong>{preferences[settingTool].width} px</strong></label>
+        <div className="brush-sizes" role="group" aria-label="画笔粗细预设">
+          {(settingTool === "pen" ? [1, 2, 4, 8, 12] : [6, 12, 18, 24, 32]).map((width) =>
+            <button key={width} aria-label={`粗细 ${width}`} aria-pressed={preferences[settingTool].width === width}
+              onClick={() => updateBrush({ width })}><span style={{ width: Math.min(22, width + 2), height: Math.min(22, width + 2) }} /></button>)}
+        </div>
+        <input type="range" aria-label="调整画笔粗细" min="0.5" max="40" step="0.5"
+          value={preferences[settingTool].width} onChange={(event) => updateBrush({ width: Number(event.target.value) })} />
+        <label>透明度 <strong>{Math.round(preferences[settingTool].opacity * 100)}%</strong></label>
+        <input type="range" aria-label="调整画笔透明度" min="5" max="100" step="5"
+          value={Math.round(preferences[settingTool].opacity * 100)}
+          onChange={(event) => updateBrush({ opacity: Number(event.target.value) / 100 })} />
+        <div className="brush-preview" aria-label="笔迹预览"><i style={{
+          height: Math.max(1, preferences[settingTool].width),
+          background: preferences[settingTool].color,
+          opacity: preferences[settingTool].opacity,
+        }} /></div>
+      </div>
     </div>
   );
 }

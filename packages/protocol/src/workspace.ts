@@ -7,7 +7,8 @@ const identity = z
   .max(100)
   .regex(/^[a-zA-Z0-9_-]+$/);
 const position = z.number().finite().min(0).max(1000000);
-const coordinate = z.tuple([position, position]);
+const inkAxis = z.number().finite().min(-1000000).max(1000000);
+const coordinate = z.tuple([inkAxis, inkAxis]);
 const fingerprint = z.string().regex(/^[a-f0-9]{64}$/);
 // The document column leaves room for notes on either side. Coordinates are world units.
 export const WORKSPACE_DOCUMENT_X = 1280;
@@ -39,6 +40,7 @@ export const InkStrokeSchema = z.object({
   if (stroke.segments.reduce((n, segment) => n + segment.points.length, 0) > 10000)
     context.addIssue({ code: "custom", message: "单笔最多保存 10000 个点" });
 });
+export type InkStroke = z.infer<typeof InkStrokeSchema>;
 export const WorkspaceObjectSchema = z.discriminatedUnion("kind", [
   InkStrokeSchema,
   z.object({

@@ -32,6 +32,8 @@ const paths = {
   book: "M12 5C7 2 3 3 3 3v16s4-1 9 2c5-3 9-2 9-2V3s-4-1-9 2Zm0 0v16",
   arrow: "M12 20V4m-7 7 7-7 7 7",
   pen: "m4 16 12-12 4 4L8 20H4Zm10-10 4 4",
+  highlighter: "m5 17 10-10 5 5-10 10H5Zm-2 5h17M13 9l4 4",
+  eraser: "m4 14 9-10 7 7-8 10H8Zm4 7h12",
   crop: "M5 2v17h17M2 5h17v17",
   undo: "M8 5 3 10l5 5M3 10h11a6 6 0 0 1 0 12",
   redo: "M16 5l5 5-5 5m5-5H10a6 6 0 0 0 0 12",

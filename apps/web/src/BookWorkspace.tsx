@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 import type {
   Book,
   ReadingSelection,
@@ -14,6 +15,8 @@ import type {
 import type { WorkspaceCard } from "../../../packages/protocol/src/workspace";
 import { WORKSPACE_DOCUMENT_X } from "../../../packages/protocol/src/workspace";
 import type { BookWorkspace as WorkspaceSnapshot } from "../../../packages/protocol/src/workspace";
+import type { InkStroke } from "../../../packages/protocol/src/workspace";
+import type { BrushStyle, ToolPreferences } from "../../../packages/protocol/src/reader-tools";
 import {
   PdfReader,
   type PdfReaderProps,
@@ -22,6 +25,8 @@ import {
   type RegionAction,
 } from "./PdfReader";
 import { useWorkspace } from "./WorkspaceState";
+import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPoint, type ProjectedInk } from "./InkGeometry";
+import { InkCanvas, type InkCanvasHandle } from "./InkCanvas";
 import { dockBesideDocument } from "./WorkspaceLayout";
 import { Icon } from "./Icon";
 import { base, post } from "./api";
@@ -36,6 +41,7 @@ export const BookWorkspace = forwardRef<
   PdfReaderProps & {
     book: Book;
     page: number;
+    toolPreferences: ToolPreferences;
     beforeExport?: () => Promise<boolean>;
   }
 >(function BookWorkspace(props, ref) {
@@ -53,6 +59,14 @@ export const BookWorkspace = forwardRef<
   }>();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
+  const [inkError, setInkError] = useState("");
+  const inkCanvas = useRef<InkCanvasHandle>(null);
+  const projectedInk = useRef<ProjectedInk[]>([]);
+  const inkGesture = useRef<
+    | { kind: "draw"; brush: "pen" | "highlighter"; style: BrushStyle; points: InkPoint[] }
+    | { kind: "erase"; ids: Set<string> }
+    | undefined
+  >(undefined);
   const [sourceFocus, setSourceFocus] = useState<PdfAnchor[]>();
   const [returnPosition, setReturnPosition] = useState<{
     x: number;
@@ -302,14 +316,78 @@ export const BookWorkspace = forwardRef<
       top: location.y * props.zoom - 100,
     });
   }
+  function eraseAt(point: InkPoint) {
+    const gesture = inkGesture.current;
+    if (gesture?.kind !== "erase") return;
+    const radius = 9 / props.zoom;
+    for (const stroke of projectedInk.current)
+      if (!gesture.ids.has(stroke.id) && hitStroke(stroke, point, radius))
+        gesture.ids.add(stroke.id);
+    inkCanvas.current?.preview([], undefined, gesture.ids);
+  }
+  function startInk(point: InkPoint) {
+    if (!state.value) return;
+    setInkError("");
+    if (props.mode === "eraser") {
+      inkGesture.current = { kind: "erase", ids: new Set() };
+      eraseAt(point);
+    } else if (props.mode === "pen" || props.mode === "highlighter") {
+      const style = { ...props.toolPreferences[props.mode] };
+      inkGesture.current = { kind: "draw", brush: props.mode, style, points: [point] };
+      inkCanvas.current?.preview([point], style, new Set());
+    }
+  }
+  function moveInk(points: InkPoint[]) {
+    const gesture = inkGesture.current;
+    if (!gesture) return;
+    if (gesture.kind === "erase") points.forEach(eraseAt);
+    else {
+      for (const point of points)
+        if (Math.hypot(point[0] - gesture.points.at(-1)![0], point[1] - gesture.points.at(-1)![1]) > .15)
+          gesture.points.push(point);
+      inkCanvas.current?.preview(gesture.points, gesture.style, new Set());
+    }
+  }
+  function finishInk(point: InkPoint) {
+    const gesture = inkGesture.current;
+    if (gesture?.kind === "erase") eraseAt(point);
+    inkGesture.current = undefined;
+    inkCanvas.current?.clear();
+    if (!gesture || !state.value) return;
+    if (gesture.kind === "erase") {
+      if (gesture.ids.size)
+        state.change({ ...state.value, objects: state.value.objects.filter((object) => !gesture.ids.has(object.id)) });
+      return;
+    }
+    if (Math.hypot(point[0] - gesture.points.at(-1)![0], point[1] - gesture.points.at(-1)![1]) > .15)
+      gesture.points.push(point);
+    const segments = splitStroke(gesture.points, pages.current, props.book.fingerprint)
+      .map((segment) => ({ ...segment, points: simplifyInk(segment.points) }));
+    if (!segments.length || segments.length > 128 ||
+        segments.reduce((total, segment) => total + segment.points.length, 0) > 10000) {
+      setInkError("这一笔过长，未保存；请分成较短的几笔绘制。");
+      return;
+    }
+    const stroke: InkStroke = { id: crypto.randomUUID(), kind: "ink", brush: gesture.brush,
+      ...gesture.style, segments };
+    state.change({ ...state.value, objects: [...state.value.objects, stroke] });
+  }
+  function cancelInk() {
+    inkGesture.current = undefined;
+    inkCanvas.current?.clear();
+  }
+  useEffect(() => { if (inkGesture.current) cancelInk(); }, [props.mode, props.rotation, props.zoom]);
   function overlay(layout: WorkspacePage[], el: HTMLDivElement | null) {
     pages.current = layout;
     viewport.current = el;
     if (!state.value) return null;
+    const strokes = state.value.objects.filter((object): object is InkStroke => object.kind === "ink")
+      .map((stroke) => projectStroke(stroke, layout));
+    projectedInk.current = strokes;
     const cards = state.value.cards.map((card) =>
       gesture?.id === card.id ? { ...card, ...gesture } : card,
     );
-    return (
+    return <>
       <div
         className={`workspace-objects${focus ? " focus-document" : ""}`}
         style={
@@ -605,7 +683,9 @@ export const BookWorkspace = forwardRef<
           </article>
         ))}
       </div>
-    );
+      {el?.parentElement && createPortal(<InkCanvas ref={inkCanvas} strokes={strokes}
+        viewport={el} zoom={props.zoom} />, el.parentElement)}
+    </>;
   }
   function move(e: React.PointerEvent) {
     const p = pointer.current;
@@ -679,6 +759,10 @@ export const BookWorkspace = forwardRef<
           ),
           render: overlay,
           sourceFocus,
+          onInkStart: startInk,
+          onInkMove: moveInk,
+          onInkEnd: finishInk,
+          onInkCancel: cancelInk,
         }}
       />
       <div className="workspace-toolbar" role="toolbar" aria-label="工作区工具">
@@ -800,6 +884,9 @@ export const BookWorkspace = forwardRef<
           </button>
         </div>
       )}
+      {inkError && <div className="workspace-error" role="alert">{inkError}
+        <button onClick={() => setInkError("")} aria-label="关闭笔迹错误"><Icon name="close" /></button>
+      </div>}
       {linkFrom && (
         <div className="workspace-notice">
           点击另一张卡片建立连接{" "}
