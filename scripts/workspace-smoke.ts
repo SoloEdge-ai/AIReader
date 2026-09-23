@@ -1,6 +1,6 @@
 import { chromium, expect } from "@playwright/test";
 import { PDFDocument } from "pdf-lib";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createCore } from "../apps/core/src/server";
@@ -8,6 +8,7 @@ import type { BookWorkspace } from "../packages/protocol/src/workspace";
 
 // CI-only UI regression: real renderer, PDF and HTTP. No production library/account.
 const data = await mkdtemp(join(tmpdir(), "aireader-workspace-smoke-"));
+await mkdir(".local/screenshots", { recursive: true });
 const core = createCore(data, resolve("dist/web"));
 const pdf = await PDFDocument.create();
 pdf
@@ -36,10 +37,36 @@ try {
     "data-render-ready",
     "true",
   );
+  const palette = page.getByRole("toolbar", { name: "阅读工具盘" });
+  await page.screenshot({ path: ".local/screenshots/tool-palette-default.png" });
+  await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
+  const pageBeforePointer = (await page.locator("#page-1").boundingBox())!;
+  await page.mouse.move(pageBeforePointer.x + 120, pageBeforePointer.y + 130);
+  await page.mouse.down();
+  await page.mouse.move(pageBeforePointer.x + 70, pageBeforePointer.y + 130, { steps: 5 });
+  await page.mouse.up();
+  expect((await page.locator("#page-1").boundingBox())!.x).toBeLessThan(pageBeforePointer.x - 35);
+  expect(await page.evaluate(() => getSelection()?.toString() ?? "")).toBe("");
+  const grip = (await page.getByRole("button", { name: "拖动工具盘" }).boundingBox())!;
+  const reading = (await page.locator(".reading").boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(reading.x + reading.width - 25, reading.y + reading.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(palette).toHaveAttribute("data-dock", "right");
+  await page.screenshot({ path: ".local/screenshots/tool-palette-right.png" });
+  await page.getByRole("button", { name: "收起工具盘" }).click();
+  await page.reload();
+  await page.getByRole("button", { name: /Workspace acceptance/ }).click();
+  await expect(palette).toHaveAttribute("data-dock", "right");
+  await page.getByRole("button", { name: /展开工具盘，当前指针/ }).click();
+  await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "＋ 笔记卡片" }).click();
   await page
     .getByRole("textbox", { name: "个人笔记内容", exact: true })
     .fill("A durable personal interpretation.");
+  await page.getByRole("textbox", { name: "个人笔记内容", exact: true }).press("Escape");
+  await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("status", { name: "工作区保存状态" }),
   ).toContainText("已保存");
@@ -80,6 +107,7 @@ try {
   const text = page
     .locator("#page-1 .textLayer span")
     .filter({ hasText: "An excerpt" });
+  await page.getByRole("button", { name: "选择文字（T）" }).click();
   const textBox = (await text.boundingBox())!;
   await page.mouse.move(textBox.x + 2, textBox.y + textBox.height / 2);
   await page.mouse.down();
@@ -92,6 +120,22 @@ try {
   expect(await page.evaluate(() => getSelection()?.toString())).toContain(
     "excerpt",
   );
+  await page.screenshot({ path: ".local/screenshots/selection-toolbar.png" });
+  await page.getByRole("button", { name: "标注方式" }).click();
+  await expect(page.getByRole("dialog", { name: "标注方式" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "标注方式" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "选择文字（T）" }).click();
+  await expect(page.getByRole("button", { name: "选择文字（T）" })).toHaveAttribute("aria-pressed", "true");
+  const beforeSpace = (await page.locator("#page-1").boundingBox())!;
+  await page.keyboard.down("Space");
+  await page.mouse.move(beforeSpace.x + 150, beforeSpace.y + 220);
+  await page.mouse.down();
+  await page.mouse.move(beforeSpace.x + 100, beforeSpace.y + 220, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up("Space");
+  expect((await page.locator("#page-1").boundingBox())!.x).toBeLessThan(beforeSpace.x - 35);
   const pdfBeforeRightDrag = (await page.locator("#page-1").boundingBox())!;
   await page.mouse.move(textBox.x + 15, textBox.y + 200);
   await page.mouse.down({ button: "right" });

@@ -45,6 +45,7 @@ try {
     .setInputFiles(fixture);
   await page.locator(".textLayer span").first().waitFor();
   await page.locator('[data-book-status="ready"]').waitFor();
+  await page.getByRole("button", { name: "选择文字（T）" }).click();
   await page
     .locator("#page-1 .textLayer span")
     .first()
@@ -61,6 +62,7 @@ try {
         }),
       );
     });
+  await page.getByRole("button", { name: "标注方式" }).click();
   await page.getByRole("button", { name: "高亮", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   await page.getByLabel("笔记标题", { exact: true }).fill("Reading experiment");
@@ -131,7 +133,7 @@ try {
   await page.getByLabel("页码", { exact: true }).fill("3");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("3");
-  await page.getByLabel("批注工具").selectOption("region");
+  await page.getByRole("button", { name: "区域摘录（R）" }).click();
   await expect(page.locator("#page-3")).toHaveAttribute(
     "data-render-ready",
     "true",
@@ -146,7 +148,7 @@ try {
   await page.getByRole("button", { name: "收起侧栏" }).click();
   await page.getByRole("button", { name: "旋转页面" }).click();
   await expect(page.locator(".annotation-region")).toHaveCount(1);
-  await page.getByLabel("批注工具").selectOption("sticky");
+  await page.getByRole("button", { name: "页内便签" }).click();
   const rotated = await page.locator("#page-3").boundingBox();
   await page.mouse.click(rotated.x + 200, Math.max(80, rotated.y + 150));
   await expect(page.locator(".annotation-sticky")).toHaveCount(1);
@@ -168,6 +170,7 @@ try {
     await page.getByRole("button", { name: "缩小", exact: true }).click();
   await page.getByLabel("页码", { exact: true }).fill("1");
   await page.getByLabel("页码", { exact: true }).press("Enter");
+  await page.getByRole("button", { name: "选择文字（T）" }).click();
   await page.locator("#page-2 .textLayer span").first().waitFor();
   await page.waitForTimeout(300);
   await page
@@ -190,6 +193,7 @@ try {
         }),
       );
     });
+  await page.getByRole("button", { name: "标注方式" }).click();
   await page.getByRole("button", { name: "下划线", exact: true }).click();
   await expect(page.locator("#page-1 .annotation-underline")).toHaveCount(1);
   await expect(page.locator("#page-2 .annotation-underline")).toHaveCount(2);
@@ -219,6 +223,7 @@ try {
         }),
       );
     });
+  await page.getByRole("button", { name: "标注方式" }).click();
   await page.getByRole("button", { name: "删除线", exact: true }).click();
   await expect(page.locator("#page-4 .annotation-strike")).toHaveCount(1);
   for (let angle = 0; angle < 4; angle++) {

@@ -204,6 +204,7 @@ try {
   await page.setViewportSize({ width: 900, height: 600 });
   await splitter.focus();
   await page.keyboard.press("Home");
+  await page.getByRole("button", { name: "选择文字（T）" }).click();
   await page
     .locator(".textLayer span")
     .first()
@@ -222,8 +223,9 @@ try {
     });
   await page
     .locator(".selection-bar")
-    .getByRole("button", { name: "提问", exact: true })
+    .getByRole("button", { name: "AI 处理选区" })
     .click();
+  await page.getByRole("button", { name: "提问", exact: true }).click();
   await expect(page.locator(".question-attachment")).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "发送问题", exact: true }),

@@ -30,14 +30,25 @@ try {
   const text = page.locator("#page-1 .textLayer span").first();
   await text.waitFor();
   const toolbar = page.locator(".selection-bar");
+  // Browsing is the default. Text selection must be an explicit tool choice.
+  const browseBox = await text.boundingBox();
+  await page.mouse.move(browseBox.x + 3, browseBox.y + browseBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(browseBox.x + browseBox.width - 3, browseBox.y + browseBox.height / 2);
+  await page.mouse.up();
+  await expect(toolbar).toHaveCount(0);
+  await page.getByRole("button", { name: "选择文字（T）" }).click();
   async function selectPassage(startFraction = 0) {
+    await text.scrollIntoViewIfNeeded();
     const box = await text.boundingBox();
+    const reading = await page.locator(".reading").boundingBox();
+    const endX = Math.min(box.x + box.width - 2, reading.x + reading.width - 20);
     await page.mouse.move(
       box.x + box.width * startFraction + 2,
       box.y + box.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, {
+    await page.mouse.move(endX, box.y + box.height / 2, {
       steps: 12,
     });
     await page.mouse.up();
@@ -99,7 +110,8 @@ try {
   await page.getByRole("button", { name: "收起侧栏" }).click();
 
   await selectPassage();
-  await toolbar.getByRole("button", { name: "解释", exact: true }).click();
+  await toolbar.getByRole("button", { name: "AI 处理选区" }).click();
+  await page.getByRole("button", { name: "解释", exact: true }).click();
   await expect(page.getByLabel("问题", { exact: true })).toHaveValue(
     "请解释选中的原文。",
   );
@@ -109,14 +121,12 @@ try {
   await page.getByRole("button", { name: "收起侧栏" }).click();
 
   await selectPassage();
-  const color = page.getByLabel("选区批注颜色", { exact: true });
-  await color.click();
-  await color.press("Home");
-  await color.press("ArrowDown");
-  await color.press("Enter");
-  await expect(color).toHaveValue("green");
+  await toolbar.getByRole("button", { name: "标注颜色：黄色" }).click();
+  await page.getByRole("button", { name: "绿色", exact: true }).click();
+  await expect(toolbar.getByRole("button", { name: "标注颜色：绿色" })).toBeVisible();
   await expect(toolbar).toBeVisible();
-  await toolbar.getByRole("button", { name: "高亮", exact: true }).click();
+  await toolbar.getByRole("button", { name: "标注方式" }).click();
+  await page.getByRole("button", { name: "高亮", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   await expect(toolbar).toHaveCount(0);
   expect(errors).toEqual([]);

@@ -48,17 +48,9 @@ export function Popover({
   }
   useEffect(() => {
     if (!open) return;
-    function escape(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-      }
-    }
-    window.addEventListener("keydown", escape);
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, true);
     return () => {
-      window.removeEventListener("keydown", escape);
       window.removeEventListener("resize", position);
       window.removeEventListener("scroll", position, true);
     };

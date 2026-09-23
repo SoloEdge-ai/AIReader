@@ -241,9 +241,8 @@
 }
 .workspace-toolbar {
   position: absolute;
-  bottom: 30px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 16px;
+  right: 16px;
   display: flex;
   align-items: center;
   gap: 3px;
@@ -257,6 +256,14 @@
   scrollbar-width: none;
   white-space: nowrap;
 }
+.workspace-scroll.pointer-tool .pdf-page,
+.workspace-scroll.pointer-tool .pdf-page .textLayer,
+.workspace-scroll.pointer-tool .pdf-page .textLayer * {
+  cursor: grab;
+  user-select: none;
+}
+.workspace-scroll.pointer-tool.panning .pdf-page,
+.workspace-scroll.pointer-tool.panning .pdf-page * { cursor: grabbing; }
 .workspace-toolbar button {
   font-size: 11px;
   padding: 6px 7px;
@@ -278,17 +285,6 @@
   font-size: 10px;
   color: var(--muted);
   padding: 0 6px;
-}
-.workspace-hint {
-  position: absolute;
-  bottom: 9px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: var(--muted);
-  font-size: 10px;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0.7;
 }
 .workspace-notice,
 .workspace-error {

@@ -26,6 +26,22 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
     });
     const cookie = session.headers.get("set-cookie")!.split(";")[0];
     const headers = { Cookie: cookie, Origin: base };
+    const toolEndpoint = base + "/api/tool-preferences";
+    expect(await (await fetch(toolEndpoint, { headers })).json()).toEqual({
+      dock: "bottom", offset: 0.5, collapsed: false,
+    });
+    expect((await fetch(toolEndpoint, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ dock: "left", offset: 0.35, collapsed: true }),
+    })).status).toBe(200);
+    expect(await (await fetch(toolEndpoint, { headers })).json()).toEqual({
+      dock: "left", offset: 0.35, collapsed: true,
+    });
+    expect((await fetch(toolEndpoint, {
+      method: "PUT", headers,
+      body: JSON.stringify({ dock: "outside", offset: 4, collapsed: true }),
+    })).status).toBe(400);
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     pdf.addPage().drawText("Memory isolation for inference", { font });

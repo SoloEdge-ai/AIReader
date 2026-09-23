@@ -11,6 +11,7 @@ import { ChatService } from "./chat";
 import { IndexService } from "./indexer";
 import { BookTools } from "./tools";
 import {
+  ToolPreferencesSchema,
   ReadingSnapshotSchema,
   ReaderPreferencesSchema,
   ModelSelectionSchema,
@@ -158,6 +159,26 @@ export function createCore(
         }
         if (parts[1] === "health") {
           send(res, { ok: true });
+          return;
+        }
+        if (parts[1] === "tool-preferences" && parts.length === 2) {
+          if (req.method === "PUT")
+            library.store.put(
+              "setting",
+              "reader-tools",
+              "",
+              ToolPreferencesSchema.parse(await jsonBody(req)),
+            );
+          if (req.method !== "GET" && req.method !== "PUT") {
+            send(res, { error: "Method not allowed" }, 405);
+            return;
+          }
+          send(
+            res,
+            ToolPreferencesSchema.parse(
+              library.store.get("setting", "reader-tools") ?? {},
+            ),
+          );
           return;
         }
         if (parts[1] === "preferences") {

@@ -1,4 +1,8 @@
 const paths = {
+  pointer: "m5 3 14 9-6 1-3 7Z",
+  textSelect: "M4 5h16M12 5v14M8 19h8",
+  sticky: "M5 3h14v12l-6 6H5ZM13 21v-6h6",
+  grip: "M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01",
   link: "m10 13 4-4M8 15l-2 2a3 3 0 0 1-4-4l4-4a3 3 0 0 1 4 0m4 0 2-2a3 3 0 0 1 4 4l-4 4a3 3 0 0 1-4 0",
   trash: "M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7",
   fit: "M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6",

@@ -23,7 +23,7 @@ import {
   type WorkspaceCamera,
 } from "../../../packages/protocol/src/workspace";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-export type AnnotationMode = "select" | "sticky" | "region";
+export type AnnotationMode = "pointer" | "select" | "sticky" | "region";
 export type QuestionRegion = {
   page: number;
   rect: [number, number, number, number];
@@ -259,7 +259,7 @@ function Page({
           })}
         </div>
       )}
-      {mode !== "select" && (
+      {mode !== "select" && mode !== "pointer" && (
         <div
           className="annotation-capture"
           aria-busy={!ready}
@@ -468,19 +468,33 @@ export function PdfReader({
     };
   }, []);
   useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (!workspace || event.code !== "Space" || event.isComposing || event.repeat) return;
+      if ((event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable],[aria-modal='true']")) return;
+      event.preventDefault();
+      space.current = true;
+      setPanReady(true);
+    };
+    const keyup = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      space.current = false;
+      setPanReady(false);
+    };
     const clear = () => {
       space.current = false;
       setPanReady(false);
       pan.current = undefined;
       setPanning(false);
     };
-    window.addEventListener("keyup", clear);
+    window.addEventListener("keydown", keydown);
+    window.addEventListener("keyup", keyup);
     window.addEventListener("blur", clear);
     return () => {
-      window.removeEventListener("keyup", clear);
+      window.removeEventListener("keydown", keydown);
+      window.removeEventListener("keyup", keyup);
       window.removeEventListener("blur", clear);
     };
-  }, []);
+  }, [!!workspace]);
   useEffect(() => {
     // PDF.js can clear its text selection after mouseup has already fired.
     const syncSelection = () => {
@@ -663,21 +677,8 @@ export function PdfReader({
   return (
     <div
       ref={scroll}
-      className={`pdf-scroll${workspace ? " workspace-scroll" : ""}${panReady ? " pan-ready" : ""}${panning ? " panning" : ""}`}
+      className={`pdf-scroll${workspace ? " workspace-scroll" : ""}${mode === "pointer" ? " pointer-tool" : ""}${panReady ? " pan-ready" : ""}${panning ? " panning" : ""}`}
       tabIndex={-1}
-      onKeyDown={(event) => {
-        if (
-          workspace &&
-          event.code === "Space" &&
-          !(event.target as HTMLElement).closest(
-            "input,textarea,button,select,[contenteditable]",
-          )
-        ) {
-          event.preventDefault();
-          space.current = true;
-          setPanReady(true);
-        }
-      }}
       onPointerDownCapture={(event) => {
         if (!workspace) return;
         const target = event.target as HTMLElement;
@@ -692,7 +693,10 @@ export function PdfReader({
             )) ||
           (event.button === 0 &&
             (target === scroll.current ||
-              target.classList.contains("pdf-world")))
+              target.classList.contains("pdf-world") ||
+              (mode === "pointer" &&
+                !!target.closest(".pdf-page") &&
+                !target.closest("button,input,textarea,select,[contenteditable]"))))
         ) {
           if (event.button !== 2) event.preventDefault();
           event.stopPropagation();
