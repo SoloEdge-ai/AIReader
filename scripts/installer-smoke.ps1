@@ -21,13 +21,13 @@ $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) 'AIReader.lnk'
 function Installed-Entry {
   @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
     ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } |
-    Where-Object { $_.DisplayName -eq 'AIReader' })
+    Where-Object { $_.DisplayName -eq 'AIReader' -or $_.DisplayName -like 'AIReader *' })
 }
 
 function Machine-Entry {
   @(Get-ChildItem 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
     ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } |
-    Where-Object { $_.DisplayName -eq 'AIReader' })
+    Where-Object { $_.DisplayName -eq 'AIReader' -or $_.DisplayName -like 'AIReader *' })
 }
 
 function Invoke-Setup([string[]]$Arguments, [int]$ExpectedExit = 0) {
@@ -40,7 +40,8 @@ function Invoke-Setup([string[]]$Arguments, [int]$ExpectedExit = 0) {
 function Assert-Installed([string]$ExpectedDir) {
   $entry = @(Installed-Entry)
   if ($entry.Count -ne 1 -or $entry[0].DisplayVersion -ne $ExpectedVersion) {
-    throw 'Installer did not register exactly one current-user installation with the expected version.'
+    $found = ($entry | ForEach-Object { "$($_.DisplayName) [$($_.DisplayVersion)]" }) -join ', '
+    throw "Installer did not register exactly one current-user installation with version $ExpectedVersion; found $($entry.Count): $found"
   }
   $uninstallString = [string]$entry[0].QuietUninstallString
   if ($uninstallString -notmatch '^"([^\"]+)"' -or
