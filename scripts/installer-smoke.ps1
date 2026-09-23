@@ -73,27 +73,27 @@ function Invoke-Uninstall([object]$Entry, [string]$ExpectedDir) {
       [IO.Path]::GetFullPath($ExpectedDir)) {
     throw 'Registered uninstaller is outside the tested installation directory.'
   }
-  # NSIS normally forks a temporary copy and its launcher can return success
-  # even when the real uninstaller refuses to proceed. Run in place so this
-  # acceptance test observes the actual guard and uninstall exit code.
+  # Exercise the normal installed uninstall command, including NSIS self-copy.
+  # Its launcher can return 0 before the real uninstaller finishes, so actual
+  # filesystem/registry/shortcut postconditions below remain mandatory.
   $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'AIReader.exe'" |
     Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine)
   if ($remaining.Count) { Write-Output ($remaining | ConvertTo-Json -Depth 3) }
-  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser', "_?=$ExpectedDir") -PassThru -Wait -WindowStyle Hidden
+  $mainExecutable = Join-Path $ExpectedDir 'AIReader.exe'
+  Write-Output (Get-Item -LiteralPath $mainExecutable | Select-Object FullName,Length,Attributes | ConvertTo-Json)
+  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser') -PassThru -Wait -WindowStyle Hidden
   if ($process.ExitCode -ne 0) { throw "Uninstaller returned $($process.ExitCode)" }
   for ($attempt = 0; $attempt -lt 30; $attempt++) {
-    if (-not (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) -and
+    if (-not (Test-Path -LiteralPath $ExpectedDir) -and
         @(Installed-Entry).Count -eq 0) { break }
     Start-Sleep -Seconds 1
   }
-  if (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) {
+  if (Test-Path -LiteralPath $ExpectedDir) {
     Write-Output "Expected removal directory: $ExpectedDir"
     Write-Output "Registered command: $uninstallString"
     Write-Output (@(Installed-Entry) | ConvertTo-Json -Depth 3)
-    Write-Output (Get-ChildItem -LiteralPath $ExpectedDir | Select-Object Name,Length | ConvertTo-Json)
+    Write-Output (Get-ChildItem -LiteralPath $ExpectedDir | Select-Object Name,Length,Attributes | ConvertTo-Json)
     Write-Output "Shortcut state: start=$(Test-Path -LiteralPath $startMenu), desktop=$(Test-Path -LiteralPath $desktop)"
-    $trace = Join-Path $env:TEMP 'AIReader-uninstall-trace.log'
-    if (Test-Path -LiteralPath $trace) { Get-Content -LiteralPath $trace }
     throw 'Uninstall left program files behind.'
   }
   if (@(Installed-Entry).Count -ne 0) { throw 'Uninstall left its registration behind.' }

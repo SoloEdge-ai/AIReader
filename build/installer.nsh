@@ -1,4 +1,5 @@
 !include "LogicLib.nsh"
+!include "${__FILEDIR__}\uninstall-file-check.nsh"
 
 ; The app is installed for the current Windows user without elevation.
 !macro customInstallMode
@@ -19,25 +20,21 @@
   ${EndIf}
 !macroend
 
-; Temporary CI diagnostics: do not alter uninstall behavior or user state.
-!macro aiUninstallTrace stage
-  Push $0
-  Push $1
-  ReadEnvStr $0 AIREADER_CI
-  ${If} $0 == "1"
-    FileOpen $1 "$TEMP\AIReader-uninstall-trace.log" a
-    FileSeek $1 0 END
-    FileWrite $1 "${stage}: INSTDIR=$INSTDIR mode=$installMode cmd=$CMDLINE$\r$\n"
-    FileClose $1
-  ${EndIf}
-  Pop $1
-  Pop $0
-!macroend
-!macro customUnInit
-  !insertmacro aiUninstallTrace "after initMultiUser"
-!macroend
 !macro customUnInstall
-  !insertmacro aiUninstallTrace "before remove files"
+  ; Upgrades retain electron-builder's existing atomic rename/rollback path.
+  ${IfNot} ${isUpdated}
+    Push $R0
+    ReadRegStr $R0 SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ${If} $R0 == ""
+    ${OrIf} $R0 != $INSTDIR
+      IfSilent +2
+        MessageBox MB_ICONEXCLAMATION "卸载路径与安装记录不一致。请先运行安装包修复安装，再重试卸载。"
+      SetErrorLevel 6
+      Quit
+    ${EndIf}
+    Pop $R0
+    !insertmacro aiRemoveMainExecutable
+  ${EndIf}
 !macroend
 
 !ifndef BUILD_UNINSTALLER
