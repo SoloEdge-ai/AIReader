@@ -148,6 +148,11 @@ export class Library {
       }
       if (message.type === "done") latest.status = "ready";
       this.save(latest);
+      if (
+        (message.type === "done" || message.type === "error") &&
+        worker.connected
+      )
+        worker.send({ type: "parse-ack" }, () => {});
     });
     const failed = (message: string) => {
       if (!this.closed) {
