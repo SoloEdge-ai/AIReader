@@ -3,11 +3,13 @@ import { build as viteBuild } from "vite";
 import { mkdir, copyFile, readFile } from "node:fs/promises";
 // The Markdown plugins are ESM-only. Bundle this graph so the emitted CJS Core
 // does not receive namespace objects from require() in place of plugin functions.
-const markdownPackages = new Set([
+const bundledPackages = new Set([
   "unified",
   "remark-parse",
   "remark-gfm",
   "remark-math",
+  // Keep page-bound validation self-contained in the packaged Core.
+  "pdf-lib",
 ]);
 const manifest = JSON.parse(await readFile("package.json", "utf8"));
 await mkdir("dist/core", { recursive: true });
@@ -26,7 +28,7 @@ await build({
   platform: "node",
   format: "cjs",
   external: Object.keys(manifest.dependencies).filter(
-    (name) => !markdownPackages.has(name),
+    (name) => !bundledPackages.has(name),
   ),
   sourcemap: true,
 });

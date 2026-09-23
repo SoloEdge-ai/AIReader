@@ -98,7 +98,7 @@ const note = z
 const manifestSchema = z
   .object({
     format: z.literal("AIReader-workspace"),
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     bookId: id,
     title: z.string().min(1).max(300),
     fingerprint: digest,
@@ -129,6 +129,7 @@ export class WorkspaceArchives {
     const book = this.library.book(bookId);
     if (book.status !== "ready") throw new Error("请等待 PDF 解析完成后再打包");
     const chatImages = new ChatImages(this.library);
+    const workspace = new Workspaces(this.library).get(bookId);
     const allNotes = this.library.store.list<Note>("note", bookId);
     const allAnnotations = this.library.store.list<Annotation>(
       "annotation",
@@ -168,15 +169,22 @@ export class WorkspaceArchives {
         files[`assets/${img.id}.png`] = bytes;
         assets[img.id] = sha(bytes);
       }
+    for (const card of workspace.cards)
+      if (card.region) {
+        const assetId = id.parse(card.region.assetId);
+        const bytes = await readFile(join(this.library.directory, "workspace-assets", bookId, assetId + ".png"));
+        files[`assets/${assetId}.png`] = bytes;
+        assets[assetId] = sha(bytes);
+      }
     const manifest = manifestSchema.parse({
       format: "AIReader-workspace",
-      version: 1,
+      version: 2,
       bookId,
       title: book.title,
       fingerprint: book.fingerprint,
       pages: book.pages,
       progress: book.progress,
-      workspace: new Workspaces(this.library).get(bookId),
+      workspace,
       preferences: this.library.store.get("reader", bookId) ?? {},
       annotations,
       notes: values,
@@ -219,7 +227,7 @@ export class WorkspaceArchives {
         if (
           total > MAX_WORKSPACE_ARCHIVE_BYTES ||
           (file.name === "workspace.json" &&
-            file.originalSize > 16 * 1024 * 1024) ||
+            file.originalSize > 32 * 1024 * 1024) ||
           (file.name === "document.pdf" &&
             file.originalSize > 256 * 1024 * 1024) ||
           (file.name.startsWith("assets/") &&
@@ -231,9 +239,10 @@ export class WorkspaceArchives {
     });
     if (!files["workspace.json"] || !files["document.pdf"])
       throw new Error("工作区缺少 PDF 或数据文件");
-    const data = manifestSchema.parse(
-      JSON.parse(strFromU8(files["workspace.json"])),
-    );
+    const raw = JSON.parse(strFromU8(files["workspace.json"]));
+    if (raw?.version !== 1 && raw?.version !== 2)
+      throw new Error("工作区归档版本不受支持，请使用更新的 AIReader");
+    const data = manifestSchema.parse(raw);
     if (
       sha(files["document.pdf"]) !== data.fingerprint ||
       data.workspace.bookId !== data.bookId ||
@@ -299,20 +308,40 @@ export class WorkspaceArchives {
       if (b.bookId !== data.bookId || b.page > data.pages)
         throw new Error("书签不属于此文档");
     const cards = new Set(data.workspace.cards.map((card) => card.id));
+    const objectIds = new Set(data.workspace.objects.map((object) => object.id));
     if (
       cards.size !== data.workspace.cards.length ||
+      objectIds.size !== data.workspace.objects.length ||
+      [...objectIds].some((objectId) => cards.has(objectId)) ||
       new Set(data.workspace.links.map((link) => link.id)).size !==
         data.workspace.links.length
     )
       throw new Error("卡片或关系标识重复");
-    for (const card of data.workspace.cards)
+    for (const card of data.workspace.cards) {
       if (card.source) {
         if (card.source.fingerprint !== data.fingerprint)
           throw new Error("摘录不属于此文档");
         card.source.anchors.forEach(validAnchor);
       }
+      if (card.region) {
+        if (data.version !== 2 || card.region.fingerprint !== data.fingerprint ||
+            card.region.page > data.pages || card.region.rect[2] <= card.region.rect[0] ||
+            card.region.rect[3] <= card.region.rect[1])
+          throw new Error("图片摘录不属于此文档");
+        referencedAssets.add(card.region.assetId);
+      }
+    }
+    if (data.version === 1 && data.workspace.objects.length)
+      throw new Error("旧版归档包含不支持的画布对象");
+    for (const object of data.workspace.objects) {
+      const surfaces = object.kind === "ink" ? object.segments.map((segment) => segment.surface) : [object.surface];
+      if (surfaces.some((surface) => surface.kind === "pdf" &&
+          (surface.fingerprint !== data.fingerprint || surface.page > data.pages)))
+        throw new Error("画布对象不属于此文档");
+    }
     for (const link of data.workspace.links)
-      if (!cards.has(link.from) || !cards.has(link.to) || link.from === link.to)
+      if (!(cards.has(link.from) || objectIds.has(link.from)) ||
+          !(cards.has(link.to) || objectIds.has(link.to)) || link.from === link.to)
         throw new Error("关系指向不存在的卡片");
     if (
       referencedAssets.size !== Object.keys(data.assets).length ||
@@ -344,7 +373,8 @@ export class WorkspaceArchives {
         throw new Error("工作区 PDF 无法解析或页数不匹配");
       const bookId = book.id;
       const ids = new Map(
-        [...noteIds, ...annotationIds, ...referencedAssets].map((old) => [
+        [...noteIds, ...annotationIds, ...referencedAssets, ...cards, ...objectIds,
+          ...data.workspace.links.map((link) => link.id)].map((old) => [
           old,
           randomUUID(),
         ]),
@@ -385,7 +415,7 @@ export class WorkspaceArchives {
         assetId: a.assetId ? mapped(a.assetId) : undefined,
         revision: 1,
       }));
-      for (const kind of ["annotations", "chat-images"])
+      for (const kind of ["annotations", "chat-images", "workspace-assets"])
         await mkdir(join(this.library.directory, kind, bookId), {
           recursive: true,
         });
@@ -417,11 +447,24 @@ export class WorkspaceArchives {
             );
             writtenImages.add(img.id);
           }
+      for (const card of data.workspace.cards)
+        if (card.region)
+          await writeFile(join(this.library.directory, "workspace-assets", bookId,
+            mapped(card.region.assetId) + ".png"), decoded.get(card.region.assetId)!.buffer, { flag: "wx" });
       this.library.store.transaction(() => {
         for (const n of restoredNotes)
           this.library.store.put("note", n.id, bookId, n);
         for (const a of restoredAnnotations)
           this.library.store.put("annotation", a.id, bookId, a);
+        for (const card of data.workspace.cards)
+          if (card.region) {
+            const image = decoded.get(card.region.assetId)!;
+            const assetId = mapped(card.region.assetId);
+            this.library.store.put("workspace-asset", assetId, bookId, {
+              id: assetId, bookId, width: image.width, height: image.height,
+              bytes: image.buffer.length, sha256: sha(image.buffer),
+            });
+          }
         for (const mark of data.bookmarks) {
           const id = randomUUID();
           this.library.store.put("bookmark", id, bookId, {
@@ -434,6 +477,14 @@ export class WorkspaceArchives {
           ...data.workspace,
           bookId,
           revision: 0,
+          cards: data.workspace.cards.map((card) => ({
+            ...card, id: mapped(card.id),
+            region: card.region ? { ...card.region, assetId: mapped(card.region.assetId) } : undefined,
+          })),
+          objects: data.workspace.objects.map((object) => ({ ...object, id: mapped(object.id) })),
+          links: data.workspace.links.map((link) => ({
+            ...link, id: mapped(link.id), from: mapped(link.from), to: mapped(link.to),
+          })),
         });
         this.library.store.put("reader", bookId, bookId, data.preferences);
         book!.progress = data.progress;
@@ -458,7 +509,7 @@ export class WorkspaceArchives {
         await rm(join(this.library.directory, "books", copyId + ".pdf"), {
           force: true,
         });
-        for (const kind of ["annotations", "chat-images"])
+        for (const kind of ["annotations", "chat-images", "workspace-assets"])
           await rm(join(this.library.directory, kind, copyId), {
             recursive: true,
             force: true,

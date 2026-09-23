@@ -185,11 +185,13 @@ try {
   const saved: BookWorkspace = await (
     await context.request.get(endpoint)
   ).json();
-  const positioned = await context.request.post(endpoint, {
+  const positioned = await context.request.post(endpoint + "/commands", {
     headers: { Origin: origin },
     data: {
-      ...saved,
-      cards: saved.cards.map((card) => ({ ...card, y: 1800 })),
+      bookId: book.id,
+      commandId: "position-below-document",
+      expectedVersion: saved.revision,
+      changes: saved.cards.map((card) => ({ type: "upsert-card", card: { ...card, y: 1800 } })),
     },
   });
   expect(positioned.ok()).toBe(true);

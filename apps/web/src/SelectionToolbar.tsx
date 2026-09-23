@@ -47,11 +47,18 @@ export function SelectionToolbar({
         : undefined;
       const x = range?.width ? range.left + range.width / 2 : selection.screen.x;
       const y = range?.height ? range.bottom : selection.screen.y;
+      const yTop = range?.height ? range.top : selection.screen.y;
       const left = Math.max(bounds.left + 8, Math.min(bounds.right - width - 8, x - width / 2));
       const below = y + 12;
-      const top = below + height + 8 <= bounds.bottom
-        ? below
-        : Math.max(bounds.top + 8, y - height - 12);
+      const above = yTop - height - 12;
+      const palette = reading.querySelector(".reader-tool-palette")?.getBoundingClientRect();
+      const clear = (top: number) => top >= bounds.top + 8 && top + height <= bounds.bottom - 8 &&
+        (!palette || left + width <= palette.left || left >= palette.right ||
+          top + height <= palette.top || top >= palette.bottom);
+      const top = clear(below) ? below : clear(above) ? above
+        : Math.max(bounds.top + 8, Math.min(bounds.bottom - height - 8,
+            palette && left < palette.right && left + width > palette.left
+              ? palette.top - height - 8 : below));
       setPosition({ left, top, maxWidth: Math.max(120, bounds.width - 16) });
     };
     update();

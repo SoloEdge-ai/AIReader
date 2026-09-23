@@ -13,15 +13,18 @@ import type {
 } from "../../../packages/protocol/src";
 import type { WorkspaceCard } from "../../../packages/protocol/src/workspace";
 import { WORKSPACE_DOCUMENT_X } from "../../../packages/protocol/src/workspace";
+import type { BookWorkspace as WorkspaceSnapshot } from "../../../packages/protocol/src/workspace";
 import {
   PdfReader,
   type PdfReaderProps,
   type WorkspacePage,
+  type QuestionRegion,
+  type RegionAction,
 } from "./PdfReader";
 import { useWorkspace } from "./WorkspaceState";
 import { dockBesideDocument } from "./WorkspaceLayout";
 import { Icon } from "./Icon";
-import { base } from "./api";
+import { base, post } from "./api";
 import "./workspace.css";
 
 export interface BookWorkspaceHandle {
@@ -82,6 +85,21 @@ export const BookWorkspace = forwardRef<
     if (cards.some((card, index) => card.x !== state.value!.cards[index].x))
       state.change({ ...state.value, cards }, false);
   }, [documentWidth, state.value]);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+      if ((event.target as HTMLElement)?.closest("input,textarea,[contenteditable]")) return;
+      if (event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) state.redo(); else state.undo();
+      } else if (event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        state.redo();
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [state]);
   function navigate(x: number, y: number, zoom = props.zoom) {
     setNavigation((old) => ({
       key: (old?.key ?? 0) + 1,
@@ -201,6 +219,37 @@ export const BookWorkspace = forwardRef<
       }),
     );
   }
+  async function regionAction(region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) {
+    if (action === "question") {
+      await props.onRegionAction?.(region, action, includePersonalMarks);
+      return;
+    }
+    if (action === "annotation") {
+      const created = await props.onCreate({ kind: "region", color: "yellow", quote: "",
+        anchors: [{ page: region.page, rects: [region.rect] }], image: region.image });
+      if (created === false) throw new Error("区域批注尚未保存，请重试");
+      await props.onRegionAction?.(region, action, includePersonalMarks);
+      return;
+    }
+    if (!(await state.flush())) throw new Error("工作区尚未保存，请重试后创建图片卡片");
+    const revision = state.revision();
+    if (revision === undefined) throw new Error("工作区尚未加载");
+    const page = pages.current.find((item) => item.page === region.page);
+    if (!page) throw new Error("找不到摘录的 PDF 页面");
+    let y = Math.max(page.y, (viewport.current?.scrollTop ?? 0) / props.zoom + 60);
+    const x = WORKSPACE_DOCUMENT_X + documentWidth + 40;
+    while (state.value?.cards.some((card) => Math.abs(card.x - x) < 20 && Math.abs(card.y - y) < 40)) y += 50;
+    const result = await post<{ workspace: WorkspaceSnapshot; cardId: string }>(
+      `books/${props.book.id}/workspace/region-excerpts`, {
+        bookId: props.book.id, commandId: region.operationId ?? crypto.randomUUID(), expectedVersion: revision,
+        fingerprint: props.book.fingerprint, page: region.page, rect: region.rect,
+        image: region.image, includePersonalMarks,
+        title: `第 ${props.book.labels[region.page - 1] ?? region.page} 页图片摘录`, x, y,
+      });
+    state.acceptExternal(result.workspace);
+    setSelected(result.cardId);
+    await props.onRegionAction?.(region, action, includePersonalMarks);
+  }
   useImperativeHandle(ref, () => ({ flush: state.flush, excerpt: add }));
   function update(id: string, change: Partial<WorkspaceCard>) {
     if (state.value)
@@ -233,8 +282,12 @@ export const BookWorkspace = forwardRef<
     }
   }
   function source(card: WorkspaceCard) {
+    const anchors: PdfAnchor[] = card.region
+      ? [{ page: card.region.page, rects: [card.region.rect] }]
+      : card.source?.anchors ?? [];
+    if (!anchors.length) return;
     const page = pages.current.find(
-        (page) => page.page === card.source?.anchors[0].page,
+        (page) => page.page === anchors[0].page,
       ),
       el = viewport.current;
     if (!page || !el) return;
@@ -242,8 +295,8 @@ export const BookWorkspace = forwardRef<
       x: el.scrollLeft / props.zoom,
       y: el.scrollTop / props.zoom,
     });
-    const location = page.locate(card.source!.anchors[0].rects[0]);
-    setSourceFocus(card.source!.anchors);
+    const location = page.locate(anchors[0].rects[0]);
+    setSourceFocus(anchors);
     el.scrollTo({
       left: Math.max(0, page.x * props.zoom - 30),
       top: location.y * props.zoom - 100,
@@ -405,8 +458,9 @@ export const BookWorkspace = forwardRef<
               onPointerCancel={cancel}
             >
               <span>
-                <Icon name={card.kind === "excerpt" ? "book" : "note"} />
-                {card.kind === "excerpt" ? "原文摘录" : "笔记"}
+                <Icon name={card.kind === "note" ? "note" : "book"} />
+                {card.kind === "excerpt" ? "原文摘录" : card.kind === "region" ? "图片摘录" : "笔记"}
+                {card.region?.includePersonalMarks && <small className="workspace-region-marked">含个人标注</small>}
               </span>
               <span className="workspace-grip" aria-hidden="true">
                 ⠿
@@ -419,7 +473,11 @@ export const BookWorkspace = forwardRef<
                 maxLength={200}
                 onChange={(e) => update(card.id, { title: e.target.value })}
               />
-              {card.kind === "excerpt" ? (
+              {card.kind === "region" && card.region ? (
+                <img className="workspace-region-image"
+                  src={`${base}/api/books/${props.book.id}/workspace-assets/${card.region.assetId}`}
+                  alt={`第 ${props.book.labels[card.region.page - 1] ?? card.region.page} 页图片摘录`} />
+              ) : card.kind === "excerpt" ? (
                 <blockquote>{card.text}</blockquote>
               ) : (
                 <textarea
@@ -430,7 +488,7 @@ export const BookWorkspace = forwardRef<
                   onChange={(e) => update(card.id, { text: e.target.value })}
                 />
               )}
-              {card.kind === "excerpt" && (
+              {(card.kind === "excerpt" || card.kind === "region") && (
                 <textarea
                   aria-label="摘录个人评论"
                   className="workspace-comment"
@@ -442,15 +500,15 @@ export const BookWorkspace = forwardRef<
               )}
             </div>
             <footer>
-              {card.source ? (
+              {card.source || card.region ? (
                 <button
                   className="workspace-source"
                   onClick={() => source(card)}
                   title="回到原文"
                 >
                   <Icon name="outward" />第{" "}
-                  {props.book.labels[card.source.anchors[0].page - 1] ??
-                    card.source.anchors[0].page}{" "}
+                  {props.book.labels[(card.region?.page ?? card.source!.anchors[0].page) - 1] ??
+                    (card.region?.page ?? card.source!.anchors[0].page)}{" "}
                   页
                 </button>
               ) : (
@@ -594,6 +652,7 @@ export const BookWorkspace = forwardRef<
     <>
       <PdfReader
         {...props}
+        onRegionAction={regionAction}
         workspace={{
           ready: !!state.value,
           camera: state.value?.camera,
@@ -636,6 +695,13 @@ export const BookWorkspace = forwardRef<
           onClick={state.undo}
         >
           <Icon name="undo" />
+        </button>
+        <button
+          aria-label="重做工作区修改"
+          disabled={!state.canRedo}
+          onClick={state.redo}
+        >
+          <Icon name="redo" />
         </button>
         <i className="workspace-toolbar-divider" />
         <button onClick={locateDocument} title="回到当前阅读页">
@@ -712,12 +778,12 @@ export const BookWorkspace = forwardRef<
                 setShowOverview(false);
               }}
             >
-              <Icon name={card.kind === "excerpt" ? "book" : "note"} />
+              <Icon name={card.kind === "note" ? "note" : "book"} />
               <span>
                 {card.title || "未命名笔记"}
                 <small>
-                  {card.source
-                    ? `第 ${props.book.labels[card.source.anchors[0].page - 1] ?? card.source.anchors[0].page} 页摘录`
+                  {card.source || card.region
+                    ? `第 ${props.book.labels[(card.region?.page ?? card.source!.anchors[0].page) - 1] ?? (card.region?.page ?? card.source!.anchors[0].page)} 页摘录`
                     : "个人笔记"}
                 </small>
               </span>

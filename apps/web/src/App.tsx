@@ -180,6 +180,28 @@ export function App() {
     );
     updateLayout({ ...layout, panel: "chat" });
   }
+  async function handleWorkspaceRegion(region: QuestionRegion, action: "card" | "question" | "annotation", includePersonalMarks: boolean) {
+    if (!book || current.current !== book.id) throw new Error("书籍已切换，请重新选择区域");
+    if (action !== "question") { readerTools.finish(); return; }
+    const bookId = book.id, fingerprint = book.fingerprint;
+    let sessionId = localStorage.getItem("session-" + bookId);
+    if (!sessionId) {
+      const session = await post<{ id: string }>(`books/${bookId}/sessions`, {});
+      sessionId = session.id;
+      localStorage.setItem("session-" + bookId, sessionId);
+    }
+    const bytes = Uint8Array.from(atob(region.image.split(",")[1]), (char) => char.charCodeAt(0));
+    const name = `第 ${book.labels[region.page - 1] ?? region.page} 页区域${includePersonalMarks ? "（含个人标注）" : ""}.png`;
+    const key = `${bookId}:${sessionId!}`;
+    await questionDrafts.addImages(key, [new File([bytes], name, { type: "image/png" })], {
+      kind: "pdf-region", bookId, fingerprint, page: region.page, rect: region.rect,
+    });
+    if (questionDrafts.get(key).imageError) throw new Error(questionDrafts.get(key).imageError);
+    if (current.current === bookId && localStorage.getItem("session-" + bookId) === sessionId) {
+      readerTools.finish();
+      updateLayout({ ...layout, panel: "chat" });
+    }
+  }
   async function openSavedNote(note: Note) {
     if (note.bookId !== current.current) return;
     if (!(await notes.flush()))
@@ -194,12 +216,12 @@ export function App() {
   ) {
     const id = active;
     try {
-      if (!id || !(await notes.flush())) return;
+      if (!id || !(await notes.flush())) return false;
       const a = await post<Annotation>(`books/${id}/annotations`, {
         ...value,
         color: annotationColor,
       });
-      if (current.current !== id) return;
+      if (current.current !== id) return false;
       notes.undo.current.push(() =>
         api(`books/${id}/annotations/${a.id}`, { method: "DELETE" }),
       );
@@ -207,8 +229,10 @@ export function App() {
       notes.setSelected(a.noteId);
       readerTools.finish(value.kind === "sticky" || value.kind === "region" ? "pointer" : "text");
       updateLayout({ ...layout, panel: "notes" });
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     }
   }
   useEffect(() => {
@@ -813,7 +837,8 @@ export function App() {
                 highlight={highlight}
                 annotations={notes.annotations}
                 mode={mode === "text" ? "select" : mode}
-                onCreate={(value) => void createAnnotation(value)}
+                onCreate={createAnnotation}
+                onRegionAction={handleWorkspaceRegion}
                 onQuestionRegion={
                   questionCapture?.bookId === book.id
                     ? addQuestionRegion
