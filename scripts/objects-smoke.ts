@@ -34,6 +34,7 @@ try {
   await page.getByLabel("编辑画布文本").fill("中文想法：比较两个概念");
   await page.getByLabel("编辑画布文本").press("Tab");
   await expect.poll(async () => (await workspace()).objects.length).toBe(1);
+  await expect.poll(async () => (await workspace()).objects[0]?.text).toBe("中文想法：比较两个概念");
   const text = (await workspace()).objects[0];
   expect(text).toMatchObject({ kind: "text", text: "中文想法：比较两个概念", surface: { kind: "pdf", page: 1 } });
   await page.getByRole("button", { name: "对象格式" }).click();
