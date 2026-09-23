@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
-type PreviewImage = { id: string; name: string; url: string };
+type PreviewImage = {
+  id: string;
+  name: string;
+  url: string;
+  pageLabel?: string;
+  source?: {
+    page: number;
+    label?: string;
+    rect: [number, number, number, number];
+  };
+};
 
 function ImagePreview({
   image,
@@ -33,6 +43,15 @@ function ImagePreview({
         </button>
       </header>
       <img src={image.url} alt={image.name} />
+      {image.source && (
+        <p className="image-hint">
+          本书第 {image.pageLabel ?? image.source.label ?? image.source.page}{" "}
+          页区域（物理页 {image.source.page}） · PDF 坐标{" "}
+          {image.source.rect.map((n) => Math.round(n)).join(", ")}
+          <br />
+          图片来源位置不代表 AI 的解释已获原文支持。
+        </p>
+      )}
     </dialog>
   );
 }
@@ -60,6 +79,13 @@ export function ChatImageList({
             >
               <img src={image.url} alt={image.name} />
               <span>{image.name}</span>
+              {image.source && (
+                <span>
+                  本书第{" "}
+                  {image.pageLabel ?? image.source.label ?? image.source.page}{" "}
+                  页 · 区域
+                </span>
+              )}
             </button>
             {onRemove && (
               <button

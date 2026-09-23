@@ -131,20 +131,22 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           });
         }
         const cite = prompt.match(/\[\[([^\]]+:\d+:\d+)\]\]/)?.[1];
-        const text = question.includes("NOTES_MARKDOWN")
-          ? `# Capacity\n\n**Bold** and *emphasis* with [safe](https://example.com) and [unsafe](javascript:alert(1)).\n\n- First item\n- Second item\n\n1. Step one\n2. Step two\n\n> Quote explanation\n\n\`\`\`ts\nconst capacity = 42;\n\`\`\`\n\nInline $n^2$ and block:\n\n$$\nE=mc^2\n$$\n\n| Input | Output |\n| --- | --- |\n| 2 | 4 |\n\n<img src=x onerror=alert(1)>\n\n![remote](https://example.invalid/private.png)\n\n${cite ? "[[" + cite + "]]" : ""}`
-          : question.includes("NOTES_NO_SOURCE")
-            ? "General explanation without a book citation."
-            : question.includes("CHECK_IMAGE")
-              ? `Images received: ${pictures.length}; ${pictures.join("; ")}`
-              : prompt === "CONFIG"
-                ? `${p.model}/${p.effort} isolated=${process.env.CODEX_HOME?.includes("codex-home") && !process.env.OPENAI_API_KEY}`
-                : prompt.includes("严格 JSON")
-                  ? JSON.stringify({
-                      summary: "Fixture summary",
-                      concepts: ["memory"],
-                    })
-                  : `Thread ${p.threadId}: supported statement ${cite ? "[[" + cite + "]]" : ""} [[fake:999:0]]`;
+        const text = question.includes("CHECK_REGION_PROMPT")
+          ? `Region prompt received: ${JSON.stringify({ pictures, description: prompt.split("\n本轮图片说明：")[1] ?? "MISSING", promptBytes: Buffer.byteLength(prompt, "utf8") })} [[pdf-region:1]]`
+          : question.includes("NOTES_MARKDOWN")
+            ? `# Capacity\n\n**Bold** and *emphasis* with [safe](https://example.com) and [unsafe](javascript:alert(1)).\n\n- First item\n- Second item\n\n1. Step one\n2. Step two\n\n> Quote explanation\n\n\`\`\`ts\nconst capacity = 42;\n\`\`\`\n\nInline $n^2$ and block:\n\n$$\nE=mc^2\n$$\n\n| Input | Output |\n| --- | --- |\n| 2 | 4 |\n\n<img src=x onerror=alert(1)>\n\n![remote](https://example.invalid/private.png)\n\n${cite ? "[[" + cite + "]]" : ""}`
+            : question.includes("NOTES_NO_SOURCE")
+              ? "General explanation without a book citation."
+              : question.includes("CHECK_IMAGE")
+                ? `Images received: ${pictures.length}; ${pictures.join("; ")}`
+                : prompt === "CONFIG"
+                  ? `${p.model}/${p.effort} isolated=${process.env.CODEX_HOME?.includes("codex-home") && !process.env.OPENAI_API_KEY}`
+                  : prompt.includes("严格 JSON")
+                    ? JSON.stringify({
+                        summary: "Fixture summary",
+                        concepts: ["memory"],
+                      })
+                    : `Thread ${p.threadId}: supported statement ${cite ? "[[" + cite + "]]" : ""} [[fake:999:0]]`;
         notify("item/agentMessage/delta", {
           threadId: p.threadId,
           delta: text,

@@ -13,6 +13,11 @@ import type { z } from "zod";
 import { fileUrl } from "./api";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 export type AnnotationMode = "select" | "sticky" | "region";
+export type QuestionRegion = {
+  page: number;
+  rect: [number, number, number, number];
+  image: string;
+};
 type View = ReturnType<pdfjs.PDFPageProxy["getViewport"]>;
 type Rect = [number, number, number, number];
 const ordered = (r: number[]): Rect => [
@@ -75,14 +80,16 @@ function Page({
   mode,
   onCreate,
   onAnnotation,
+  onQuestionRegion,
 }: {
   proxy: pdfjs.PDFPageProxy;
   view: View;
   annotations: Annotation[];
   highlight?: SourceAnchor;
-  mode: AnnotationMode;
+  mode: AnnotationMode | "ask-region";
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
   onAnnotation: (id: string) => void;
+  onQuestionRegion?: (region: QuestionRegion) => void;
 }) {
   const outer = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
@@ -90,8 +97,14 @@ function Page({
   const [visible, setVisible] = useState(false),
     [renderedView, setRenderedView] = useState<View>(),
     [drag, setDrag] = useState<Rect>();
-  const start = useRef<[number, number] | undefined>(undefined);
+  const start = useRef<{ point: [number, number]; view: View } | undefined>(
+    undefined,
+  );
   const ready = renderedView === view;
+  useLayoutEffect(() => {
+    start.current = undefined;
+    setDrag(undefined);
+  }, [view, mode]);
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([e]) => setVisible(e.isIntersecting),
@@ -220,27 +233,34 @@ function Page({
       {mode !== "select" && (
         <div
           className="annotation-capture"
-          aria-busy={mode === "region" && !ready}
-          title={ready ? "在页面上拖动或点击添加批注" : "页面绘制中，请稍候"}
+          aria-busy={!ready}
+          title={
+            ready
+              ? mode === "ask-region"
+                ? "拖动框选图表，松开后加入问题"
+                : "在页面上拖动或点击添加批注"
+              : "页面绘制中，请稍候"
+          }
           onPointerDown={(e) => {
-            if (mode === "region" && !ready) return;
+            if (e.button !== 0 || !ready) return;
             e.preventDefault();
-            start.current = point(e);
+            start.current = { point: point(e), view };
             e.currentTarget.setPointerCapture(e.pointerId);
           }}
           onPointerMove={(e) => {
-            if (start.current) setDrag([...start.current, ...point(e)]);
+            if (start.current) setDrag([...start.current.point, ...point(e)]);
           }}
           onPointerCancel={() => {
             start.current = undefined;
             setDrag(undefined);
           }}
           onPointerUp={(e) => {
-            if (!start.current) return;
-            const p = point(e),
-              r = ordered([...start.current, ...p]);
+            const origin = start.current;
             start.current = undefined;
             setDrag(undefined);
+            if (!origin || origin.view !== view || !ready) return;
+            const p = point(e),
+              r = ordered([...origin.point, ...p]);
             if (mode === "sticky") {
               const size = 22 * view.scale;
               r[2] = Math.min(view.width, r[0] + size);
@@ -248,9 +268,10 @@ function Page({
             }
             if (r[2] - r[0] < 3 || r[3] - r[1] < 3) return;
             let image: string | undefined;
-            if (mode === "region") {
+            if (mode === "region" || mode === "ask-region") {
               const c = canvas.current!,
-                ratio = c.width / view.width,
+                ratioX = c.width / view.width,
+                ratioY = c.height / view.height,
                 w = r[2] - r[0],
                 h = r[3] - r[1],
                 scale = Math.min(2, 2048 / Math.max(w, h));
@@ -261,16 +282,24 @@ function Page({
                 .getContext("2d")!
                 .drawImage(
                   c,
-                  r[0] * ratio,
-                  r[1] * ratio,
-                  w * ratio,
-                  h * ratio,
+                  r[0] * ratioX,
+                  r[1] * ratioY,
+                  w * ratioX,
+                  h * ratioY,
                   0,
                   0,
                   crop.width,
                   crop.height,
                 );
               image = crop.toDataURL("image/png");
+            }
+            if (mode === "ask-region") {
+              onQuestionRegion?.({
+                page,
+                rect: pdfRect(view, r),
+                image: image!,
+              });
+              return;
             }
             onCreate({
               kind: mode,
@@ -300,6 +329,7 @@ export function PdfReader({
   mode = "select",
   onCreate,
   onAnnotation,
+  onQuestionRegion,
 }: {
   id: string;
   initialPage: number;
@@ -312,6 +342,7 @@ export function PdfReader({
   mode?: AnnotationMode;
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
   onAnnotation: (id: string) => void;
+  onQuestionRegion?: (region: QuestionRegion) => void;
 }) {
   const [pages, setPages] = useState<pdfjs.PDFPageProxy[]>([]),
     [error, setError] = useState("");
@@ -425,7 +456,7 @@ export function PdfReader({
       tabIndex={-1}
       onScroll={report}
       onMouseUp={(e) => {
-        if (mode !== "select") return;
+        if (mode !== "select" || onQuestionRegion) return;
         const s = getSelection();
         if (!s?.rangeCount || !s.toString().trim()) {
           onSelection(undefined);
@@ -506,9 +537,10 @@ export function PdfReader({
             view={views.current[i]}
             annotations={annotations}
             highlight={highlight}
-            mode={mode}
+            mode={onQuestionRegion ? "ask-region" : mode}
             onCreate={onCreate}
             onAnnotation={onAnnotation}
+            onQuestionRegion={onQuestionRegion}
           />
         ))
       ) : (

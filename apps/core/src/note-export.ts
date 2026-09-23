@@ -140,9 +140,14 @@ export function exportNoteArchive(
         ? "以下为原问题附图，不自动视为已核验的书中原文。"
         : "以下为关联的页内区域摘录。",
     );
-    assets.forEach((asset, index) =>
-      lines.push(`![关联图片 ${index + 1}](${asset.name})`),
-    );
+    assets.forEach((asset, index) => {
+      lines.push(`![关联图片 ${index + 1}](${asset.name})`);
+      const source = note.origin?.images?.[index]?.source;
+      if (source)
+        lines.push(
+          `图表框选位置：第 ${escapeText(source.label)} 页（物理页 ${source.page}）；文档指纹：\`${source.fingerprint}\`；PDF 坐标：\`${JSON.stringify(source.rect)}\`。位置说明不证明图像内容来自原始 PDF；图片不是已核验的文本引用。`,
+        );
+    });
   }
   const files: Record<string, Uint8Array> = {
     "note.md": strToU8(lines.join("\n\n") + "\n"),

@@ -14,7 +14,11 @@ import {
 } from "../../../packages/protocol/src";
 import type { z } from "zod";
 import { api, post, base } from "./api";
-import { PdfReader, type AnnotationMode } from "./PdfReader";
+import {
+  PdfReader,
+  type AnnotationMode,
+  type QuestionRegion,
+} from "./PdfReader";
 import { NotesPanel, useBookNotes } from "./NotesPanel";
 import { ChatPanel, type SelectionAction } from "./ChatPanel";
 import { QuestionDraftStore } from "./QuestionDrafts";
@@ -42,6 +46,11 @@ export function App() {
   const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<SelectionAction>();
   const [questionDrafts] = useState(() => new QuestionDraftStore());
+  const [questionCapture, setQuestionCapture] = useState<{
+    bookId: string;
+    fingerprint: string;
+    sessionId: string;
+  }>();
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   useEffect(() => {
     const resize = () => setViewportWidth(window.innerWidth);
@@ -78,6 +87,68 @@ export function App() {
   const [annotationColor, setAnnotationColor] =
     useState<Annotation["color"]>("yellow");
   const openSequence = useRef(0);
+  function cancelQuestionCapture() {
+    setQuestionCapture(undefined);
+    if (questionCapture?.bookId === active && viewportWidth <= 1180)
+      updateLayout({ ...layout, panel: "chat" });
+  }
+  useEffect(() => {
+    if (!questionCapture) return;
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelQuestionCapture();
+      }
+    };
+    window.addEventListener("keydown", cancel);
+    return () => window.removeEventListener("keydown", cancel);
+  }, [questionCapture, layout, viewportWidth]);
+  useEffect(() => {
+    if (layout.panel === "notes") setQuestionCapture(undefined);
+  }, [layout.panel]);
+  function startQuestionCapture(sessionId: string) {
+    if (!book) return;
+    clearSelection();
+    setMode("select");
+    setQuestionCapture({
+      bookId: book.id,
+      fingerprint: book.fingerprint,
+      sessionId,
+    });
+    if (viewportWidth <= 1180) updateLayout({ ...layout, panel: "none" });
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLElement>(".pdf-scroll")
+        ?.focus({ preventScroll: true }),
+    );
+  }
+  function addQuestionRegion(region: QuestionRegion) {
+    const target = questionCapture;
+    if (
+      !target ||
+      target.bookId !== current.current ||
+      localStorage.getItem("session-" + target.bookId) !== target.sessionId
+    )
+      return;
+    setQuestionCapture(undefined);
+    const bytes = Uint8Array.from(atob(region.image.split(",")[1]), (c) =>
+      c.charCodeAt(0),
+    );
+    const name = `第 ${book?.labels[region.page - 1] ?? region.page} 页区域.png`;
+    // The destination is frozen when capture begins, including during async image preparation.
+    void questionDrafts.addImages(
+      `${target.bookId}:${target.sessionId}`,
+      [new File([bytes], name, { type: "image/png" })],
+      {
+        kind: "pdf-region",
+        bookId: target.bookId,
+        fingerprint: target.fingerprint,
+        page: region.page,
+        rect: region.rect,
+      },
+    );
+    updateLayout({ ...layout, panel: "chat" });
+  }
   async function openSavedNote(note: Note) {
     if (note.bookId !== current.current) return;
     if (!(await notes.flush()))
@@ -191,6 +262,7 @@ export function App() {
     setHighlight(undefined);
     setBookMenu(false);
     setMode("select");
+    setQuestionCapture(undefined);
     if (active)
       void api<Bookmark[]>(`books/${active}/bookmarks`)
         .then((v) => {
@@ -537,7 +609,10 @@ export function App() {
             <select
               aria-label="批注工具"
               value={mode}
-              onChange={(e) => setMode(e.target.value as AnnotationMode)}
+              onChange={(e) => {
+                setQuestionCapture(undefined);
+                setMode(e.target.value as AnnotationMode);
+              }}
             >
               <option value="select">选取文字</option>
               <option value="sticky">页内便签</option>
@@ -686,6 +761,11 @@ export function App() {
                 annotations={notes.annotations}
                 mode={mode}
                 onCreate={(value) => void createAnnotation(value)}
+                onQuestionRegion={
+                  questionCapture?.bookId === book.id
+                    ? addQuestionRegion
+                    : undefined
+                }
                 onAnnotation={(id) => {
                   void notes.flush().then((ok) => {
                     if (ok) {
@@ -695,6 +775,15 @@ export function App() {
                   });
                 }}
               />
+              {questionCapture?.bookId === book.id && (
+                <div className="region-question-prompt" role="status">
+                  <Icon name="crop" />
+                  <span>拖动框选图表或公式，加入问题后再发送</span>
+                  <button onClick={cancelQuestionCapture} aria-label="取消框选">
+                    取消 <kbd>Esc</kbd>
+                  </button>
+                </div>
+              )}
               {selection && (
                 <div
                   className="selection-bar"
@@ -825,6 +914,14 @@ export function App() {
                       onCitation={jump}
                       notes={notes.notes}
                       onNoteSaved={openSavedNote}
+                      onStartRegion={startQuestionCapture}
+                      onSessionChange={(sessionId) => {
+                        if (
+                          questionCapture &&
+                          questionCapture.sessionId !== sessionId
+                        )
+                          setQuestionCapture(undefined);
+                      }}
                     />
                   )}
                 </div>

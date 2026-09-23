@@ -41,6 +41,11 @@ jobs:
         run: node --import tsx scripts/chat-attachments-smoke.ts
       - name: Answer notes and Markdown export acceptance
         run: node --import tsx scripts/answer-notes-smoke.ts
+      - name: PDF region questions at Windows display scales
+        run: |
+          node --import tsx scripts/pdf-region-chat-smoke.ts 1
+          node --import tsx scripts/pdf-region-chat-smoke.ts 1.5
+          node --import tsx scripts/pdf-region-chat-smoke.ts 2
       - name: Annotation and save-recovery acceptance
         run: node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe
         env:
