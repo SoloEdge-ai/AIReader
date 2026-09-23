@@ -32,6 +32,7 @@ import { ToolPanel } from "./ToolPanel";
 import { BookWorkspace, type BookWorkspaceHandle } from "./BookWorkspace";
 export function App() {
   const workspace = useRef<BookWorkspaceHandle>(null);
+  const [navigating, setNavigating] = useState(false);
   const [books, setBooks] = useState<Book[]>([]),
     [active, setActive] = useState<string>();
   const [prefs, setPrefs] = useState(() => ReaderPreferencesSchema.parse({})),
@@ -313,6 +314,7 @@ export function App() {
   };
   async function openBook(b: Book) {
     const request = ++openSequence.current;
+    setNavigating(true);
     try {
       if (!(await notes.flush())) return;
       if (workspace.current && !(await workspace.current.flush())) return;
@@ -324,6 +326,8 @@ export function App() {
       await post(`books/${b.id}/open`, {});
     } catch (e) {
       setError(String(e));
+    } finally {
+      if (request === openSequence.current) setNavigating(false);
     }
   }
   const jump = (n: number, anchor?: SourceAnchor) => {
@@ -478,11 +482,16 @@ export function App() {
           )}
         </main>
       ) : (
-        <div className="reader" data-book-status={book.status}>
+        <div
+          className="reader"
+          data-book-status={book.status}
+          inert={navigating}
+        >
           <header className="toolbar">
             <button
               aria-label="返回书库"
               onClick={() => {
+                setNavigating(true);
                 void (async () => {
                   if (!(await notes.flush())) return;
                   if (workspace.current && !(await workspace.current.flush()))
@@ -490,7 +499,9 @@ export function App() {
                   await post(`books/${book.id}/progress`, { page });
                   setActive(undefined);
                   setBooks(await api<Book[]>("books"));
-                })().catch((e) => setError(String(e)));
+                })()
+                  .catch((e) => setError(String(e)))
+                  .finally(() => setNavigating(false));
               }}
             >
               <Icon name="back" />
@@ -762,6 +773,7 @@ export function App() {
                 id={active!}
                 initialPage={book.progress}
                 zoom={layout.zoom}
+                onZoom={(zoom) => updateLayout({ ...layout, zoom })}
                 rotation={layout.rotation}
                 onPage={onPage}
                 onSelection={setSelection}

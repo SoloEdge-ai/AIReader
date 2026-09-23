@@ -17,6 +17,7 @@ import type {
 } from "../../../packages/protocol/src";
 import type { z } from "zod";
 import { fileUrl } from "./api";
+import { zoomWorkspaceAtPointer } from "./WorkspaceViewport";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 export type AnnotationMode = "select" | "sticky" | "region";
 export type QuestionRegion = {
@@ -353,6 +354,7 @@ export interface PdfReaderProps {
   id: string;
   initialPage: number;
   zoom: number;
+  onZoom?: (zoom: number) => void;
   rotation?: number;
   onPage: (page: number) => void;
   onSelection: (selection: ReadingSelection | undefined) => void;
@@ -376,6 +378,7 @@ export function PdfReader({
   id,
   initialPage,
   zoom,
+  onZoom,
   rotation = 0,
   onPage,
   onSelection,
@@ -396,6 +399,49 @@ export function PdfReader({
     { x: number; y: number; left: number; top: number } | undefined
   >(undefined);
   const space = useRef(false);
+  const worldCamera = useRef<{ x: number; y: number } | undefined>(undefined);
+  const wheelPosition = useRef<{ left: number; top: number } | undefined>(
+    undefined,
+  );
+  const wheelState = useRef({ zoom, onZoom });
+  wheelState.current = { zoom, onZoom };
+  useEffect(() => {
+    const el = scroll.current;
+    if (!el) return;
+    let frame = 0;
+    let next: ReturnType<typeof zoomWorkspaceAtPointer> | undefined;
+    const wheel = (event: WheelEvent) => {
+      const current = wheelState.current;
+      if (!event.ctrlKey || !current.onZoom) return;
+      event.preventDefault();
+      const bounds = el.getBoundingClientRect();
+      next = zoomWorkspaceAtPointer({
+        zoom: next?.zoom ?? current.zoom,
+        left: next?.left ?? el.scrollLeft,
+        top: next?.top ?? el.scrollTop,
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        viewportHeight: el.clientHeight,
+      });
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          if (next && next.zoom !== wheelState.current.zoom) {
+            wheelPosition.current = { left: next.left, top: next.top };
+            wheelState.current.onZoom?.(next.zoom);
+          }
+          next = undefined;
+        });
+    };
+    // React wheel listeners are passive; this must suppress browser/page zoom.
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", wheel);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
   useEffect(() => {
     const clear = () => {
       space.current = false;
@@ -497,6 +543,18 @@ export function PdfReader({
     const el = scroll.current,
       p = position.current,
       node = el?.querySelector<HTMLElement>(`[data-page="${p.page}"]`);
+    if (el && wheelPosition.current) {
+      el.scrollTo(wheelPosition.current);
+      wheelPosition.current = undefined;
+      return;
+    }
+    if (el && workspace && worldCamera.current) {
+      el.scrollTo({
+        left: worldCamera.current.x * zoom - el.clientWidth / 2,
+        top: worldCamera.current.y * zoom - 20,
+      });
+      return;
+    }
     if (node && el) {
       el.scrollTop = node.offsetTop + p.y * node.offsetHeight - 20;
       el.scrollLeft = Math.max(
@@ -508,6 +566,11 @@ export function PdfReader({
   const report = () => {
     const el = scroll.current;
     if (!el) return;
+    if (workspace)
+      worldCamera.current = {
+        x: (el.scrollLeft + el.clientWidth / 2) / zoom,
+        y: (el.scrollTop + 20) / zoom,
+      };
     const top = el.scrollTop + 20,
       node = Array.from(el.querySelectorAll<HTMLElement>("[data-page]")).find(
         (p) => p.offsetTop + p.offsetHeight > top,

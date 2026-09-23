@@ -14,6 +14,8 @@ Rewrite production code; do not merge the demonstration implementation or conten
   connections; undo edits. Source navigation can return to the previous workspace viewport.
 - PDF zoom also scales the cards and connections; location is stored in document-independent
   workspace units. Cards cannot disappear through unsupported negative coordinates.
+- Ctrl + mouse wheel zooms the whole workspace around the cursor, prevents browser zoom,
+  and respects the existing 40%–300% limits. Unmodified wheel still scrolls normally.
 - Persist per-book cards and links in Core-owned SQLite records. Validate bounded input, foreign
   book references, fingerprints, page ranges and dangling links. Reject stale revisions rather
   than overwrite concurrent edits. Restart restores content and geometry.
