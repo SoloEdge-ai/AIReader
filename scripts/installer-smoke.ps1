@@ -112,9 +112,11 @@ try {
   $entry = Assert-Installed $defaultProgramDir
   $env:AIREADER_SMOKE_USE_DEFAULT = '1'
   $env:AIREADER_CREATE_NOTE = '1'
+  $env:AIREADER_BLOCK_SETUP = $Installer
   node scripts/desktop-smoke.mjs (Join-Path $defaultProgramDir 'AIReader.exe')
   if ($LASTEXITCODE -ne 0) { throw 'Installed application could not save a book and note.' }
   Remove-Item Env:AIREADER_CREATE_NOTE
+  Remove-Item Env:AIREADER_BLOCK_SETUP
 
   Invoke-Setup @('/S', '/currentuser')
   $entry = Assert-Installed $defaultProgramDir
@@ -143,6 +145,7 @@ try {
 } finally {
   Remove-Item Env:AIREADER_SMOKE_USE_DEFAULT -ErrorAction SilentlyContinue
   Remove-Item Env:AIREADER_CREATE_NOTE -ErrorAction SilentlyContinue
+  Remove-Item Env:AIREADER_BLOCK_SETUP -ErrorAction SilentlyContinue
   Remove-Item Env:AIREADER_EXPECT_EXISTING -ErrorAction SilentlyContinue
   if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker }
 }

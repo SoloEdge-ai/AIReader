@@ -5,14 +5,15 @@
   StrCpy $isForceCurrentInstall "1"
 !macroend
 
-; The builder's default handler eventually force-kills the running app. Leave
-; its data-saving process alone and ask the user to close it before proceeding.
+; The builder's default handler eventually force-kills the running app. Check
+; by image name without interpolating an installation path into a shell query;
+; a failed query must block installation rather than risk losing a draft.
 !macro customCheckAppRunning
-  !insertmacro IS_POWERSHELL_AVAILABLE
-  !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
-  ${If} $R0 == 0
+  nsExec::Exec `"$PowerShellPath" -NoProfile -NonInteractive -Command "if (Get-Process -Name AIReader -ErrorAction SilentlyContinue) { exit 5 }; exit 0"`
+  Pop $R0
+  ${If} $R0 != 0
     IfSilent +2
-      MessageBox MB_ICONEXCLAMATION "请先关闭 AIReader，再继续安装、更新或卸载。"
+      MessageBox MB_ICONEXCLAMATION "请先关闭 AIReader，再继续安装、更新或卸载。如果仍无法继续，请检查 Windows 进程查询权限。"
     SetErrorLevel 5
     Quit
   ${EndIf}

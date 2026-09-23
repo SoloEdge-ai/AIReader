@@ -73,6 +73,20 @@ try {
   await page
     .getByRole("heading", { name: "书库", exact: true })
     .waitFor({ timeout: 15000 });
+  if (process.env.AIREADER_BLOCK_SETUP) {
+    const setupExit = await new Promise((done, fail) => {
+      const setup = spawn(
+        resolve(process.env.AIREADER_BLOCK_SETUP),
+        ["/S", "/currentuser"],
+        { windowsHide: true, stdio: "ignore", signal: AbortSignal.timeout(30000) },
+      );
+      setup.once("error", fail);
+      setup.once("exit", done);
+    });
+    if (setupExit !== 5)
+      throw new Error(`Installer did not block a running AIReader: ${setupExit}`);
+    await page.getByRole("heading", { name: "书库", exact: true }).waitFor();
+  }
   if (process.env.AIREADER_EXPECT_EXISTING === "1") {
     await expect(page.locator(".book-card")).toHaveCount(1);
     await page.locator(".book-card").click();
