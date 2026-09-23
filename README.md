@@ -2,16 +2,16 @@
 
 面向 **Windows 11 x64** 的本地 PDF 阅读器。选中原文提问，查看可回跳的引用，并在长对话中保持有界上下文。
 
-[下载最新免安装 EXE](https://github.com/SoloEdge-ai/AIReader/releases/latest) · [构建记录](https://github.com/SoloEdge-ai/AIReader/actions)
+[下载 Windows 安装包或免安装版](https://github.com/SoloEdge-ai/AIReader/releases/latest) · [构建记录](https://github.com/SoloEdge-ai/AIReader/actions)
 
 ## 使用
 
-1. 下载 `AIReader-Portable-<version>-x64.exe`，直接运行，无需 Node、Python 或 WSL。发布附带 `SHA256SUMS.txt`。首版未签名，Windows 可能显示发布者提示。
+1. 下载 `AIReader-Setup-<version>-x64.exe` 并打开，首次选择“安装”，以后下载新版安装包选择“更新 / 修复”；无需管理员权限。也可下载 `AIReader-Portable-<version>-x64.exe` 直接运行。两种版本都无需 Node、Python 或 WSL。发布附带 `SHA256SUMS.txt`。目前未签名，Windows 可能显示发布者提示。
 2. 导入 PDF；不登录也能阅读、搜索、添加书签、批注和笔记。选文可高亮／下划线／删除线，扫描页可添加便签和区域摘录，但没有 OCR。侧栏支持问答与所见即所得笔记。
 3. 首次启用问答时，应用下载并校验固定版本 **Codex 0.155.1 Windows x64** 组件，然后通过系统浏览器独立登录 ChatGPT。无需安装 CLI；不会读取或迁移系统 Codex 凭证。输入区可选择服务返回的模型与思考强度。
 4. 选中文字后选择解释／总结／翻译，或直接提问。回答中的页码按钮返回相应原文。“本轮上下文”显示取证范围和估算用量。
 
-程序可移动，书库、批注、笔记、区域图片及独立账号数据保存在 `%LOCALAPPDATA%\AIReader`，更换 EXE 不会重置书库。导入的 PDF 会复制到本地书库；退出 AIReader 账号不会退出系统 Codex。批注不回写 PDF，笔记与摘录图片不会自动发送给 AI。
+安装版位于 `%LOCALAPPDATA%\Programs\AIReader`，支持开始菜单、桌面快捷方式及 Windows 卸载；免安装版可移动。两者共用 `%LOCALAPPDATA%\AIReader` 中的书库、批注、笔记、区域图片及独立账号数据，更新或卸载程序不会删除这些数据。安装包不会自动联网检查更新；需要新版时从 Release 下载新版安装包。导入的 PDF 会复制到本地书库；退出 AIReader 账号不会退出系统 Codex。批注不回写 PDF，笔记与摘录图片不会自动发送给 AI。
 
 ## 索引与隐私
 
@@ -39,10 +39,11 @@ pnpm test
 pnpm build
 pnpm test:e2e
 pnpm desktop:portable
+pnpm desktop:windows
 ```
 
 开发模式和桌面模式共用 Core HTTP/WebSocket 协议。React 不拥有 Node 权限；Core 仅监听回环地址并验证来源和会话。数据层支持升级前备份和新版本数据库拒写。
 
-所有实现经 PR，`main` 对管理员同样受保护，仅 squash merge。每次 PR 更新生成保留 30 天的 EXE；合并后发布新版本。CI 使用生成的测试 PDF 和模拟 Codex，不保存账户凭证或用户书籍。
+所有实现经 PR，`main` 对管理员同样受保护，仅 squash merge。每次 PR 更新生成保留 30 天的安装包与免安装 EXE；合并后发布新版本。CI 使用生成的测试 PDF 和模拟 Codex，不保存账户凭证或用户书籍。
 
 [改版规格](docs/REDESIGN.md) · [验收与限制](docs/VERIFICATION.md) · [改版审查](docs/REVIEW-REDESIGN.md)
