@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -214,6 +215,26 @@ export class Notes {
       return [{ anchor: structuredClone(anchor), text: passage.text }];
     });
     const now = new Date().toISOString();
+    const copiedImages: ReturnType<ChatImages["create"]> = [];
+    let materials: NonNullable<NonNullable<Note["origin"]>["materials"]>;
+    try { materials = (turn.context.materials ?? []).map((material) => {
+      const mapped = new Map<string, string>();
+      const images = material.images.map((image) => {
+        const bytes = readFileSync(join(this.library.directory, "question-materials", bookId,
+          material.id, image.id + ".png"));
+        const copy = new ChatImages(this.library).create(bookId, [{ name: image.name,
+          dataUrl: `data:image/png;base64,${bytes.toString("base64")}` }])[0];
+        copiedImages.push(copy);
+        mapped.set(image.id, copy.id);
+        return copy;
+      });
+      return { title: material.title, images,
+        sections: material.sections.map(({ targetId: _targetId, ...section }) => ({
+          ...section, imageIds: section.imageIds?.map((id) => mapped.get(id) ?? id),
+          anchors: section.anchors?.map((anchor) => ({ ...anchor })),
+        })) };
+    }); }
+    catch (error) { new ChatImages(this.library).discard(bookId, copiedImages); throw error; }
     const note: Note = {
       id: randomUUID(),
       bookId,
@@ -230,10 +251,12 @@ export class Notes {
         model: turn.model,
         effort: turn.effort,
         sources,
-        images: structuredClone(turn.images ?? []),
+        images: structuredClone([...(turn.images ?? []), ...copiedImages]),
+        materials,
       },
     };
-    this.save(note, "note");
+    try { this.save(note, "note"); }
+    catch (error) { new ChatImages(this.library).discard(bookId, copiedImages); throw error; }
     return { note, created: true };
   }
   async export(bookId: string, noteId: string) {

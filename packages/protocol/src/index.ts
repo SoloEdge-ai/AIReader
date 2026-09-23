@@ -95,6 +95,7 @@ export interface ContextManifest {
   memory: string;
   recent: string;
   navigation: string;
+  materials?: import("./question-materials").QuestionMaterialSnapshot[];
 }
 export interface ToolRun {
   id: string;
@@ -107,6 +108,7 @@ export interface ToolRun {
 }
 export interface ChatTurn {
   images?: ChatImage[];
+  materialIds?: string[];
   /** Service-provided public summary only; absent on records predating summary support. */
   reasoning?: string;
   model?: string;
@@ -124,6 +126,7 @@ export interface ChatTurn {
   tools: ToolRun[];
   usage?: unknown;
 }
+export * from "./question-materials";
 export const MAX_CHAT_IMAGES = 4;
 export const MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_CHAT_IMAGE_PIXELS = 16000000;
@@ -269,6 +272,11 @@ export interface Note {
     effort?: string;
     sources: { anchor: SourceAnchor; text: string }[];
     images?: ChatImage[];
+    materials?: {
+      title: string;
+      sections: Omit<import("./question-materials").QuestionMaterialSection, "targetId">[];
+      images: ChatImage[];
+    }[];
   };
   title: string;
   document: RichNode;

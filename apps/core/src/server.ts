@@ -24,6 +24,7 @@ import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
 import { Workspaces, WorkspaceConflict } from "./workspace";
 import { WorkspaceAssets } from "./workspace-assets";
+import { QuestionMaterials } from "./question-materials";
 import {
   WorkspaceArchives,
   MAX_WORKSPACE_ARCHIVE_BYTES,
@@ -67,6 +68,7 @@ export function createCore(
   const notes = new Notes(library);
   const workspaces = new Workspaces(library);
   const workspaceAssets = new WorkspaceAssets(library, workspaces);
+  const questionMaterials = new QuestionMaterials(library, workspaces, notes, workspaceAssets);
   const workspaceArchives = new WorkspaceArchives(library);
   library.resume();
   const runtime = new RuntimeManager(directory, (data) =>
@@ -77,7 +79,7 @@ export function createCore(
     () => runtime.executable(),
     testLaunch,
   );
-  const chat = new ChatService(library, codex);
+  const chat = new ChatService(library, codex, questionMaterials);
   const indexer = new IndexService(library, codex);
   indexer.pauseAll();
   const bookTools = new BookTools(library, codex);
@@ -343,6 +345,25 @@ export function createCore(
             }).end(bytes);
             return;
           }
+          if (parts[3] === "question-materials") {
+            if (req.method === "POST" && parts.length === 4) {
+              send(res, await questionMaterials.create(id,
+                await jsonBody(req, 4 * 12 * 1024 * 1024 + 1024 * 1024)), 201);
+              return;
+            }
+            const sessionId = url.searchParams.get("session") ?? "";
+            if (req.method === "GET" && parts[4] && parts.length === 5) {
+              send(res, questionMaterials.get(id, sessionId, parts[4]));
+              return;
+            }
+            if (req.method === "GET" && parts[4] && parts[5] === "images" && parts[6] && parts.length === 7) {
+              const path = questionMaterials.image(id, sessionId, parts[4], parts[6]);
+              const bytes = await readFile(path);
+              res.writeHead(200, { "Content-Type": "image/png", "Content-Length": bytes.length,
+                "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }).end(bytes);
+              return;
+            }
+          }
           if (parts[3] === "annotations" || parts[3] === "notes") {
             const kind = parts[3] === "annotations" ? "annotation" : "note";
             if (parts[4]) {
@@ -598,6 +619,7 @@ export function createCore(
                   images: ChatImageInputSchema.array()
                     .max(MAX_CHAT_IMAGES)
                     .default([]),
+                  materialIds: z.array(z.string().uuid()).max(20).default([]),
                   sessionId: z.string().min(1).max(100),
                   model: z.string().max(100).optional(),
                   effort: z.string().max(30).optional(),
@@ -629,6 +651,7 @@ export function createCore(
                   chosen.model,
                   chosen.effort,
                   value.images,
+                  value.materialIds,
                 ),
                 202,
               );

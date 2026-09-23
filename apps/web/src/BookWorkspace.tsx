@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import type {
   Book,
   Annotation,
+  QuestionMaterialInput,
   ReadingSelection,
   PdfAnchor,
 } from "../../../packages/protocol/src";
@@ -29,6 +30,7 @@ import { useWorkspace } from "./WorkspaceState";
 import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPoint, type ProjectedInk } from "./InkGeometry";
 import { InkCanvas, type InkCanvasHandle } from "./InkCanvas";
 import { WorkspaceObjectView } from "./WorkspaceObjectView";
+import { captureMaterialPreviews } from "./WorkspaceMaterialPreview";
 import { lassoHitsPath, lassoHitsRect, newShape, objectRect, resizeObject,
   translateObject, worldToSurface } from "./WorkspaceGeometry";
 import { dockBesideDocument } from "./WorkspaceLayout";
@@ -40,6 +42,8 @@ export interface BookWorkspaceHandle {
   flush(): Promise<boolean>;
   excerpt(selection: ReadingSelection): void;
   escape(): void;
+  addToQuestion(ids: string[]): Promise<boolean>;
+  locate(anchors: PdfAnchor[]): void;
 }
 export const BookWorkspace = forwardRef<
   BookWorkspaceHandle,
@@ -51,6 +55,8 @@ export const BookWorkspace = forwardRef<
     onAnnotationColor?: (annotation: Annotation, color: Annotation["color"]) => Promise<void>;
     onAnnotationDelete?: (annotation: Annotation) => Promise<void>;
     onAnnotationRestore?: (annotation: Annotation) => Promise<void>;
+    onQuestionMaterials?: (selection: Pick<QuestionMaterialInput,
+      "workspaceRevision" | "targets" | "previews">) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
   }
 >(function BookWorkspace(props, ref) {
@@ -86,6 +92,7 @@ export const BookWorkspace = forwardRef<
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const [inkError, setInkError] = useState("");
+  const [materialBusy, setMaterialBusy] = useState(false);
   const inkCanvas = useRef<InkCanvasHandle>(null);
   const projectedInk = useRef<ProjectedInk[]>([]);
   const projectedCache = useRef<{
@@ -298,6 +305,8 @@ export const BookWorkspace = forwardRef<
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
   useImperativeHandle(ref, () => ({ flush: state.flush, excerpt: add,
+    addToQuestion: addSelectedToQuestion,
+    locate: locateAnchors,
     escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
       setSelectedLink(undefined); setStyleOpen(false); setLinkFrom(undefined); setEditingText(undefined); },
   }));
@@ -421,15 +430,43 @@ export const BookWorkspace = forwardRef<
     return undefined;
   }
   function sourceAnnotation(annotation: Annotation) {
-    const anchor = annotation.anchors[0];
+    locateAnchors(annotation.anchors);
+  }
+  function locateAnchors(anchors: PdfAnchor[]) {
+    const anchor = anchors[0];
+    if (!anchor) return;
     const page = pages.current.find((item) => item.page === anchor.page);
     const el = viewport.current;
     if (!page || !el) return;
     setReturnPosition({ x: el.scrollLeft / props.zoom, y: el.scrollTop / props.zoom });
     const location = page.locate(anchor.rects[0]);
-    setSourceFocus(annotation.anchors);
+    setSourceFocus(anchors);
     el.scrollTo({ left: Math.max(0, page.x * props.zoom - 30),
       top: Math.max(0, location.y * props.zoom - 100) });
+  }
+  async function addSelectedToQuestion(ids: string[] = selectedLink ? [selectedLink] : selectedIds) {
+    if (!ids.length || !props.onQuestionMaterials || materialBusy) return false;
+    setMaterialBusy(true); setInkError("");
+    try {
+      if (!(await state.flush())) throw new Error("工作区尚未保存，请重试加入材料");
+      const snapshot = state.value;
+      const revision = state.revision();
+      if (!snapshot || revision === undefined) throw new Error("工作区尚未加载");
+      const targets = ids.map((id) => {
+        if (snapshot.cards.some((card) => card.id === id)) return { kind: "card" as const, id };
+        if (snapshot.objects.some((object) => object.id === id)) return { kind: "object" as const, id };
+        if (snapshot.links.some((link) => link.id === id)) return { kind: "relation" as const, id };
+        const annotation = props.annotations?.find((item) => item.id === id);
+        if (annotation) return { kind: "annotation" as const, id, revision: annotation.revision };
+        throw new Error("所选对象已失效，请重新选择");
+      });
+      const previews = captureMaterialPreviews(ids, snapshot, props.annotations ?? [], pages.current);
+      await props.onQuestionMaterials({ workspaceRevision: revision, targets, previews });
+      return true;
+    } catch (cause) {
+      setInkError(`加入提问失败：${String(cause)}`);
+      return false;
+    } finally { setMaterialBusy(false); }
   }
   function annotationRects(annotation: Annotation, layout: WorkspacePage[]) {
     return annotation.anchors.flatMap((anchor) => {
@@ -1087,6 +1124,9 @@ export const BookWorkspace = forwardRef<
             </>}
             <button aria-label="连接选中对象" title="点击另一个对象建立关系"
               onClick={() => setLinkFrom(selectedIds[0])}><Icon name="link" /></button>
+            {props.onQuestionMaterials && <button aria-label="将选中对象加入提问" title="加入本轮材料，不会立即发送"
+              disabled={materialBusy} onClick={() => void addSelectedToQuestion(selectedIds)}>
+              <Icon name="chat" /></button>}
             <button aria-label="删除选中对象" title="删除选中对象" onClick={() => void removeSelected()}>
               <Icon name="trash" /></button>
           </div>, el.parentElement)}
@@ -1110,6 +1150,8 @@ export const BookWorkspace = forwardRef<
             onChange={(event) => state.change((current) => ({ ...current,
               links: current.links.map((item) => item.id === link.id ? { ...item, directed: event.target.checked } : item) }))} />方向</label>
           <button aria-label="删除关系" onClick={removeSelected}><Icon name="trash" /></button>
+          {props.onQuestionMaterials && <button aria-label="将关系加入提问" disabled={materialBusy}
+            onClick={() => void addSelectedToQuestion([link.id])}><Icon name="chat" /></button>}
         </div>, el.parentElement);
       })()}
     </>;

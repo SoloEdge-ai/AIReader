@@ -8,6 +8,7 @@ import { ChatImages } from "./chat-images";
 import { Library } from "./library";
 import { CodexAdapter } from "./codex";
 import { buildContext, renderPrompt, validateCitations } from "./context";
+import { QuestionMaterials } from "./question-materials";
 export class ChatService {
   readonly images: ChatImages;
   sessions(bookId: string) {
@@ -63,6 +64,7 @@ export class ChatService {
   constructor(
     readonly library: Library,
     readonly codex: CodexAdapter,
+    readonly materials: QuestionMaterials,
   ) {
     this.images = new ChatImages(library);
     for (const turn of library.store.list<ChatTurn>("turn"))
@@ -86,11 +88,15 @@ export class ChatService {
     model?: string,
     effort?: string,
     imageInputs: ChatImageInput[] = [],
+    materialIds: string[] = [],
   ) {
     if (
       this.list(reading.bookId, sessionId).some((t) => t.status === "running")
     )
       throw new Error("请先停止当前回答。");
+    const materials = this.materials.resolveForTurn(reading.bookId, sessionId, materialIds);
+    if (materials.reduce((count, value) => count + value.images.length, imageInputs.length) > 4)
+      throw new Error("本轮图片输入最多 4 张，请移除部分截图或材料");
     const images = this.images.create(reading.bookId, imageInputs);
     let context: ReturnType<typeof buildContext>;
     try {
@@ -100,6 +106,7 @@ export class ChatService {
         question,
         sessionId,
         images,
+        materials,
       );
     } catch (error) {
       this.images.discard(reading.bookId, images);
@@ -113,6 +120,7 @@ export class ChatService {
     const turn: ChatTurn = {
       id: randomUUID(),
       images,
+      materialIds,
       model,
       effort,
       bookId: reading.bookId,
@@ -129,7 +137,11 @@ export class ChatService {
     const control = new AbortController();
     this.running.set(turn.id, control);
     try {
-      this.save(turn);
+      this.library.store.transaction(() => {
+        this.library.store.put("turn", turn.id, turn.bookId, turn);
+        this.materials.commit(turn.bookId, sessionId, materialIds, turn.id);
+      });
+      this.library.emit({ type: "turn", bookId: turn.bookId, taskId: turn.id, data: turn });
     } catch (error) {
       this.running.delete(turn.id);
       this.images.discard(turn.bookId, images);
@@ -139,7 +151,8 @@ export class ChatService {
       .answer(renderPrompt(context, question, images), {
         imagePaths: images.map((image) =>
           this.images.asset(turn.bookId, image.id),
-        ),
+        ).concat(materials.flatMap((material) => material.images.map((image) =>
+          this.materials.image(turn.bookId, sessionId, material.id, image.id)))),
         signal: control.signal,
         model,
         effort,

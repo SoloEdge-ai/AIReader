@@ -2,6 +2,7 @@ import type {
   ReadingSelection,
   ReadingSnapshot,
   PdfRegionSourceInput,
+  QuestionMaterialSnapshot,
 } from "../../../packages/protocol/src";
 import { MAX_CHAT_IMAGES } from "../../../packages/protocol/src";
 import { prepareQuestionImage, type DraftImage } from "./QuestionImages";
@@ -11,14 +12,17 @@ export type QuestionDraft = {
   scope: ReadingSnapshot["scope"];
   attachment?: ReadingSelection;
   images: DraftImage[];
+  materials: QuestionMaterialSnapshot[];
   preparing: number;
   imageError?: string;
+  materialError?: string;
 };
 
 const emptyDraft: QuestionDraft = {
   question: "",
   scope: "auto",
   images: [],
+  materials: [],
   preparing: 0,
 };
 
@@ -52,7 +56,8 @@ export class QuestionDraftStore {
   async addImages(key: string, files: File[], source?: PdfRegionSourceInput) {
     const draft = this.get(key);
     if (
-      draft.images.length + draft.preparing + files.length >
+      draft.images.length + draft.materials.reduce((count, material) => count + material.images.length, 0) +
+        draft.preparing + files.length >
       MAX_CHAT_IMAGES
     ) {
       this.update(key, { imageError: "每次最多添加 4 张图片" });
@@ -79,6 +84,23 @@ export class QuestionDraftStore {
         this.update(key, { preparing: this.get(key).preparing - 1 });
       }
     }
+  }
+
+  addMaterial(key: string, material: QuestionMaterialSnapshot) {
+    const draft = this.get(key);
+    if (draft.materials.some((entry) => entry.id === material.id)) return true;
+    if (draft.materials.reduce((count, entry) => count + entry.itemCount, 0) + material.itemCount > 20) {
+      this.update(key, { materialError: "每轮最多 20 项材料，请移除部分选择" });
+      return false;
+    }
+    const images = draft.images.length + draft.materials.reduce((count, entry) =>
+      count + entry.images.length, 0) + material.images.length;
+    if (images > MAX_CHAT_IMAGES) {
+      this.update(key, { materialError: "本轮图片最多 4 张，请移除部分截图或材料" });
+      return false;
+    }
+    this.update(key, { materials: [...draft.materials, material], materialError: undefined });
+    return true;
   }
 
   private emit() {

@@ -8,6 +8,7 @@ import type {
   ChatTurn,
   Note,
   SourceAnchor,
+  PdfAnchor,
 } from "../../../packages/protocol/src";
 import { Icon } from "./Icon";
 import { effortLabel } from "./ModelControl";
@@ -19,11 +20,13 @@ export function ChatMessage({
   onCitation,
   savedNote,
   onNoteSaved,
+  onMaterialLocate,
 }: {
   turn: ChatTurn;
   onCitation: (page: number, anchor: SourceAnchor) => void;
   savedNote?: Note;
   onNoteSaved: (note: Note) => Promise<void>;
+  onMaterialLocate: (anchors: PdfAnchor[]) => void;
 }) {
   const [copyStatus, setCopyStatus] = useState("");
   const [savingNote, setSavingNote] = useState(false),
@@ -86,6 +89,23 @@ export function ChatMessage({
           <p>{turn.context.reading.selection}</p>
         </details>
       )}
+      {!!turn.context.materials?.length && <details className="sent-materials">
+        <summary>本轮选定材料 · {turn.context.materials.reduce((count, material) => count + material.itemCount, 0)} 项</summary>
+        {turn.context.materials.map((material) => {
+          const anchors = material.sections.flatMap((section) => section.anchors ?? []);
+          return <div className="sent-material" key={material.id}>
+            <strong>{material.title}</strong>
+            {anchors.length > 0 && <button onClick={() => onMaterialLocate(anchors)}>返回位置</button>}
+            {material.sections.map((section, index) => <p key={index}>
+              <small>{section.kind === "book-excerpt" ? "原文摘录" : section.kind === "book-region" ? "PDF 区域" : "个人材料"}</small>
+              {section.text}
+            </p>)}
+            {material.images.map((image) => <img key={image.id}
+              src={`${base}/api/books/${turn.bookId}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(turn.sessionId)}`}
+              alt={`${material.title}的本轮冻结图片`} />)}
+          </div>;
+        })}
+      </details>}
       <div className="assistant-label">
         <Icon name="book" />
         <span>AIReader</span>
