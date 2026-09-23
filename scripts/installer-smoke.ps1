@@ -73,14 +73,29 @@ function Invoke-Uninstall([object]$Entry, [string]$ExpectedDir) {
       [IO.Path]::GetFullPath($ExpectedDir)) {
     throw 'Registered uninstaller is outside the tested installation directory.'
   }
+  # Exercise the normal installed uninstall command, including NSIS self-copy.
+  # Its launcher can return 0 before the real uninstaller finishes, so actual
+  # filesystem/registry/shortcut postconditions below remain mandatory.
+  $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'AIReader.exe'" |
+    Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine)
+  if ($remaining.Count) { Write-Output ($remaining | ConvertTo-Json -Depth 3) }
+  $mainExecutable = Join-Path $ExpectedDir 'AIReader.exe'
+  Write-Output (Get-Item -LiteralPath $mainExecutable | Select-Object FullName,Length,Attributes | ConvertTo-Json)
   $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser') -PassThru -Wait -WindowStyle Hidden
   if ($process.ExitCode -ne 0) { throw "Uninstaller returned $($process.ExitCode)" }
   for ($attempt = 0; $attempt -lt 30; $attempt++) {
-    if (-not (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) -and
+    if (-not (Test-Path -LiteralPath $ExpectedDir) -and
         @(Installed-Entry).Count -eq 0) { break }
     Start-Sleep -Seconds 1
   }
-  if (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) { throw 'Uninstall left program files behind.' }
+  if (Test-Path -LiteralPath $ExpectedDir) {
+    Write-Output "Expected removal directory: $ExpectedDir"
+    Write-Output "Registered command: $uninstallString"
+    Write-Output (@(Installed-Entry) | ConvertTo-Json -Depth 3)
+    Write-Output (Get-ChildItem -LiteralPath $ExpectedDir | Select-Object Name,Length,Attributes | ConvertTo-Json)
+    Write-Output "Shortcut state: start=$(Test-Path -LiteralPath $startMenu), desktop=$(Test-Path -LiteralPath $desktop)"
+    throw 'Uninstall left program files behind.'
+  }
   if (@(Installed-Entry).Count -ne 0) { throw 'Uninstall left its registration behind.' }
   if ((Test-Path -LiteralPath $startMenu) -or (Test-Path -LiteralPath $desktop)) {
     throw 'Uninstall left its shortcuts behind.'

@@ -31,12 +31,16 @@ jobs:
           $manifest.version = '0.1.${{ github.run_number }}'
           $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
       - run: pnpm desktop:windows
+      - name: NSIS file-removal guard regression
+        run: ./scripts/uninstall-file-check-smoke.ps1
       - name: Model control UI acceptance
         run: node scripts/model-control-smoke.mjs
       - name: Chat HTTP and UI acceptance
         run: node --import tsx scripts/chat-smoke.ts
       - name: Screenshot input and panel resize acceptance
         run: node --import tsx scripts/chat-attachments-smoke.ts
+      - name: Answer notes and Markdown export acceptance
+        run: node --import tsx scripts/answer-notes-smoke.ts
       - name: Annotation and save-recovery acceptance
         run: node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe
         env:

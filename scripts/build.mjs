@@ -1,6 +1,15 @@
 import { build } from "esbuild";
 import { build as viteBuild } from "vite";
-import { mkdir, copyFile } from "node:fs/promises";
+import { mkdir, copyFile, readFile } from "node:fs/promises";
+// The Markdown plugins are ESM-only. Bundle this graph so the emitted CJS Core
+// does not receive namespace objects from require() in place of plugin functions.
+const markdownPackages = new Set([
+  "unified",
+  "remark-parse",
+  "remark-gfm",
+  "remark-math",
+]);
+const manifest = JSON.parse(await readFile("package.json", "utf8"));
 await mkdir("dist/core", { recursive: true });
 await build({
   entryPoints: ["apps/core/src/pdf-worker.ts"],
@@ -16,7 +25,9 @@ await build({
   bundle: true,
   platform: "node",
   format: "cjs",
-  packages: "external",
+  external: Object.keys(manifest.dependencies).filter(
+    (name) => !markdownPackages.has(name),
+  ),
   sourcemap: true,
 });
 await build({

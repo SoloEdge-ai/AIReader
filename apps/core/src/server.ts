@@ -256,7 +256,23 @@ export function createCore(
           if (parts[3] === "annotations" || parts[3] === "notes") {
             const kind = parts[3] === "annotations" ? "annotation" : "note";
             if (parts[4]) {
-              if (req.method === "DELETE")
+              if (
+                kind === "note" &&
+                req.method === "GET" &&
+                parts[5] === "export" &&
+                parts.length === 6
+              ) {
+                const exported = await notes.export(id, parts[4]);
+                res
+                  .writeHead(200, {
+                    "Content-Type": "application/zip",
+                    "Content-Disposition": `attachment; filename="${exported.filename}"`,
+                    "Content-Length": exported.buffer.length,
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                  })
+                  .end(exported.buffer);
+              } else if (req.method === "DELETE")
                 send(res, notes.remove(id, parts[4], kind));
               else if (req.method === "POST" && parts[5] === "restore")
                 send(res, notes.remove(id, parts[4], kind, true));
@@ -466,6 +482,19 @@ export function createCore(
             return;
           }
           if (parts[3] === "turns") {
+            if (
+              req.method === "POST" &&
+              parts[4] &&
+              parts[5] === "note" &&
+              parts.length === 6
+            ) {
+              z.object({})
+                .strict()
+                .parse(await jsonBody(req));
+              const saved = notes.fromAnswer(id, parts[4]);
+              send(res, saved, saved.created ? 201 : 200);
+              return;
+            }
             if (req.method === "POST" && parts[5] === "cancel") {
               chat.cancel(id, parts[4]);
               send(res, { ok: true });

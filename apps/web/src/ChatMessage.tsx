@@ -4,20 +4,30 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import type { ChatTurn, SourceAnchor } from "../../../packages/protocol/src";
+import type {
+  ChatTurn,
+  Note,
+  SourceAnchor,
+} from "../../../packages/protocol/src";
 import { Icon } from "./Icon";
 import { effortLabel } from "./ModelControl";
 import { ChatImageList } from "./ChatImageList";
-import { base } from "./api";
+import { base, post } from "./api";
 
 export function ChatMessage({
   turn,
   onCitation,
+  savedNote,
+  onNoteSaved,
 }: {
   turn: ChatTurn;
   onCitation: (page: number, anchor: SourceAnchor) => void;
+  savedNote?: Note;
+  onNoteSaved: (note: Note) => Promise<void>;
 }) {
   const [copyStatus, setCopyStatus] = useState("");
+  const [savingNote, setSavingNote] = useState(false),
+    [noteError, setNoteError] = useState("");
   const [reasoningExpanded, setReasoningExpanded] = useState<boolean>();
   const reasoningId = useId();
   const showReasoning = reasoningExpanded ?? turn.status === "running";
@@ -43,6 +53,22 @@ export function ChatMessage({
       setCopyStatus("已复制");
     } catch {
       setCopyStatus("复制失败，请选中文字后复制。");
+    }
+  }
+  async function saveNote() {
+    if (savingNote) return;
+    setSavingNote(true);
+    setNoteError("");
+    try {
+      const { note } = await post<{ note: Note; created: boolean }>(
+        `books/${turn.bookId}/turns/${turn.id}/note`,
+        {},
+      );
+      await onNoteSaved(note);
+    } catch (error) {
+      setNoteError(String(error));
+    } finally {
+      setSavingNote(false);
     }
   }
   return (
@@ -208,6 +234,14 @@ export function ChatMessage({
         >
           <Icon name={copyStatus === "已复制" ? "check" : "copy"} />
         </button>
+        <button
+          className="save-answer-note"
+          disabled={turn.status !== "complete" || !turn.answer || savingNote}
+          onClick={() => void saveNote()}
+        >
+          <Icon name="note" />
+          {savingNote ? "保存中…" : savedNote ? "打开笔记" : "存为笔记"}
+        </button>
         <details className="answer-details">
           <summary>
             回答详情
@@ -259,6 +293,11 @@ export function ChatMessage({
           </div>
         </details>
       </div>
+      {noteError && (
+        <p className="error" role="alert">
+          {noteError}
+        </p>
+      )}
       {copyStatus && (
         <p className="copy-status" role="status">
           {copyStatus}

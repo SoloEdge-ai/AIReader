@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -7,8 +7,12 @@ import {
   type Annotation,
   type Note,
   type RichNode,
+  type ChatTurn,
 } from "../../../packages/protocol/src";
 import { Library } from "./library";
+import { answerDocument } from "./note-markdown";
+import { exportNoteArchive } from "./note-export";
+import { ChatImages } from "./chat-images";
 export function richDocument(input: unknown): RichNode {
   if (JSON.stringify(input)?.length > 100000) throw new Error("笔记内容过长");
   let count = 0;
@@ -186,6 +190,85 @@ export class Notes {
     };
     this.save(note, "note");
     return note;
+  }
+  fromAnswer(bookId: string, turnId: string) {
+    const book = this.library.book(bookId);
+    const turn = this.get<ChatTurn>("turn", bookId, turnId);
+    if (turn.status !== "complete" || !turn.answer.trim())
+      throw new Error("只能保存已完成且有内容的回答");
+    const existing = this.list(bookId).find((n) => n.origin?.turnId === turnId);
+    if (existing) return { note: existing, created: false };
+    const sources = turn.citations.flatMap((anchor) => {
+      const passage = turn.context.evidence.find(
+        (p) => p.id === anchor.passageId,
+      );
+      if (
+        !passage ||
+        anchor.bookId !== bookId ||
+        anchor.fingerprint !== book.fingerprint ||
+        passage.anchor.bookId !== bookId ||
+        passage.anchor.fingerprint !== book.fingerprint
+      )
+        return [];
+      return [{ anchor: structuredClone(anchor), text: passage.text }];
+    });
+    const now = new Date().toISOString();
+    const note: Note = {
+      id: randomUUID(),
+      bookId,
+      title: turn.question.trim().slice(0, 200) || "回答笔记",
+      createdAt: now,
+      updatedAt: now,
+      revision: 1,
+      document: richDocument(answerDocument(turn.answer, sources)),
+      origin: {
+        kind: "chat",
+        turnId,
+        question: turn.question,
+        createdAt: turn.createdAt,
+        model: turn.model,
+        effort: turn.effort,
+        sources,
+        images: structuredClone(turn.images ?? []),
+      },
+    };
+    this.save(note, "note");
+    return { note, created: true };
+  }
+  async export(bookId: string, noteId: string) {
+    const book = this.library.book(bookId);
+    const note = this.get<Note>("note", bookId, noteId);
+    if (note.deletedAt) throw new Error("笔记已删除");
+    const assets: { name: string; bytes: Uint8Array }[] = [];
+    const chatImages = new ChatImages(this.library);
+    for (const [index, image] of (note.origin?.images ?? []).entries())
+      assets.push({
+        name: `assets/question-${index + 1}.png`,
+        bytes: await readFile(chatImages.asset(bookId, image.id)),
+      });
+    let annotation: Annotation | undefined;
+    if (note.annotationId) {
+      annotation = this.get<Annotation>(
+        "annotation",
+        bookId,
+        note.annotationId,
+      );
+      if (annotation.noteId !== note.id) throw new Error("批注与笔记不匹配");
+      if (annotation.assetId)
+        assets.push({
+          name: "assets/region.png",
+          bytes: await readFile(this.asset(bookId, annotation.assetId)),
+        });
+    }
+    return {
+      buffer: exportNoteArchive(
+        book,
+        { ...note, document: richDocument(note.document) },
+        assets,
+        annotation,
+      ),
+      filename: `AIReader-Note-${note.id}.zip`,
+    };
   }
   async createAnnotation(bookId: string, input: unknown) {
     const book = this.library.book(bookId),

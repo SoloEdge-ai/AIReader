@@ -10,6 +10,7 @@ import {
   type ReadingSelection,
   type Annotation,
   type AnnotationInputSchema,
+  type Note,
 } from "../../../packages/protocol/src";
 import type { z } from "zod";
 import { api, post, base } from "./api";
@@ -77,6 +78,15 @@ export function App() {
   const [annotationColor, setAnnotationColor] =
     useState<Annotation["color"]>("yellow");
   const openSequence = useRef(0);
+  async function openSavedNote(note: Note) {
+    if (note.bookId !== current.current) return;
+    if (!(await notes.flush()))
+      throw new Error("笔记已保存，请先处理尚未保存的草稿，再打开笔记。");
+    await notes.refresh();
+    if (note.bookId !== current.current) return;
+    notes.setSelected(note.id);
+    updateLayout({ ...layout, panel: "notes" });
+  }
   async function createAnnotation(
     value: z.infer<typeof AnnotationInputSchema>,
   ) {
@@ -813,6 +823,8 @@ export function App() {
                           ?.focus({ preventScroll: true });
                       }}
                       onCitation={jump}
+                      notes={notes.notes}
+                      onNoteSaved={openSavedNote}
                     />
                   )}
                 </div>

@@ -231,6 +231,17 @@ export interface Note {
   id: string;
   bookId: string;
   annotationId?: string;
+  /** Frozen, Core-owned provenance; user edits never rewrite this metadata. */
+  origin?: {
+    kind: "chat";
+    turnId: string;
+    question: string;
+    createdAt: string;
+    model?: string;
+    effort?: string;
+    sources: { anchor: SourceAnchor; text: string }[];
+    images?: ChatImage[];
+  };
   title: string;
   document: RichNode;
   createdAt: string;
