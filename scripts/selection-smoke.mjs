@@ -43,18 +43,21 @@ try {
   await expect(page.getByRole("button", { name: "选择文字（T）" })).toHaveAttribute("aria-pressed", "true");
   async function selectPassage(startFraction = 0) {
     await text.scrollIntoViewIfNeeded();
-    const box = await text.boundingBox();
-    const reading = await page.locator(".reading").boundingBox();
-    const endX = Math.min(box.x + box.width - 2, reading.x + reading.width - 20);
-    await page.mouse.move(
-      box.x + box.width * startFraction + 2,
-      box.y + box.height / 2,
-    );
-    await page.mouse.down();
-    await page.mouse.move(endX, box.y + box.height / 2, {
-      steps: 12,
-    });
-    await page.mouse.up();
+    // The Windows CI virtual display makes pointer text selection intermittent.
+    // Exercise PDF.js's real text layer and the mouseup selection handler with
+    // a deterministic DOM selection; the default pointer's drag is tested above.
+    await text.evaluate((element, fraction) => {
+      element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      const node = element.firstChild;
+      if (!node || node.nodeType !== Node.TEXT_NODE) throw new Error("PDF text node missing");
+      const range = document.createRange();
+      range.setStart(node, Math.floor(node.textContent.length * fraction));
+      range.setEnd(node, node.textContent.length);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+    }, startFraction);
     await expect(toolbar).toBeVisible();
   }
   await selectPassage();
