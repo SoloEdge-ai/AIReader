@@ -63,6 +63,11 @@ export class QuestionDraftStore {
       this.update(key, { imageError: "每次最多添加 4 张图片" });
       return;
     }
+    if (draft.images.length + draft.preparing + files.length + Number(Boolean(draft.attachment)) +
+        draft.materials.reduce((count, material) => count + material.itemCount, 0) > 20) {
+      this.update(key, { imageError: "本轮材料最多 20 项，请移除部分内容" });
+      return;
+    }
     this.update(key, {
       preparing: draft.preparing + files.length,
       imageError: undefined,
@@ -89,7 +94,8 @@ export class QuestionDraftStore {
   addMaterial(key: string, material: QuestionMaterialSnapshot) {
     const draft = this.get(key);
     if (draft.materials.some((entry) => entry.id === material.id)) return true;
-    if (draft.materials.reduce((count, entry) => count + entry.itemCount, 0) + material.itemCount > 20) {
+    if (draft.materials.reduce((count, entry) => count + entry.itemCount, draft.images.length +
+        Number(Boolean(draft.attachment))) + material.itemCount > 20) {
       this.update(key, { materialError: "每轮最多 20 项材料，请移除部分选择" });
       return false;
     }

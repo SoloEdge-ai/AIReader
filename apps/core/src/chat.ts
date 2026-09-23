@@ -95,6 +95,9 @@ export class ChatService {
     )
       throw new Error("请先停止当前回答。");
     const materials = this.materials.resolveForTurn(reading.bookId, sessionId, materialIds);
+    if (materials.reduce((count, value) => count + value.itemCount, imageInputs.length +
+        Number(Boolean(reading.selection))) > 20)
+      throw new Error("本轮材料最多 20 项，请移除部分截图、原文或个人材料");
     if (materials.reduce((count, value) => count + value.images.length, imageInputs.length) > 4)
       throw new Error("本轮图片输入最多 4 张，请移除部分截图或材料");
     const images = this.images.create(reading.bookId, imageInputs);

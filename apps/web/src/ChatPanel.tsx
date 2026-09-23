@@ -183,6 +183,8 @@ export function ChatPanel({
   );
   const canSubmit =
     (!!question.trim() || !!images.length || !!materials.length) &&
+    materials.reduce((count, material) => count + material.itemCount,
+      images.length + Number(Boolean(attachment))) <= 20 &&
     !preparing &&
     !!session &&
     !!valid &&
@@ -465,6 +467,9 @@ export function ChatPanel({
             })}
           </div>}
           {materialError && <p className="error" role="alert">{materialError}</p>}
+          {materials.reduce((count, material) => count + material.itemCount,
+            images.length + Number(Boolean(attachment))) > 20 &&
+            <p className="error" role="alert">本轮材料最多 20 项，请移除部分内容。</p>}
           <ChatImageList
             images={images.map((image) => ({
               ...image,

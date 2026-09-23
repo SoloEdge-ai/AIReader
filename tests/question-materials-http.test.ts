@@ -35,10 +35,14 @@ test("selected canvas materials are frozen, book/session scoped and actually sen
       fingerprint: book.fingerprint, page: 1 }, x: 30, y: 100, width: 120, height: 60,
       color: "#d35e45", strokeWidth: 2 };
     const relation = { id: "support-link", from: card.id, to: shape.id, label: "对照", directed: true };
+    const hidden = { ...card, id: "hidden-card", title: "未选择的笔记", text: "PRIVATE_UNSELECTED_NOTE",
+      comment: "", x: 900, y: 300 };
+    const hiddenRelation = { id: "hidden-link", from: card.id, to: hidden.id, label: "未选关系", directed: false };
     const added = await request(`books/${book.id}/workspace/commands`, {
       bookId: book.id, commandId: "make-material-objects", expectedVersion: workspace.revision,
-      changes: [{ type: "upsert-card", card }, { type: "upsert-object", object: shape },
-        { type: "upsert-link", link: relation }],
+      changes: [{ type: "upsert-card", card }, { type: "upsert-card", card: hidden },
+        { type: "upsert-object", object: shape }, { type: "upsert-link", link: relation },
+        { type: "upsert-link", link: hiddenRelation }],
     });
     expect(added.status).toBe(200);
     const png = new PNG({ width: 3, height: 2 });
@@ -137,6 +141,8 @@ test("selected canvas materials are frozen, book/session scoped and actually sen
     expect(observation.pictures).toEqual(["3x2:30,90,180,255"]);
     expect(observation.materialPrompt).toContain(card.text);
     expect(observation.materialPrompt).toContain("用户材料");
+    expect(observation.materialPrompt).not.toContain(hidden.text);
+    expect(observation.materialPrompt).not.toContain(hiddenRelation.label);
     const saved = await request(`books/${book.id}/turns/${turn.id}/note`, {});
     expect(saved.status).toBe(201);
     const savedNote = (await saved.json()).note;
