@@ -78,13 +78,19 @@ try {
       const setup = spawn(
         resolve(process.env.AIREADER_BLOCK_SETUP),
         ["/S", "/currentuser"],
-        { windowsHide: true, stdio: "ignore", signal: AbortSignal.timeout(30000) },
+        {
+          windowsHide: true,
+          stdio: "ignore",
+          signal: AbortSignal.timeout(30000),
+        },
       );
       setup.once("error", fail);
       setup.once("exit", done);
     });
     if (setupExit !== 5)
-      throw new Error(`Installer did not block a running AIReader: ${setupExit}`);
+      throw new Error(
+        `Installer did not block a running AIReader: ${setupExit}`,
+      );
     await page.getByRole("heading", { name: "书库", exact: true }).waitFor();
   }
   if (process.env.AIREADER_EXPECT_EXISTING === "1") {
@@ -92,14 +98,16 @@ try {
     await page.locator(".book-card").click();
     if (!(await page.locator(".notes-panel").isVisible()))
       await page.getByLabel("笔记", { exact: true }).click();
-    await page.getByRole("button", { name: /Installer continuity note/ }).click();
+    await page
+      .getByRole("button", { name: /Installer continuity note/ })
+      .click();
     await expect(page.locator(".tiptap")).toContainText(
       "Note retained through installer update.",
     );
     await page.getByRole("button", { name: "返回书库" }).click();
   }
   await page
-    .locator("input[type=file]")
+    .locator('input[type=file][accept="application/pdf"]')
     .setInputFiles(process.argv[3] ?? fixture);
   await page.locator(".textLayer span").first().waitFor({ timeout: 20000 });
   await page.locator('[data-book-status="ready"]').waitFor({ timeout: 30000 });
@@ -109,8 +117,12 @@ try {
     await page
       .getByLabel("笔记标题", { exact: true })
       .fill("Installer continuity note");
-    await page.locator(".tiptap").fill("Note retained through installer update.");
-    await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+    await page
+      .locator(".tiptap")
+      .fill("Note retained through installer update.");
+    await expect(
+      page.locator(".notes-panel").getByText("已保存", { exact: true }),
+    ).toBeVisible();
   }
   await page.screenshot({ path: ".local/screenshots/desktop.png" });
   if (!(await page.locator(".side-panel").isVisible()))

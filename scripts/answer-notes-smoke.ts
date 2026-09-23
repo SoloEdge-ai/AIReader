@@ -48,7 +48,9 @@ try {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(base);
-  await page.locator("input[type=file]").setInputFiles(file);
+  await page
+    .locator('input[type=file][accept="application/pdf"]')
+    .setInputFiles(file);
   await page.locator('[data-book-status="ready"]').waitFor();
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
   await context.request.post(base + "/api/ai/connect", {
@@ -177,7 +179,9 @@ try {
   await page.screenshot({ path: ".local/screenshots/answer-notes-narrow.png" });
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.getByRole("button", { name: "返回书库", exact: true }).click();
-  await page.locator("input[type=file]").setInputFiles(otherFile);
+  await page
+    .locator('input[type=file][accept="application/pdf"]')
+    .setInputFiles(otherFile);
   await page.locator('[data-book-status="ready"]').waitFor();
   await page.getByRole("button", { name: "笔记", exact: true }).first().click();
   await expect(page.locator(".notes-panel")).toContainText(

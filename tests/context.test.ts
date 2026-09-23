@@ -59,53 +59,57 @@ test("50 turns remain bounded and unknown or cross-book citations are not clicka
     await rm(dir, { recursive: true, force: true });
   }
 });
-test("late chapter search hits survive the context budget and blank pages remain uncovered", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "aireader-evidence-"));
-  const library = new Library(dir);
-  try {
-    const pdf = await PDFDocument.create();
-    const font = await pdf.embedFont(StandardFonts.Helvetica);
-    for (let page = 1; page <= 10; page++) {
-      const p = pdf.addPage();
-      for (let line = 0; line < 80; line++)
-        p.drawText(
-          `Background discussion ${page} ${line}: unrelated scheduling and memory operations.`,
-          { font, x: 20, y: 800 - line * 9, size: 8 },
-        );
-      if (page === 10)
-        p.drawText("ZEBRACACHE is the unique result on this final page.", {
-          font,
-          x: 20,
-          y: 50,
-          size: 8,
-        });
+test.each([1, 2, 3])(
+  "late chapter search hits survive the context budget and blank pages remain uncovered (IPC run %i)",
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "aireader-evidence-"));
+    const library = new Library(dir);
+    try {
+      const pdf = await PDFDocument.create();
+      const font = await pdf.embedFont(StandardFonts.Helvetica);
+      for (let page = 1; page <= 10; page++) {
+        const p = pdf.addPage();
+        for (let line = 0; line < 80; line++)
+          p.drawText(
+            `Background discussion ${page} ${line}: unrelated scheduling and memory operations.`,
+            { font, x: 20, y: 800 - line * 9, size: 8 },
+          );
+        if (page === 10)
+          p.drawText("ZEBRACACHE is the unique result on this final page.", {
+            font,
+            x: 20,
+            y: 50,
+            size: 8,
+          });
+      }
+      pdf.addPage();
+      const book = await library.import(
+        Buffer.from(await pdf.save()),
+        "Long chapter.pdf",
+      );
+      const parsed = await library.waitForBook(book.id);
+      expect(parsed.error).toBeUndefined();
+      const context = buildContext(
+        library,
+        { bookId: book.id, page: 1, scope: "chapter", selection: "" },
+        "ZEBRACACHE",
+        "session",
+      );
+      expect(context.evidence.some((p) => p.text.includes("ZEBRACACHE"))).toBe(
+        true,
+      );
+      expect(context.estimatedTokens).toBeLessThanOrEqual(12000);
+      expect(context.coverage).toContain("10 / 11");
+      const global = buildContext(
+        library,
+        { bookId: book.id, page: 1, scope: "book", selection: "" },
+        "全书总结",
+        "s",
+      );
+      expect(global.coverage).toContain("部分总结");
+    } finally {
+      library.close();
+      await rm(dir, { recursive: true, force: true });
     }
-    pdf.addPage();
-    const book = await library.import(
-      Buffer.from(await pdf.save()),
-      "Long chapter.pdf",
-    );
-    await library.waitForBook(book.id);
-    const context = buildContext(
-      library,
-      { bookId: book.id, page: 1, scope: "chapter", selection: "" },
-      "ZEBRACACHE",
-      "session",
-    );
-    expect(context.evidence.some((p) => p.text.includes("ZEBRACACHE"))).toBe(
-      true,
-    );
-    expect(context.estimatedTokens).toBeLessThanOrEqual(12000);
-    expect(context.coverage).toContain("10 / 11");
-    const global = buildContext(
-      library,
-      { bookId: book.id, page: 1, scope: "book", selection: "" },
-      "全书总结",
-      "s",
-    );
-    expect(global.coverage).toContain("部分总结");
-  } finally {
-    library.close();
-    await rm(dir, { recursive: true, force: true });
-  }
-});
+  },
+);

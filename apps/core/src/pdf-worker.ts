@@ -21,9 +21,25 @@ function report(message: ParseMessage) {
       reject(new Error("Core IPC 已断开"));
       return;
     }
-    process.send(message, (error: Error | null) =>
-      error ? reject(error) : resolve(),
-    );
+    const terminal = message.type === "done" || message.type === "error";
+    const acknowledged = (value: { type?: string }) => {
+      if (value.type === "parse-ack") finish();
+    };
+    const timer = terminal
+      ? setTimeout(() => finish(new Error("Core 未确认解析完成")), 30000)
+      : undefined;
+    function finish(error?: Error | null) {
+      clearTimeout(timer);
+      process.off("message", acknowledged);
+      if (error) reject(error);
+      else resolve();
+    }
+    // send's callback only confirms a write to the IPC pipe, not Core's receipt.
+    // Windows can report exit before queued messages if we disconnect immediately.
+    if (terminal) process.on("message", acknowledged);
+    process.send(message, (error: Error | null) => {
+      if (error || !terminal) finish(error);
+    });
   });
 }
 async function parse(workerData: ParseInput) {
@@ -156,7 +172,12 @@ async function parse(workerData: ParseInput) {
 }
 // If Core exits, this parser must not continue as an orphan process.
 process.once("disconnect", () => process.exit(0));
-process.once("message", (input: ParseInput) => {
+// Keep the IPC channel referenced throughout asynchronous parsing. A once-listener
+// is removed before parse settles and can let an idle child exit with code 0.
+let started = false;
+process.on("message", (input: ParseInput) => {
+  if (started) return;
+  started = true;
   void parse(input)
     .catch(async (error) => {
       if (!process.connected) return;

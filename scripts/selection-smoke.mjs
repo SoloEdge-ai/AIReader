@@ -24,7 +24,9 @@ try {
   const page = await app.firstWindow();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.locator("input[type=file]").setInputFiles(fixture);
+  await page
+    .locator('input[type=file][accept="application/pdf"]')
+    .setInputFiles(fixture);
   const text = page.locator("#page-1 .textLayer span").first();
   await text.waitFor();
   const toolbar = page.locator(".selection-bar");

@@ -10,10 +10,11 @@ import {
   type ChatImage,
   type ChatTurn,
   type ChatImageInput,
+  type Note,
 } from "../../../packages/protocol/src";
 import { Library } from "./library";
 
-function decode(input: ChatImageInput) {
+export function decodeImage(input: ChatImageInput) {
   if (!/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(input.dataUrl))
     throw new Error("图片格式无效，请重新粘贴或选择图片");
   const bytes = Buffer.from(input.dataUrl.slice(22), "base64");
@@ -83,7 +84,7 @@ export class ChatImages {
         )
           throw new Error("图片来源与当前书籍或页码不匹配");
         return {
-          ...decode(input),
+          ...decodeImage(input),
           source: source
             ? {
                 ...source,
@@ -132,10 +133,15 @@ export class ChatImages {
   }
   asset(bookId: string, id: string) {
     this.library.book(bookId);
-    const image = this.library.store
+    const images = this.library.store
       .list<ChatTurn>("turn", bookId)
-      .flatMap((turn) => turn.images ?? [])
-      .find((image) => image.id === id);
+      .flatMap((turn) => turn.images ?? []);
+    images.push(
+      ...this.library.store
+        .list<Note>("note", bookId)
+        .flatMap((note) => note.origin?.images ?? []),
+    );
+    const image = images.find((image) => image.id === id);
     if (!image) throw new Error("图片不存在或不属于本书");
     return this.path(bookId, image.id);
   }

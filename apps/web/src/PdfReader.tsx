@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
@@ -11,6 +17,11 @@ import type {
 } from "../../../packages/protocol/src";
 import type { z } from "zod";
 import { fileUrl } from "./api";
+import { zoomWorkspaceAtPointer } from "./WorkspaceViewport";
+import {
+  WORKSPACE_DOCUMENT_X,
+  type WorkspaceCamera,
+} from "../../../packages/protocol/src/workspace";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 export type AnnotationMode = "select" | "sticky" | "region";
 export type QuestionRegion = {
@@ -81,6 +92,8 @@ function Page({
   onCreate,
   onAnnotation,
   onQuestionRegion,
+  placement,
+  sourceFocus,
 }: {
   proxy: pdfjs.PDFPageProxy;
   view: View;
@@ -90,6 +103,8 @@ function Page({
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
+  placement?: { left: number; top: number };
+  sourceFocus?: PdfAnchor[];
 }) {
   const outer = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
@@ -177,6 +192,9 @@ function Page({
         {
           width: view.width,
           height: view.height,
+          ...(placement
+            ? { position: "absolute", ...placement, margin: 0 }
+            : {}),
           "--total-scale-factor": view.scale * proxy.userUnit,
         } as React.CSSProperties
       }
@@ -184,6 +202,17 @@ function Page({
       <canvas ref={canvas} style={{ width: "100%", height: "100%" }} />
       <div ref={text} className="textLayer" />
       <div className="annotation-layer">
+        {sourceFocus
+          ?.filter((anchor) => anchor.page === page)
+          .flatMap((anchor) =>
+            anchor.rects.map((rect, index) => (
+              <span
+                key={`source-${index}`}
+                className="workspace-source-focus"
+                style={rectStyle(view.convertToViewportRectangle(rect))}
+              />
+            )),
+          )}
         {annotations.flatMap((a) =>
           a.anchors
             .filter((x) => x.page === page)
@@ -317,23 +346,19 @@ function Page({
     </div>
   );
 }
-export function PdfReader({
-  id,
-  initialPage,
-  zoom,
-  rotation = 0,
-  onPage,
-  onSelection,
-  highlight,
-  annotations = [],
-  mode = "select",
-  onCreate,
-  onAnnotation,
-  onQuestionRegion,
-}: {
+export type WorkspacePage = {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  locate: (rect: Rect) => { x: number; y: number };
+};
+export interface PdfReaderProps {
   id: string;
   initialPage: number;
   zoom: number;
+  onZoom?: (zoom: number) => void;
   rotation?: number;
   onPage: (page: number) => void;
   onSelection: (selection: ReadingSelection | undefined) => void;
@@ -343,12 +368,119 @@ export function PdfReader({
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
-}) {
+  workspace?: {
+    ready: boolean;
+    onDocumentWidth: (width: number) => void;
+    camera?: WorkspaceCamera;
+    onCamera: (camera: WorkspaceCamera) => void;
+    navigation?: { key: number; x: number; y: number; zoom: number };
+    width: number;
+    height: number;
+    render: (
+      pages: WorkspacePage[],
+      viewport: HTMLDivElement | null,
+    ) => ReactNode;
+    sourceFocus?: PdfAnchor[];
+  };
+}
+export function PdfReader({
+  id,
+  initialPage,
+  zoom,
+  onZoom,
+  rotation = 0,
+  onPage,
+  onSelection,
+  highlight,
+  annotations = [],
+  mode = "select",
+  onCreate,
+  onAnnotation,
+  onQuestionRegion,
+  workspace,
+}: PdfReaderProps) {
   const [pages, setPages] = useState<pdfjs.PDFPageProxy[]>([]),
     [error, setError] = useState("");
   const scroll = useRef<HTMLDivElement>(null),
     position = useRef({ page: initialPage, x: 0, y: 0 }),
     views = useRef<View[]>([]);
+  const pan = useRef<
+    | {
+        x: number;
+        y: number;
+        left: number;
+        top: number;
+        button: number;
+        moved: boolean;
+      }
+    | undefined
+  >(undefined);
+  const space = useRef(false);
+  const suppressContextMenu = useRef(false);
+  const suppressSelection = useRef(false);
+  const [panReady, setPanReady] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const restoredCamera = useRef(false);
+  const navigationKey = useRef<number | undefined>(undefined);
+  const worldCamera = useRef<
+    { left: number; top: number; zoom: number } | undefined
+  >(undefined);
+  const wheelPosition = useRef<{ left: number; top: number } | undefined>(
+    undefined,
+  );
+  const wheelState = useRef({ zoom, onZoom });
+  wheelState.current = { zoom, onZoom };
+  useEffect(() => {
+    const el = scroll.current;
+    if (!el) return;
+    let frame = 0;
+    let next: ReturnType<typeof zoomWorkspaceAtPointer> | undefined;
+    const wheel = (event: WheelEvent) => {
+      const current = wheelState.current;
+      if (!event.ctrlKey || !current.onZoom) return;
+      event.preventDefault();
+      const bounds = el.getBoundingClientRect();
+      next = zoomWorkspaceAtPointer({
+        zoom: next?.zoom ?? current.zoom,
+        left: next?.left ?? el.scrollLeft,
+        top: next?.top ?? el.scrollTop,
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        viewportHeight: el.clientHeight,
+      });
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          if (next && next.zoom !== wheelState.current.zoom) {
+            wheelPosition.current = { left: next.left, top: next.top };
+            wheelState.current.onZoom?.(next.zoom);
+          }
+          next = undefined;
+        });
+    };
+    // React wheel listeners are passive; this must suppress browser/page zoom.
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", wheel);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+  useEffect(() => {
+    const clear = () => {
+      space.current = false;
+      setPanReady(false);
+      pan.current = undefined;
+      setPanning(false);
+    };
+    window.addEventListener("keyup", clear);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keyup", clear);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
   useEffect(() => {
     // PDF.js can clear its text selection after mouseup has already fired.
     const syncSelection = () => {
@@ -419,10 +551,88 @@ export function PdfReader({
       ),
     };
   views.current = cache.current.value;
+  const documentWidth = Math.max(
+    0,
+    ...views.current.map((view) => view.width / zoom),
+  );
+  useLayoutEffect(() => {
+    if (documentWidth) workspace?.onDocumentWidth(documentWidth);
+  }, [documentWidth]);
+  let bottom = 40;
+  const worldPages = views.current.map((view, index) => {
+    const page = {
+      page: index + 1,
+      x: WORKSPACE_DOCUMENT_X + (documentWidth - view.width / zoom) / 2,
+      y: bottom,
+      width: view.width / zoom,
+      height: view.height / zoom,
+      locate: (rect: Rect) => {
+        const box = ordered(view.convertToViewportRectangle(rect));
+        return { x: page.x + box[0] / zoom, y: page.y + box[1] / zoom };
+      },
+    };
+    bottom += page.height + 24;
+    return page;
+  });
+  function captureCamera(el: HTMLDivElement) {
+    worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+    if (workspace && restoredCamera.current)
+      workspace.onCamera({
+        x: el.scrollLeft / zoom,
+        y: el.scrollTop / zoom,
+        zoom,
+      });
+  }
   useLayoutEffect(() => {
     const el = scroll.current,
       p = position.current,
       node = el?.querySelector<HTMLElement>(`[data-page="${p.page}"]`);
+    if (workspace && (!workspace.ready || !pages.length)) return;
+    if (el && workspace && !restoredCamera.current) {
+      const camera = workspace.camera;
+      if (camera && Math.abs(camera.zoom - zoom) > 0.001 && onZoom) {
+        onZoom(camera.zoom);
+        return;
+      }
+      restoredCamera.current = true;
+      el.scrollTo({
+        left: camera
+          ? camera.x * zoom
+          : (WORKSPACE_DOCUMENT_X + documentWidth / 2) * zoom -
+            el.clientWidth / 2,
+        top: camera
+          ? camera.y * zoom
+          : (worldPages[initialPage - 1]?.y ?? 40) * zoom - 20,
+      });
+      captureCamera(el);
+      return;
+    }
+    const navigation = workspace?.navigation;
+    if (el && navigation && navigation.key !== navigationKey.current) {
+      if (Math.abs(navigation.zoom - zoom) > 0.001) return;
+      navigationKey.current = navigation.key;
+      el.scrollTo({ left: navigation.x * zoom, top: navigation.y * zoom });
+      captureCamera(el);
+      return;
+    }
+    if (el && wheelPosition.current) {
+      el.scrollTo(wheelPosition.current);
+      wheelPosition.current = undefined;
+      captureCamera(el);
+      return;
+    }
+    if (el && workspace && worldCamera.current) {
+      const previous = worldCamera.current;
+      const ratio = zoom / previous.zoom;
+      // Use today's viewport width, not the center cached before a sidebar resized it.
+      // A rotation at the same zoom must not translate the workspace camera.
+      el.scrollTo({
+        left: (previous.left + el.clientWidth / 2) * ratio - el.clientWidth / 2,
+        top: (previous.top + 20) * ratio - 20,
+      });
+      captureCamera(el);
+      return;
+    }
     if (node && el) {
       el.scrollTop = node.offsetTop + p.y * node.offsetHeight - 20;
       el.scrollLeft = Math.max(
@@ -430,10 +640,11 @@ export function PdfReader({
         node.offsetLeft + p.x * node.offsetWidth - el.clientWidth / 2,
       );
     }
-  }, [pages, zoom, rotation]);
+  }, [pages, zoom, rotation, workspace?.ready, workspace?.navigation]);
   const report = () => {
     const el = scroll.current;
     if (!el) return;
+    if (workspace) captureCamera(el);
     const top = el.scrollTop + 20,
       node = Array.from(el.querySelectorAll<HTMLElement>("[data-page]")).find(
         (p) => p.offsetTop + p.offsetHeight > top,
@@ -452,10 +663,88 @@ export function PdfReader({
   return (
     <div
       ref={scroll}
-      className="pdf-scroll"
+      className={`pdf-scroll${workspace ? " workspace-scroll" : ""}${panReady ? " pan-ready" : ""}${panning ? " panning" : ""}`}
       tabIndex={-1}
+      onKeyDown={(event) => {
+        if (
+          workspace &&
+          event.code === "Space" &&
+          !(event.target as HTMLElement).closest(
+            "input,textarea,button,select,[contenteditable]",
+          )
+        ) {
+          event.preventDefault();
+          space.current = true;
+          setPanReady(true);
+        }
+      }}
+      onPointerDownCapture={(event) => {
+        if (!workspace) return;
+        const target = event.target as HTMLElement;
+        suppressContextMenu.current = false;
+        suppressSelection.current = false;
+        if (
+          event.button === 1 ||
+          space.current ||
+          (event.button === 2 &&
+            !target.closest(
+              "button:not(.workspace-resize),input,textarea,select,[contenteditable]",
+            )) ||
+          (event.button === 0 &&
+            (target === scroll.current ||
+              target.classList.contains("pdf-world")))
+        ) {
+          if (event.button !== 2) event.preventDefault();
+          event.stopPropagation();
+          const el = scroll.current!;
+          el.focus({ preventScroll: true });
+          el.setPointerCapture(event.pointerId);
+          setPanning(event.button !== 2);
+          pan.current = {
+            x: event.clientX,
+            y: event.clientY,
+            left: el.scrollLeft,
+            top: el.scrollTop,
+            button: event.button,
+            moved: false,
+          };
+        }
+      }}
+      onPointerMove={(event) => {
+        if (pan.current && scroll.current) {
+          const distance = Math.hypot(
+            event.clientX - pan.current.x,
+            event.clientY - pan.current.y,
+          );
+          if (distance < 5 && !pan.current.moved) return;
+          pan.current.moved = true;
+          suppressSelection.current = true;
+          if (pan.current.button === 2) suppressContextMenu.current = true;
+          setPanning(true);
+          event.preventDefault();
+          scroll.current.scrollTo({
+            left: pan.current.left + pan.current.x - event.clientX,
+            top: pan.current.top + pan.current.y - event.clientY,
+          });
+        }
+      }}
+      onContextMenu={(event) => {
+        if (suppressContextMenu.current) {
+          event.preventDefault();
+          suppressContextMenu.current = false;
+        }
+      }}
+      onPointerUp={() => {
+        pan.current = undefined;
+        setPanning(false);
+      }}
+      onPointerCancel={() => {
+        pan.current = undefined;
+        setPanning(false);
+      }}
       onScroll={report}
       onMouseUp={(e) => {
+        if (e.button !== 0 || suppressSelection.current) return;
         if (mode !== "select" || onQuestionRegion) return;
         const s = getSelection();
         if (!s?.rangeCount || !s.toString().trim()) {
@@ -525,24 +814,52 @@ export function PdfReader({
             anchors,
             screen: { x: e.clientX, y: e.clientY },
           });
+        else onSelection(undefined);
       }}
     >
       {error ? (
         <p className="error">PDF 无法打开：{error}</p>
       ) : pages.length ? (
-        pages.map((p, i) => (
-          <Page
-            key={p.pageNumber}
-            proxy={p}
-            view={views.current[i]}
-            annotations={annotations}
-            highlight={highlight}
-            mode={onQuestionRegion ? "ask-region" : mode}
-            onCreate={onCreate}
-            onAnnotation={onAnnotation}
-            onQuestionRegion={onQuestionRegion}
-          />
-        ))
+        <div
+          className={workspace ? "pdf-world" : undefined}
+          style={
+            workspace
+              ? {
+                  position: "relative",
+                  width:
+                    Math.max(
+                      workspace.width,
+                      WORKSPACE_DOCUMENT_X * 2 + documentWidth,
+                    ) * zoom,
+                  height: Math.max(workspace.height, bottom + 40) * zoom,
+                }
+              : undefined
+          }
+        >
+          {pages.map((p, i) => (
+            <Page
+              key={p.pageNumber}
+              proxy={p}
+              view={views.current[i]}
+              annotations={annotations}
+              highlight={highlight}
+              mode={onQuestionRegion ? "ask-region" : mode}
+              onCreate={onCreate}
+              onAnnotation={onAnnotation}
+              onQuestionRegion={onQuestionRegion}
+              sourceFocus={workspace?.sourceFocus}
+              placement={
+                workspace
+                  ? {
+                      left: worldPages[i].x * zoom,
+                      top: worldPages[i].y * zoom,
+                    }
+                  : undefined
+              }
+            />
+          ))}
+          {workspace?.render(worldPages, scroll.current)}
+        </div>
       ) : (
         <p className="loading">正在打开 PDF…</p>
       )}

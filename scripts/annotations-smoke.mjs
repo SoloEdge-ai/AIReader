@@ -40,7 +40,9 @@ try {
   page.on("dialog", () => {});
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.locator("input[type=file]").setInputFiles(fixture);
+  await page
+    .locator('input[type=file][accept="application/pdf"]')
+    .setInputFiles(fixture);
   await page.locator(".textLayer span").first().waitFor();
   await page.locator('[data-book-status="ready"]').waitFor();
   await page
@@ -63,7 +65,9 @@ try {
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   await page.getByLabel("笔记标题", { exact: true }).fill("Reading experiment");
   await page.locator(".tiptap").fill("A saved observation.");
-  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".notes-panel").getByText("已保存", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "返回书库" }).click();
   await page.locator(".book-card").first().click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
@@ -95,7 +99,9 @@ try {
   );
   await page.unroute("**/api/books/*/notes/*");
   await page.getByRole("button", { name: "重试保存" }).click();
-  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".notes-panel").getByText("已保存", { exact: true }),
+  ).toBeVisible();
   let dropped = false;
   await page.route("**/api/books/*/notes/*", async (route) => {
     if (route.request().method() === "POST" && !dropped) {
@@ -105,7 +111,9 @@ try {
     } else await route.continue();
   });
   await page.locator(".tiptap").fill("Committed despite a lost response.");
-  await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".notes-panel").getByText("已保存", { exact: true }),
+  ).toBeVisible();
   await page.unroute("**/api/books/*/notes/*");
   await page.getByLabel("批注颜色", { exact: true }).selectOption("green");
   await page.getByRole("button", { name: "删除批注", exact: true }).click();

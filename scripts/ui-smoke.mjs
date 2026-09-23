@@ -41,7 +41,7 @@ try {
   await page.getByRole("heading", { name: "书库", exact: true }).waitFor();
   await page.screenshot({ path: ".local/screenshots/library.png" });
   await page
-    .locator("input[type=file]")
+    .locator('input[type=file][accept="application/pdf"]')
     .setInputFiles(process.argv[2] ?? fixture);
   await page.locator(".pdf-page canvas").first().waitFor();
   await page.waitForFunction(

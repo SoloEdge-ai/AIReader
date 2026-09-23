@@ -1,4 +1,10 @@
 const paths = {
+  link: "m10 13 4-4M8 15l-2 2a3 3 0 0 1-4-4l4-4a3 3 0 0 1 4 0m4 0 2-2a3 3 0 0 1 4 4l-4 4a3 3 0 0 1-4 0",
+  trash: "M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7",
+  fit: "M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6",
+  focus:
+    "M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Zm12 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  download: "M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5",
   down: "m6 9 6 6 6-6",
   copy: "M9 9h12v12H9ZM15 5V3H3v12h2",
   outward: "M7 17 17 7M7 7h10v10",
