@@ -119,7 +119,7 @@ export function buildContext(
   const context: ContextManifest = {
     estimatedTokens: 0,
     budget: 12000,
-    coverage: `可检索文字覆盖 ${book.textPages} / ${book.pages} 页；解析进度 ${book.parsedPages} / ${book.pages} 页；语义索引 ${nodes.length} / ${book.chapters.length} 个节点。${global ? "部分总结：本轮证据受预算限制，未覆盖的章节不得推断或声称已验证。" : ""}`,
+    coverage: `可检索文字覆盖 ${book.textPages} / ${book.pages} 页；解析进度 ${book.parsedPages} / ${book.pages} 页；语义索引 ${nodes.length} / ${book.chapters.length} 个节点。${global ? "部分总结：本轮证据受预算限制，未覆盖的章节不得推断或声称已验证。" : ""}${sourcePages.size ? `选定原文涉及 ${sourcePages.size} 页；只有下方实际列出的原文片段构成可引用证据，未列出的页不可视为已核验。` : ""}`,
     reading: snapshot,
     evidence: [],
     memory: (
