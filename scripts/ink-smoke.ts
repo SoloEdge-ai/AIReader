@@ -59,7 +59,8 @@ try {
   await page.getByRole("button", { name: "整笔橡皮（E）" }).click();
   await page.mouse.click(second.x + 100, second.y + 70);
   await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(1);
-  await page.getByRole("button", { name: "撤销工作区修改" }).click();
+  await page.getByRole("button", { name: /工作区操作/ }).click();
+  await page.getByRole("menuitem", { name: "撤销工作区修改" }).click();
   await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(2);
   await page.reload();
   await page.getByRole("button", { name: /Ink acceptance/ }).click();
