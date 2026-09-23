@@ -39,9 +39,16 @@ try {
     image.naturalWidth)).toBeGreaterThan(0);
   await expect(page.locator(".question-material-item")).toContainText("个人形状");
   await page.screenshot({ path: ".local/screenshots/question-materials.png" });
+  await page.locator(".side-panel").getByRole("button", { name: "笔记", exact: true }).click();
+  await page.getByRole("button", { name: "新建笔记" }).click();
+  await page.getByLabel("笔记标题", { exact: true }).fill("待验证的个人想法");
+  await page.locator(".tiptap").fill("这条笔记属于用户，不是原书观点。");
+  await page.getByRole("button", { name: "加入提问", exact: true }).click();
+  await expect(page.locator(".question-material-item")).toHaveCount(2);
+  await expect(page.locator(".question-material-list")).toContainText("待验证的个人想法");
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
-  await expect(page.locator(".question-material-item")).toBeVisible();
+  await expect(page.locator(".question-material-item").first()).toBeVisible();
   await page.screenshot({ path: ".local/screenshots/question-materials-dark-narrow.png" });
   const sessions = await page.evaluate(async (id) => {
     const sessions = await (await fetch(`/api/books/${id}/sessions`)).json();
