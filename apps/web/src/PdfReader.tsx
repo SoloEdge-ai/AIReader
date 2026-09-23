@@ -18,12 +18,14 @@ import type {
 import type { z } from "zod";
 import { fileUrl } from "./api";
 import { zoomWorkspaceAtPointer } from "./WorkspaceViewport";
+import type { InkPoint } from "./InkGeometry";
+import type { InkStroke } from "../../../packages/protocol/src/workspace";
 import {
   WORKSPACE_DOCUMENT_X,
   type WorkspaceCamera,
 } from "../../../packages/protocol/src/workspace";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-export type AnnotationMode = "pointer" | "select" | "sticky" | "region";
+export type AnnotationMode = "pointer" | "select" | "sticky" | "region" | "pen" | "highlighter" | "eraser";
 export type QuestionRegion = {
   page: number;
   rect: [number, number, number, number];
@@ -89,6 +91,7 @@ function Page({
   proxy,
   view,
   annotations,
+  ink,
   highlight,
   mode,
   onCreate,
@@ -101,6 +104,7 @@ function Page({
   proxy: pdfjs.PDFPageProxy;
   view: View;
   annotations: Annotation[];
+  ink: InkStroke[];
   highlight?: SourceAnchor;
   mode: AnnotationMode | "ask-region";
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void | Promise<void | boolean>;
@@ -227,6 +231,21 @@ function Page({
               context.fillRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
             }
           }
+      for (const stroke of ink)
+        for (const segment of stroke.segments)
+          if (segment.surface.kind === "pdf" && segment.surface.page === page) {
+            context.beginPath();
+            segment.points.forEach((point, index) => {
+              const [x, y] = view.convertToViewportPoint(point[0], point[1]);
+              if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+            });
+            context.strokeStyle = stroke.color;
+            context.globalAlpha = stroke.opacity;
+            context.lineWidth = stroke.width * view.scale;
+            context.lineCap = context.lineJoin = "round";
+            context.stroke();
+          }
+      context.globalAlpha = 1;
       context.restore();
     }
     return { page, rect: pdfRect(view, rect), image: crop.toDataURL("image/png"),
@@ -324,7 +343,7 @@ function Page({
           })}
         </div>
       )}
-      {mode !== "select" && mode !== "pointer" && (
+      {(mode === "sticky" || mode === "region" || mode === "ask-region") && (
         <div
           className="annotation-capture"
           aria-busy={!ready}
@@ -473,6 +492,8 @@ export type WorkspacePage = {
   width: number;
   height: number;
   locate: (rect: Rect) => { x: number; y: number };
+  toPdf: (point: InkPoint) => InkPoint;
+  toWorld: (point: InkPoint) => InkPoint;
 };
 export interface PdfReaderProps {
   id: string;
@@ -502,6 +523,11 @@ export interface PdfReaderProps {
       viewport: HTMLDivElement | null,
     ) => ReactNode;
     sourceFocus?: PdfAnchor[];
+    ink?: InkStroke[];
+    onInkStart?: (point: InkPoint) => void;
+    onInkMove?: (points: InkPoint[]) => void;
+    onInkEnd?: (point: InkPoint) => void;
+    onInkCancel?: () => void;
   };
 }
 export function PdfReader({
@@ -533,11 +559,28 @@ export function PdfReader({
         left: number;
         top: number;
         button: number;
+        pointerId: number;
         moved: boolean;
       }
     | undefined
   >(undefined);
   const space = useRef(false);
+  const inkPointer = useRef<number | undefined>(undefined);
+  const inkLast = useRef<{ x: number; y: number; point: InkPoint } | undefined>(undefined);
+  const inkCallbacks = useRef(workspace);
+  inkCallbacks.current = workspace;
+  const releaseCapture = (pointerId: number) => {
+    if (scroll.current?.hasPointerCapture(pointerId))
+      scroll.current.releasePointerCapture(pointerId);
+  };
+  useEffect(() => {
+    if (mode !== "pen" && mode !== "highlighter" && mode !== "eraser" &&
+        inkPointer.current !== undefined) {
+      inkCallbacks.current?.onInkCancel?.();
+      releaseCapture(inkPointer.current);
+      inkPointer.current = undefined;
+    }
+  }, [mode]);
   const suppressContextMenu = useRef(false);
   const suppressSelection = useRef(false);
   const [panReady, setPanReady] = useState(false);
@@ -596,6 +639,14 @@ export function PdfReader({
       event.preventDefault();
       space.current = true;
       setPanReady(true);
+      if (inkPointer.current !== undefined && inkLast.current && scroll.current) {
+        const pointerId = inkPointer.current;
+        inkCallbacks.current?.onInkEnd?.(inkLast.current.point);
+        inkPointer.current = undefined;
+        pan.current = { x: inkLast.current.x, y: inkLast.current.y,
+          left: scroll.current.scrollLeft, top: scroll.current.scrollTop,
+          button: 0, pointerId, moved: false };
+      }
     };
     const keyup = (event: KeyboardEvent) => {
       if (event.code !== "Space") return;
@@ -603,6 +654,12 @@ export function PdfReader({
       setPanReady(false);
     };
     const clear = () => {
+      if (inkPointer.current !== undefined) {
+        inkCallbacks.current?.onInkCancel?.();
+        releaseCapture(inkPointer.current);
+      }
+      if (pan.current) releaseCapture(pan.current.pointerId);
+      inkPointer.current = undefined;
       space.current = false;
       setPanReady(false);
       pan.current = undefined;
@@ -706,10 +763,22 @@ export function PdfReader({
         const box = ordered(view.convertToViewportRectangle(rect));
         return { x: page.x + box[0] / zoom, y: page.y + box[1] / zoom };
       },
+      toPdf: (point: InkPoint): InkPoint => view.convertToPdfPoint(
+        (point[0] - page.x) * zoom, (point[1] - page.y) * zoom) as InkPoint,
+      toWorld: (point: InkPoint): InkPoint => {
+        const [x, y] = view.convertToViewportPoint(point[0], point[1]);
+        return [page.x + x / zoom, page.y + y / zoom];
+      },
     };
     bottom += page.height + 24;
     return page;
   });
+  function worldPoint(event: { clientX: number; clientY: number }): InkPoint {
+    const rect = scroll.current?.querySelector(".pdf-world")?.getBoundingClientRect();
+    if (!rect) return [0, 0];
+    return [Math.max(0, (event.clientX - rect.left) / zoom),
+      Math.max(0, (event.clientY - rect.top) / zoom)];
+  }
   function captureCamera(el: HTMLDivElement) {
     worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
     if (workspace && restoredCamera.current)
@@ -806,6 +875,22 @@ export function PdfReader({
         const target = event.target as HTMLElement;
         suppressContextMenu.current = false;
         suppressSelection.current = false;
+        if (inkPointer.current !== undefined && (event.button === 1 || event.button === 2)) {
+          inkCallbacks.current?.onInkEnd?.(inkLast.current?.point ?? worldPoint(event));
+          inkPointer.current = undefined;
+        }
+        if ((mode === "pen" || mode === "highlighter" || mode === "eraser") &&
+            event.button === 0 && !space.current && workspace.onInkStart &&
+            !target.closest(".workspace-card,.workspace-toolbar,.region-preview,button,input,textarea,select,[contenteditable]")) {
+          event.preventDefault();
+          event.stopPropagation();
+          const point = worldPoint(event);
+          inkPointer.current = event.pointerId;
+          inkLast.current = { x: event.clientX, y: event.clientY, point };
+          scroll.current!.setPointerCapture(event.pointerId);
+          workspace.onInkStart(point);
+          return;
+        }
         if (
           event.button === 1 ||
           space.current ||
@@ -832,11 +917,30 @@ export function PdfReader({
             left: el.scrollLeft,
             top: el.scrollTop,
             button: event.button,
+            pointerId: event.pointerId,
             moved: false,
           };
         }
       }}
       onPointerMove={(event) => {
+        if (inkPointer.current === event.pointerId) {
+          if ((event.buttons & 2) || space.current) {
+            workspace?.onInkEnd?.(inkLast.current?.point ?? worldPoint(event));
+            inkPointer.current = undefined;
+            const el = scroll.current!;
+            pan.current = { x: event.clientX, y: event.clientY,
+              left: el.scrollLeft, top: el.scrollTop,
+              button: event.buttons & 2 ? 2 : 0,
+              pointerId: event.pointerId, moved: false };
+            return;
+          }
+          event.preventDefault();
+          const samples = event.nativeEvent.getCoalescedEvents?.() ?? [event.nativeEvent];
+          const points = samples.map(worldPoint);
+          inkLast.current = { x: event.clientX, y: event.clientY, point: worldPoint(event) };
+          workspace?.onInkMove?.(points);
+          return;
+        }
         if (pan.current && scroll.current) {
           const distance = Math.hypot(
             event.clientX - pan.current.x,
@@ -860,13 +964,28 @@ export function PdfReader({
           suppressContextMenu.current = false;
         }
       }}
-      onPointerUp={() => {
+      onPointerUp={(event) => {
+        if (inkPointer.current === event.pointerId) {
+          inkPointer.current = undefined;
+          workspace?.onInkEnd?.(worldPoint(event));
+          releaseCapture(event.pointerId);
+          return;
+        }
+        if (pan.current?.pointerId !== event.pointerId) return;
         pan.current = undefined;
         setPanning(false);
+        releaseCapture(event.pointerId);
       }}
-      onPointerCancel={() => {
-        pan.current = undefined;
-        setPanning(false);
+      onPointerCancel={(event) => {
+        if (inkPointer.current === event.pointerId) {
+          inkPointer.current = undefined;
+          workspace?.onInkCancel?.();
+        }
+        if (pan.current?.pointerId === event.pointerId) {
+          pan.current = undefined;
+          setPanning(false);
+        }
+        releaseCapture(event.pointerId);
       }}
       onScroll={report}
       onMouseUp={(e) => {
@@ -968,6 +1087,7 @@ export function PdfReader({
               proxy={p}
               view={views.current[i]}
               annotations={annotations}
+              ink={workspace?.ink ?? []}
               highlight={highlight}
               mode={onQuestionRegion ? "ask-region" : mode}
               onCreate={onCreate}

@@ -824,6 +824,7 @@ export function App() {
                 beforeExport={notes.flush}
                 book={book}
                 page={page}
+                toolPreferences={toolPreferences}
                 key={active}
                 id={active!}
                 initialPage={book.progress}
