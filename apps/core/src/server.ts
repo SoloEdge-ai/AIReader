@@ -21,6 +21,7 @@ import {
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
+import { Workspaces } from "./workspace";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export async function body(req: IncomingMessage, limit = 1024 * 1024) {
@@ -58,6 +59,7 @@ export function createCore(
   };
   const library = new Library(directory, emit);
   const notes = new Notes(library);
+  const workspaces = new Workspaces(library);
   library.resume();
   const runtime = new RuntimeManager(directory, (data) =>
     emit({ type: "runtime", data }),
@@ -253,6 +255,16 @@ export function createCore(
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];
           const book = library.book(id);
+          if (parts[3] === "workspace" && parts.length === 4) {
+            if (req.method === "GET") send(res, workspaces.get(id));
+            else if (req.method === "POST")
+              send(
+                res,
+                workspaces.save(id, await jsonBody(req, 8 * 1024 * 1024)),
+              );
+            else send(res, { error: "不支持的操作" }, 405);
+            return;
+          }
           if (parts[3] === "annotations" || parts[3] === "notes") {
             const kind = parts[3] === "annotations" ? "annotation" : "note";
             if (parts[4]) {

@@ -29,7 +29,9 @@ import { Settings } from "./Settings";
 import { AccountControls } from "./AiState";
 import { IndexPanel } from "./IndexPanel";
 import { ToolPanel } from "./ToolPanel";
+import { BookWorkspace, type BookWorkspaceHandle } from "./BookWorkspace";
 export function App() {
+  const workspace = useRef<BookWorkspaceHandle>(null);
   const [books, setBooks] = useState<Book[]>([]),
     [active, setActive] = useState<string>();
   const [prefs, setPrefs] = useState(() => ReaderPreferencesSchema.parse({})),
@@ -313,6 +315,7 @@ export function App() {
     const request = ++openSequence.current;
     try {
       if (!(await notes.flush())) return;
+      if (workspace.current && !(await workspace.current.flush())) return;
       const p = await api<ReaderPreferences>(`books/${b.id}/preferences`);
       if (request !== openSequence.current) return;
       setLayout(p);
@@ -482,6 +485,8 @@ export function App() {
               onClick={() => {
                 void (async () => {
                   if (!(await notes.flush())) return;
+                  if (workspace.current && !(await workspace.current.flush()))
+                    return;
                   await post(`books/${book.id}/progress`, { page });
                   setActive(undefined);
                   setBooks(await api<Book[]>("books"));
@@ -749,7 +754,10 @@ export function App() {
               </aside>
             )}
             <section className="reading">
-              <PdfReader
+              <BookWorkspace
+                ref={workspace}
+                book={book}
+                page={page}
                 key={active}
                 id={active!}
                 initialPage={book.progress}
@@ -805,6 +813,14 @@ export function App() {
                   }}
                 >
                   <span>{selection.text.length} 字</span>
+                  <button
+                    onClick={() => {
+                      workspace.current?.excerpt(selection);
+                      clearSelection();
+                    }}
+                  >
+                    摘录卡片
+                  </button>
                   {(["highlight", "underline", "strike"] as const).map(
                     (kind, i) => (
                       <button

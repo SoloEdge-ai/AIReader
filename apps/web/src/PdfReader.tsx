@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/web/pdf_viewer.css";
@@ -81,6 +87,8 @@ function Page({
   onCreate,
   onAnnotation,
   onQuestionRegion,
+  placement,
+  sourceFocus,
 }: {
   proxy: pdfjs.PDFPageProxy;
   view: View;
@@ -90,6 +98,8 @@ function Page({
   onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
   onAnnotation: (id: string) => void;
   onQuestionRegion?: (region: QuestionRegion) => void;
+  placement?: { left: number; top: number };
+  sourceFocus?: PdfAnchor[];
 }) {
   const outer = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
@@ -177,6 +187,9 @@ function Page({
         {
           width: view.width,
           height: view.height,
+          ...(placement
+            ? { position: "absolute", ...placement, margin: 0 }
+            : {}),
           "--total-scale-factor": view.scale * proxy.userUnit,
         } as React.CSSProperties
       }
@@ -184,6 +197,17 @@ function Page({
       <canvas ref={canvas} style={{ width: "100%", height: "100%" }} />
       <div ref={text} className="textLayer" />
       <div className="annotation-layer">
+        {sourceFocus
+          ?.filter((anchor) => anchor.page === page)
+          .flatMap((anchor) =>
+            anchor.rects.map((rect, index) => (
+              <span
+                key={`source-${index}`}
+                className="workspace-source-focus"
+                style={rectStyle(view.convertToViewportRectangle(rect))}
+              />
+            )),
+          )}
         {annotations.flatMap((a) =>
           a.anchors
             .filter((x) => x.page === page)
@@ -317,6 +341,37 @@ function Page({
     </div>
   );
 }
+export type WorkspacePage = {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  locate: (rect: Rect) => { x: number; y: number };
+};
+export interface PdfReaderProps {
+  id: string;
+  initialPage: number;
+  zoom: number;
+  rotation?: number;
+  onPage: (page: number) => void;
+  onSelection: (selection: ReadingSelection | undefined) => void;
+  highlight?: SourceAnchor;
+  annotations?: Annotation[];
+  mode?: AnnotationMode;
+  onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
+  onAnnotation: (id: string) => void;
+  onQuestionRegion?: (region: QuestionRegion) => void;
+  workspace?: {
+    width: number;
+    height: number;
+    render: (
+      pages: WorkspacePage[],
+      viewport: HTMLDivElement | null,
+    ) => ReactNode;
+    sourceFocus?: PdfAnchor[];
+  };
+}
 export function PdfReader({
   id,
   initialPage,
@@ -330,25 +385,28 @@ export function PdfReader({
   onCreate,
   onAnnotation,
   onQuestionRegion,
-}: {
-  id: string;
-  initialPage: number;
-  zoom: number;
-  rotation?: number;
-  onPage: (page: number) => void;
-  onSelection: (selection: ReadingSelection | undefined) => void;
-  highlight?: SourceAnchor;
-  annotations?: Annotation[];
-  mode?: AnnotationMode;
-  onCreate: (input: z.infer<typeof AnnotationInputSchema>) => void;
-  onAnnotation: (id: string) => void;
-  onQuestionRegion?: (region: QuestionRegion) => void;
-}) {
+  workspace,
+}: PdfReaderProps) {
   const [pages, setPages] = useState<pdfjs.PDFPageProxy[]>([]),
     [error, setError] = useState("");
   const scroll = useRef<HTMLDivElement>(null),
     position = useRef({ page: initialPage, x: 0, y: 0 }),
     views = useRef<View[]>([]);
+  const pan = useRef<
+    { x: number; y: number; left: number; top: number } | undefined
+  >(undefined);
+  const space = useRef(false);
+  useEffect(() => {
+    const clear = () => {
+      space.current = false;
+    };
+    window.addEventListener("keyup", clear);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keyup", clear);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
   useEffect(() => {
     // PDF.js can clear its text selection after mouseup has already fired.
     const syncSelection = () => {
@@ -419,6 +477,22 @@ export function PdfReader({
       ),
     };
   views.current = cache.current.value;
+  let bottom = 40;
+  const worldPages = views.current.map((view, index) => {
+    const page = {
+      page: index + 1,
+      x: 40,
+      y: bottom,
+      width: view.width / zoom,
+      height: view.height / zoom,
+      locate: (rect: Rect) => {
+        const box = ordered(view.convertToViewportRectangle(rect));
+        return { x: 40 + box[0] / zoom, y: page.y + box[1] / zoom };
+      },
+    };
+    bottom += page.height + 24;
+    return page;
+  });
   useLayoutEffect(() => {
     const el = scroll.current,
       p = position.current,
@@ -452,8 +526,56 @@ export function PdfReader({
   return (
     <div
       ref={scroll}
-      className="pdf-scroll"
+      className={`pdf-scroll${workspace ? " workspace-scroll" : ""}`}
       tabIndex={-1}
+      onKeyDown={(event) => {
+        if (
+          workspace &&
+          event.code === "Space" &&
+          !(event.target as HTMLElement).closest(
+            "input,textarea,button,select,[contenteditable]",
+          )
+        ) {
+          event.preventDefault();
+          space.current = true;
+        }
+      }}
+      onPointerDownCapture={(event) => {
+        if (!workspace) return;
+        const target = event.target as HTMLElement;
+        if (
+          event.button === 1 ||
+          space.current ||
+          (event.button === 0 &&
+            (target === scroll.current ||
+              target.classList.contains("pdf-world")))
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          const el = scroll.current!;
+          el.focus({ preventScroll: true });
+          el.setPointerCapture(event.pointerId);
+          pan.current = {
+            x: event.clientX,
+            y: event.clientY,
+            left: el.scrollLeft,
+            top: el.scrollTop,
+          };
+        }
+      }}
+      onPointerMove={(event) => {
+        if (pan.current && scroll.current)
+          scroll.current.scrollTo({
+            left: pan.current.left + pan.current.x - event.clientX,
+            top: pan.current.top + pan.current.y - event.clientY,
+          });
+      }}
+      onPointerUp={() => {
+        pan.current = undefined;
+      }}
+      onPointerCancel={() => {
+        pan.current = undefined;
+      }}
       onScroll={report}
       onMouseUp={(e) => {
         if (mode !== "select" || onQuestionRegion) return;
@@ -525,24 +647,52 @@ export function PdfReader({
             anchors,
             screen: { x: e.clientX, y: e.clientY },
           });
+        else onSelection(undefined);
       }}
     >
       {error ? (
         <p className="error">PDF 无法打开：{error}</p>
       ) : pages.length ? (
-        pages.map((p, i) => (
-          <Page
-            key={p.pageNumber}
-            proxy={p}
-            view={views.current[i]}
-            annotations={annotations}
-            highlight={highlight}
-            mode={onQuestionRegion ? "ask-region" : mode}
-            onCreate={onCreate}
-            onAnnotation={onAnnotation}
-            onQuestionRegion={onQuestionRegion}
-          />
-        ))
+        <div
+          className={workspace ? "pdf-world" : undefined}
+          style={
+            workspace
+              ? {
+                  position: "relative",
+                  width:
+                    Math.max(
+                      workspace.width,
+                      ...worldPages.map((page) => page.width + 440),
+                    ) * zoom,
+                  height: Math.max(workspace.height, bottom + 40) * zoom,
+                }
+              : undefined
+          }
+        >
+          {pages.map((p, i) => (
+            <Page
+              key={p.pageNumber}
+              proxy={p}
+              view={views.current[i]}
+              annotations={annotations}
+              highlight={highlight}
+              mode={onQuestionRegion ? "ask-region" : mode}
+              onCreate={onCreate}
+              onAnnotation={onAnnotation}
+              onQuestionRegion={onQuestionRegion}
+              sourceFocus={workspace?.sourceFocus}
+              placement={
+                workspace
+                  ? {
+                      left: worldPages[i].x * zoom,
+                      top: worldPages[i].y * zoom,
+                    }
+                  : undefined
+              }
+            />
+          ))}
+          {workspace?.render(worldPages, scroll.current)}
+        </div>
       ) : (
         <p className="loading">正在打开 PDF…</p>
       )}

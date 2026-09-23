@@ -1,0 +1,163 @@
+.workspace-scroll {
+  padding: 0;
+  background-image: radial-gradient(#8883 0.8px, transparent 0.8px);
+  background-size: 20px 20px;
+}
+.workspace-objects {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.workspace-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  color: var(--text);
+  box-shadow: 0 3px 14px #0001;
+  pointer-events: auto;
+  overflow: hidden;
+}
+.workspace-card.selected {
+  outline: 2px solid #7195ae;
+}
+.workspace-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: grab;
+  touch-action: none;
+  font-size: 11px;
+  color: var(--muted);
+  user-select: none;
+}
+.workspace-card header button,
+.workspace-card footer button {
+  font-size: 11px;
+  padding: 3px 6px;
+}
+.workspace-card input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-weight: 600;
+}
+.workspace-card textarea {
+  flex: 1;
+  min-height: 35px;
+  resize: none;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.workspace-card blockquote {
+  flex: 2;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-left: 2px solid #a6bac8;
+  padding-left: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.workspace-card footer {
+  display: flex;
+  gap: 6px;
+}
+.workspace-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.workspace-links {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.workspace-links line {
+  stroke: #7d96aa;
+  stroke-width: 2;
+}
+.workspace-link {
+  pointer-events: auto;
+  max-width: 160px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  background: var(--surface, white);
+  border: 1px solid var(--line);
+}
+.focus-document {
+  opacity: 0.18;
+}
+.workspace-toolbar {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface, white);
+  box-shadow: 0 2px 14px #0001;
+  max-width: calc(100% - 40px);
+}
+.workspace-toolbar span {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 8px;
+}
+.workspace-notice,
+.workspace-error {
+  position: absolute;
+  top: 12px;
+  left: 20px;
+  padding: 8px 12px;
+  background: var(--surface, white);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  max-width: calc(100% - 40px);
+}
+.workspace-error {
+  top: 54px;
+  color: #c04040;
+}
+.workspace-relations {
+  position: absolute;
+  right: 16px;
+  bottom: 78px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 6px;
+  background: var(--surface, white);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.workspace-relations label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.workspace-relations input {
+  width: 160px;
+}
+.workspace-source-focus {
+  position: absolute;
+  background: #91c0ed55;
+  outline: 1px solid #709ec8;
+  pointer-events: none;
+}
