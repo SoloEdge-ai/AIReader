@@ -24,6 +24,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Reader palette and workspace menu UI acceptance
+        run: pnpm test:reader-ui
       - name: Set artifact version
         shell: pwsh
         run: |
@@ -93,7 +95,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aireader-ui-screenshots-${{ github.sha }}
-          path: .local/screenshots/*.png
+          path: |
+            .local/screenshots/*.png
+            test-results/*.png
           retention-days: 30
           if-no-files-found: warn
       - name: Checksums

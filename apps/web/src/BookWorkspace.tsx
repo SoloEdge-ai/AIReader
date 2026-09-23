@@ -51,6 +51,7 @@ export const BookWorkspace = forwardRef<
     book: Book;
     page: number;
     toolPreferences: ToolPreferences;
+    toolbarHost?: HTMLElement | null;
     workspaceEvent?: number;
     onAnnotationColor?: (annotation: Annotation, color: Annotation["color"]) => Promise<void>;
     onAnnotationDelete?: (annotation: Annotation) => Promise<void>;
@@ -81,6 +82,9 @@ export const BookWorkspace = forwardRef<
   >();
   const [linkFrom, setLinkFrom] = useState<string>();
   const [focus, setFocus] = useState(false);
+  const [toolbarOpen, setToolbarOpen] = useState(false);
+  const toolbarMenu = useRef<HTMLDivElement>(null);
+  const toolbarTrigger = useRef<HTMLButtonElement>(null);
   const [showOverview, setShowOverview] = useState(false);
   const [documentWidth, setDocumentWidth] = useState(0);
   const [navigation, setNavigation] = useState<{
@@ -93,6 +97,24 @@ export const BookWorkspace = forwardRef<
   const [exportError, setExportError] = useState("");
   const [inkError, setInkError] = useState("");
   const [materialBusy, setMaterialBusy] = useState(false);
+  useEffect(() => {
+    if (!toolbarOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!toolbarMenu.current?.contains(event.target as Node)) setToolbarOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.preventDefault();
+      setToolbarOpen(false);
+      toolbarTrigger.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [toolbarOpen]);
   const inkCanvas = useRef<InkCanvasHandle>(null);
   const projectedInk = useRef<ProjectedInk[]>([]);
   const projectedCache = useRef<{
@@ -1244,47 +1266,82 @@ export const BookWorkspace = forwardRef<
           onAnnotationTarget: (id) => selectTarget(id),
         }}
       />
-      <div className="workspace-toolbar" role="toolbar" aria-label="工作区工具">
+      {props.toolbarHost && createPortal(<div className="workspace-menu" ref={toolbarMenu}>
+        <button
+          ref={toolbarTrigger}
+          aria-label={`工作区操作，${state.status}`}
+          aria-haspopup="menu"
+          aria-expanded={toolbarOpen}
+          title="工作区操作"
+          onClick={() => {
+            setToolbarOpen(!toolbarOpen);
+            if (!toolbarOpen) requestAnimationFrame(() => toolbarMenu.current
+              ?.querySelector<HTMLButtonElement>(".workspace-menu-popover button:not(:disabled)")
+              ?.focus({ preventScroll: true }));
+          }}
+        >
+          <Icon name="workspace" />
+          {state.status !== "已保存" && <span
+            className={`workspace-save-indicator ${state.status.includes("失败") ? "is-error" : ""}`}
+            aria-hidden="true"
+          />}
+        </button>
+        {toolbarOpen && <div className="workspace-menu-popover" role="menu" aria-label="工作区操作"
+          onKeyDown={(event) => {
+            const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+            const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+            const next = event.key === "ArrowDown" ? (current + 1) % buttons.length
+              : event.key === "ArrowUp" ? (current + buttons.length - 1) % buttons.length
+              : event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : -1;
+            if (next < 0 || !buttons.length) return;
+            event.preventDefault();
+            buttons[next].focus({ preventScroll: true });
+          }}>
         <button
           aria-label="＋ 笔记卡片"
           disabled={!state.value}
-          onClick={() => add()}
+          role="menuitem"
+          onClick={() => { add(); setToolbarOpen(false); }}
         >
           <Icon name="plus" /> 笔记
         </button>
         <button
           aria-label="撤销工作区修改"
           disabled={!state.canUndo}
-          onClick={state.undo}
+          role="menuitem"
+          onClick={() => { state.undo(); setToolbarOpen(false); }}
         >
-          <Icon name="undo" />
+          <Icon name="undo" /> 撤销
         </button>
         <button
           aria-label="重做工作区修改"
           disabled={!state.canRedo}
-          onClick={state.redo}
+          role="menuitem"
+          onClick={() => { state.redo(); setToolbarOpen(false); }}
         >
-          <Icon name="redo" />
+          <Icon name="redo" /> 重做
         </button>
-        <i className="workspace-toolbar-divider" />
-        <button onClick={locateDocument} title="回到当前阅读页">
+        <i className="workspace-menu-divider" />
+        <button role="menuitem" onClick={() => { locateDocument(); setToolbarOpen(false); }} title="回到当前阅读页">
           <Icon name="book" />
           定位正文
         </button>
-        <button onClick={overview} title="缩小并查看画布内容">
+        <button role="menuitem" onClick={() => { overview(); setToolbarOpen(false); }} title="缩小并查看画布内容">
           <Icon name="fit" />
           查看全部
         </button>
         <button
           aria-label="聚焦正文"
           title="淡化笔记，聚焦正文"
-          aria-pressed={focus}
-          onClick={() => setFocus(!focus)}
+          role="menuitemcheckbox"
+          aria-checked={focus}
+          onClick={() => { setFocus(!focus); setToolbarOpen(false); }}
         >
-          <Icon name="focus" />
+          <Icon name="focus" /> 聚焦正文
         </button>
         {returnPosition && (
           <button
+            role="menuitem"
             onClick={() => {
               viewport.current?.scrollTo({
                 left: returnPosition.x * props.zoom,
@@ -1292,24 +1349,27 @@ export const BookWorkspace = forwardRef<
               });
               setReturnPosition(undefined);
               setSourceFocus(undefined);
+              setToolbarOpen(false);
             }}
           >
             返回卡片位置
           </button>
         )}
-        <i className="workspace-toolbar-divider" />
+        <i className="workspace-menu-divider" />
         <button
           aria-label="打包工作区"
           title="打包 PDF、笔记、连线及附件"
           disabled={exporting || !state.value}
-          onClick={() => void exportWorkspace()}
+          role="menuitem"
+          onClick={() => { void exportWorkspace(); setToolbarOpen(false); }}
         >
-          <Icon name="download" />
+          <Icon name="download" /> 打包工作区
         </button>
         <span role="status" aria-label="工作区保存状态">
           {state.status}
         </span>
-      </div>
+        </div>}
+      </div>, props.toolbarHost)}
       {showOverview && (
         <aside className="workspace-overview" aria-label="工作区总览">
           <header>

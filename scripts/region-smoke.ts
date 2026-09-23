@@ -37,11 +37,13 @@ try {
   const card = page.locator(".workspace-card.region");
   await expect(card).toHaveCount(1);
   await expect.poll(() => card.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
-  await page.getByRole("button", { name: "撤销工作区修改" }).click();
+  await page.getByRole("button", { name: /工作区操作/ }).click();
+  await page.getByRole("menuitem", { name: "撤销工作区修改" }).click();
   await expect(card).toHaveCount(0);
-  await page.getByRole("button", { name: "重做工作区修改" }).click();
+  await page.getByRole("button", { name: /工作区操作/ }).click();
+  await page.getByRole("menuitem", { name: "重做工作区修改" }).click();
   await expect(card).toHaveCount(1);
-  await expect(page.getByRole("status", { name: "工作区保存状态" })).toContainText("已保存");
+  await expect(page.getByRole("button", { name: "工作区操作，已保存" })).toBeVisible();
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.screenshot({ path: ".local/screenshots/region-card.png" });
   const saved = await (await page.request.get(`${origin}/api/books/${book.id}/workspace`)).json();

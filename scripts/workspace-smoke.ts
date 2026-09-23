@@ -61,15 +61,14 @@ try {
   await expect(palette).toHaveAttribute("data-dock", "right");
   await page.getByRole("button", { name: /展开工具盘，当前指针/ }).click();
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "＋ 笔记卡片" }).click();
+  await page.getByRole("button", { name: /工作区操作/ }).click();
+  await page.getByRole("menuitem", { name: "＋ 笔记卡片" }).click();
   await page
     .getByRole("textbox", { name: "个人笔记内容", exact: true })
     .fill("A durable personal interpretation.");
   await page.getByRole("textbox", { name: "个人笔记内容", exact: true }).press("Escape");
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
-  await expect(
-    page.getByRole("status", { name: "工作区保存状态" }),
-  ).toContainText("已保存");
+  await expect(page.getByRole("button", { name: "工作区操作，已保存" })).toBeVisible();
 
   // Cards dock beside the document even when keyboard movement aims into its column.
   const card = page.locator(".workspace-card").first();
@@ -82,7 +81,8 @@ try {
     cardRect.x >= pdfRect.x + pdfRect.width ||
       cardRect.x + cardRect.width <= pdfRect.x,
   ).toBe(true);
-  await page.getByRole("button", { name: "定位正文", exact: true }).click();
+  await page.getByRole("button", { name: /工作区操作/ }).click();
+  await page.getByRole("menuitem", { name: "定位正文", exact: true }).click();
   const centered = (await page.locator("#page-1").boundingBox())!;
   const view = (await page.locator(".pdf-scroll").boundingBox())!;
   const clientWidth = await page
@@ -236,9 +236,7 @@ try {
   await page.mouse.down({ button: "right" });
   await page.mouse.move(header.x + 100, header.y + 12, { steps: 5 });
   await page.mouse.up({ button: "right" });
-  await expect(
-    page.getByRole("status", { name: "工作区保存状态" }),
-  ).toContainText("已保存");
+  await expect(page.getByRole("button", { name: "工作区操作，已保存" })).toBeVisible();
   expect((await (await context.request.get(endpoint)).json()).cards).toEqual(
     geometry,
   );
@@ -251,7 +249,8 @@ try {
   await page.locator(".workspace-objects").waitFor({ state: "attached" });
   await expect.poll(async () => (await measure()).scale).toBe(originZoom);
   const downloadEvent = page.waitForEvent("download");
-  await page.getByRole("button", { name: "打包工作区", exact: true }).click();
+  await page.getByRole("button", { name: /工作区操作/ }).click();
+  await page.getByRole("menuitem", { name: "打包工作区", exact: true }).click();
   const download = await downloadEvent;
   const archiveFile = await download.path();
   if (!archiveFile) throw new Error("Missing workspace download");
