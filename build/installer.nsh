@@ -6,6 +6,7 @@
 !macroend
 
 !ifndef BUILD_UNINSTALLER
+  !include "FileFunc.nsh"
   !include "nsDialogs.nsh"
   !include "WordFunc.nsh"
   !include "x64.nsh"
@@ -15,6 +16,27 @@
   Var aiInstalledVersion
   Var aiInstallRadio
   Var aiUpdateRadio
+
+  ; The builder checks the command line and machine-wide registry before showing
+  ; the install-mode page. Reject both routes before its multi-user init runs.
+  !macro preInit
+    ${GetParameters} $R0
+    ${GetOptions} $R0 "/allusers" $R1
+    ${IfNot} ${Errors}
+      IfSilent +2
+        MessageBox MB_ICONSTOP "此安装包只支持当前 Windows 用户。"
+      SetErrorLevel 4
+      Abort
+    ${EndIf}
+    SetRegView 64
+    ReadRegStr $R1 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
+    ${If} $R1 != ""
+      IfSilent +2
+        MessageBox MB_ICONSTOP "检测到全局安装的 AIReader。请先卸载该版本，再安装当前用户版本。"
+      SetErrorLevel 4
+      Abort
+    ${EndIf}
+  !macroend
 
   !macro customInit
     ReadRegStr $0 HKLM "SOFTWARE\Microsoft\Windows NT\CurrentVersion" CurrentBuildNumber

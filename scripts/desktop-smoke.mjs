@@ -1,4 +1,4 @@
-import { _electron as electron, chromium } from "@playwright/test";
+import { _electron as electron, chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -18,7 +18,10 @@ await writeFile(fixture, await pdf.save());
 const env = {
   ...process.env,
   ELECTRON_RUN_AS_NODE: undefined,
-  AIREADER_DATA: resolve(".local/desktop-library"),
+  AIREADER_DATA:
+    process.env.AIREADER_SMOKE_USE_DEFAULT === "1"
+      ? undefined
+      : resolve(process.env.AIREADER_SMOKE_DATA ?? ".local/desktop-library"),
 };
 const portable = process.argv[2]?.includes("Portable-");
 let app;
@@ -70,13 +73,34 @@ try {
   await page
     .getByRole("heading", { name: "书库", exact: true })
     .waitFor({ timeout: 15000 });
+  if (process.env.AIREADER_EXPECT_EXISTING === "1") {
+    await expect(page.locator(".book-card")).toHaveCount(1);
+    await page.locator(".book-card").click();
+    if (!(await page.locator(".notes-panel").isVisible()))
+      await page.getByLabel("笔记", { exact: true }).click();
+    await page.getByRole("button", { name: /Installer continuity note/ }).click();
+    await expect(page.locator(".tiptap")).toContainText(
+      "Note retained through installer update.",
+    );
+    await page.getByRole("button", { name: "返回书库" }).click();
+  }
   await page
     .locator("input[type=file]")
     .setInputFiles(process.argv[3] ?? fixture);
   await page.locator(".textLayer span").first().waitFor({ timeout: 20000 });
   await page.locator('[data-book-status="ready"]').waitFor({ timeout: 30000 });
+  if (process.env.AIREADER_CREATE_NOTE === "1") {
+    await page.getByLabel("笔记", { exact: true }).click();
+    await page.getByRole("button", { name: "新建笔记" }).click();
+    await page
+      .getByLabel("笔记标题", { exact: true })
+      .fill("Installer continuity note");
+    await page.locator(".tiptap").fill("Note retained through installer update.");
+    await expect(page.getByText("已保存", { exact: true })).toBeVisible();
+  }
   await page.screenshot({ path: ".local/screenshots/desktop.png" });
-  await page.getByRole("button", { name: "问答", exact: true }).click();
+  if (!(await page.locator(".side-panel").isVisible()))
+    await page.getByRole("button", { name: "问答", exact: true }).click();
   await page.locator(".side-panel").waitFor();
   await page.getByRole("button", { name: "收起侧栏" }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
