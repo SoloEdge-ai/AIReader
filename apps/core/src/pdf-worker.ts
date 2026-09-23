@@ -172,7 +172,12 @@ async function parse(workerData: ParseInput) {
 }
 // If Core exits, this parser must not continue as an orphan process.
 process.once("disconnect", () => process.exit(0));
-process.once("message", (input: ParseInput) => {
+// Keep the IPC channel referenced throughout asynchronous parsing. A once-listener
+// is removed before parse settles and can let an idle child exit with code 0.
+let started = false;
+process.on("message", (input: ParseInput) => {
+  if (started) return;
+  started = true;
   void parse(input)
     .catch(async (error) => {
       if (!process.connected) return;
