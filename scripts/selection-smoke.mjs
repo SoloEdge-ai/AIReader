@@ -29,6 +29,8 @@ try {
     .setInputFiles(fixture);
   const text = page.locator("#page-1 .textLayer span").first();
   await text.waitFor();
+  await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  await page.locator('[data-book-status="ready"]').waitFor();
   const toolbar = page.locator(".selection-bar");
   // Browsing is the default. Text selection must be an explicit tool choice.
   const browseBox = await text.boundingBox();
@@ -38,6 +40,7 @@ try {
   await page.mouse.up();
   await expect(toolbar).toHaveCount(0);
   await page.getByRole("button", { name: "选择文字（T）" }).click();
+  await expect(page.getByRole("button", { name: "选择文字（T）" })).toHaveAttribute("aria-pressed", "true");
   async function selectPassage(startFraction = 0) {
     await text.scrollIntoViewIfNeeded();
     const box = await text.boundingBox();
