@@ -39,7 +39,9 @@ try {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(base);
-  await page.locator("input[type=file]").setInputFiles(file);
+  await page
+    .locator('input[type=file][accept="application/pdf"]')
+    .setInputFiles(file);
   await page.locator('[data-book-status="ready"]').waitFor();
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
   await expect(

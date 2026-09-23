@@ -197,6 +197,16 @@ export class WorkspaceArchives {
     const files = unzipSync(bytes, {
       filter: (file) => {
         if (
+          ![0, 8].includes(file.compression) ||
+          !Number.isSafeInteger(file.size) ||
+          !Number.isSafeInteger(file.originalSize) ||
+          file.size < 0 ||
+          file.originalSize < 0 ||
+          file.size > bytes.length ||
+          (file.compression === 0 && file.size !== file.originalSize)
+        )
+          throw new Error("工作区压缩数据大小或格式无效");
+        if (
           !/^(document\.pdf|workspace\.json|assets\/[a-zA-Z0-9_-]{1,100}\.png)$/.test(
             file.name,
           ) ||

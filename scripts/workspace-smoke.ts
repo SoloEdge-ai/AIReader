@@ -183,6 +183,43 @@ try {
   await expect(
     page.getByRole("textbox", { name: "个人笔记内容", exact: true }),
   ).toHaveValue("A durable personal interpretation.");
+  await card.locator("header").scrollIntoViewIfNeeded();
+  const geometry = (await (await context.request.get(endpoint)).json()).cards;
+  const header = (await card.locator("header").boundingBox())!;
+  await page.mouse.move(header.x + 30, header.y + 12);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(header.x + 100, header.y + 12, { steps: 5 });
+  await page.mouse.up({ button: "right" });
+  await expect(
+    page.getByRole("status", { name: "工作区保存状态" }),
+  ).toContainText("已保存");
+  expect((await (await context.request.get(endpoint)).json()).cards).toEqual(
+    geometry,
+  );
+  // Clamping at the canvas origin must not prevent a changed zoom being persisted.
+  await page.locator(".pdf-scroll").evaluate((el) => el.scrollTo(0, 0));
+  await page.getByRole("button", { name: "缩小", exact: true }).click();
+  const originZoom = (await measure()).scale;
+  await page.getByRole("button", { name: "返回书库" }).click();
+  await page.getByRole("button", { name: /Workspace acceptance/ }).click();
+  await page.locator(".workspace-objects").waitFor({ state: "attached" });
+  await expect.poll(async () => (await measure()).scale).toBe(originZoom);
+  const downloadEvent = page.waitForEvent("download");
+  await page.getByRole("button", { name: "打包工作区", exact: true }).click();
+  const download = await downloadEvent;
+  const archiveFile = await download.path();
+  if (!archiveFile) throw new Error("Missing workspace download");
+  await page.getByRole("button", { name: "返回书库" }).click();
+  await page
+    .getByLabel("选择工作区包", { exact: true })
+    .setInputFiles(archiveFile);
+  await expect(page.locator(".reader")).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "个人笔记内容", exact: true }),
+  ).toHaveValue("A durable personal interpretation.");
+  expect(
+    await (await context.request.get(origin + "/api/books")).json(),
+  ).toHaveLength(2);
   expect(errors).toEqual([]);
   console.log(
     "Workspace persistence, Ctrl-wheel cursor anchoring, ordinary scroll, beyond-document zoom and navigation guard passed.",

@@ -574,6 +574,15 @@ export function PdfReader({
     bottom += page.height + 24;
     return page;
   });
+  function captureCamera(el: HTMLDivElement) {
+    worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+    if (workspace && restoredCamera.current)
+      workspace.onCamera({
+        x: el.scrollLeft / zoom,
+        y: el.scrollTop / zoom,
+        zoom,
+      });
+  }
   useLayoutEffect(() => {
     const el = scroll.current,
       p = position.current,
@@ -595,7 +604,7 @@ export function PdfReader({
           ? camera.y * zoom
           : (worldPages[initialPage - 1]?.y ?? 40) * zoom - 20,
       });
-      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+      captureCamera(el);
       return;
     }
     const navigation = workspace?.navigation;
@@ -603,13 +612,13 @@ export function PdfReader({
       if (Math.abs(navigation.zoom - zoom) > 0.001) return;
       navigationKey.current = navigation.key;
       el.scrollTo({ left: navigation.x * zoom, top: navigation.y * zoom });
-      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+      captureCamera(el);
       return;
     }
     if (el && wheelPosition.current) {
       el.scrollTo(wheelPosition.current);
       wheelPosition.current = undefined;
-      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+      captureCamera(el);
       return;
     }
     if (el && workspace && worldCamera.current) {
@@ -621,7 +630,7 @@ export function PdfReader({
         left: (previous.left + el.clientWidth / 2) * ratio - el.clientWidth / 2,
         top: (previous.top + 20) * ratio - 20,
       });
-      worldCamera.current = { left: el.scrollLeft, top: el.scrollTop, zoom };
+      captureCamera(el);
       return;
     }
     if (node && el) {
@@ -635,18 +644,7 @@ export function PdfReader({
   const report = () => {
     const el = scroll.current;
     if (!el) return;
-    if (workspace)
-      worldCamera.current = {
-        left: el.scrollLeft,
-        top: el.scrollTop,
-        zoom,
-      };
-    if (workspace && restoredCamera.current)
-      workspace.onCamera({
-        x: el.scrollLeft / zoom,
-        y: el.scrollTop / zoom,
-        zoom,
-      });
+    if (workspace) captureCamera(el);
     const top = el.scrollTop + 20,
       node = Array.from(el.querySelectorAll<HTMLElement>("[data-page]")).find(
         (p) => p.offsetTop + p.offsetHeight > top,
@@ -690,7 +688,7 @@ export function PdfReader({
           space.current ||
           (event.button === 2 &&
             !target.closest(
-              ".workspace-card,button,input,textarea,select,[contenteditable]",
+              "button:not(.workspace-resize),input,textarea,select,[contenteditable]",
             )) ||
           (event.button === 0 &&
             (target === scroll.current ||

@@ -30,7 +30,9 @@ try {
   });
   const page = await context.newPage();
   await page.goto(base);
-  await page.locator("input[type=file]").setInputFiles(file);
+  await page
+    .locator('input[type=file][accept="application/pdf"]')
+    .setInputFiles(file);
   await page.locator('[data-book-status="ready"]').waitFor();
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
   const panel = page.locator(".side-panel");

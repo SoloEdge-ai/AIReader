@@ -342,7 +342,9 @@ export const BookWorkspace = forwardRef<
               width: card.width,
               height: card.height,
             }}
-            onPointerDown={() => select(card)}
+            onPointerDown={(event) => {
+              if (event.button === 0) select(card);
+            }}
           >
             <header
               tabIndex={0}
@@ -385,6 +387,7 @@ export const BookWorkspace = forwardRef<
                 }
               }}
               onPointerDown={(event) => {
+                if (event.button !== 0) return;
                 if ((event.target as HTMLElement).closest("button,input"))
                   return;
                 event.preventDefault();
@@ -488,6 +491,7 @@ export const BookWorkspace = forwardRef<
               className="workspace-resize"
               aria-label="调整卡片大小"
               onPointerDown={(event) => {
+                if (event.button !== 0) return;
                 event.preventDefault();
                 event.currentTarget.setPointerCapture(event.pointerId);
                 pointer.current = {
@@ -596,7 +600,13 @@ export const BookWorkspace = forwardRef<
           onDocumentWidth: setDocumentWidth,
           navigation,
           onCamera: (camera) => {
-            if (state.value) state.change({ ...state.value, camera }, false);
+            if (
+              state.value &&
+              (state.value.camera?.x !== camera.x ||
+                state.value.camera?.y !== camera.y ||
+                state.value.camera?.zoom !== camera.zoom)
+            )
+              state.change({ ...state.value, camera }, false);
           },
           width: Math.max(
             WORKSPACE_DOCUMENT_X * 2 + documentWidth,

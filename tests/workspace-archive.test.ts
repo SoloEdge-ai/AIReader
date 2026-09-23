@@ -142,6 +142,14 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     ).toEqual(restoredWorkspace);
     // An archive cannot smuggle paths or substitute another source PDF.
     const files = unzipSync(archive);
+    // A stored entry's compressed length controls allocation; do not trust a forged original size.
+    const malformed = Buffer.from(archive);
+    const central = malformed.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    expect(central).toBeGreaterThan(0);
+    malformed.writeUInt32LE(1, central + 24);
+    const malformedResponse = await request("workspace-archives", malformed);
+    expect(malformedResponse.status).toBe(400);
+    expect((await malformedResponse.json()).error).toContain("压缩数据");
     files["../outside.txt"] = strToU8("bad");
     expect((await request("workspace-archives", zipSync(files))).status).toBe(
       400,
