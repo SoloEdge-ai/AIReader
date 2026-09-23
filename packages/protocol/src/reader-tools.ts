@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-export const ReaderToolSchema = z.enum(["pointer", "text", "region", "sticky", "pen", "highlighter", "eraser"]);
+export const ReaderToolSchema = z.enum([
+  "pointer", "text", "region", "sticky", "pen", "highlighter", "eraser",
+  "free-text", "note-card", "rectangle", "ellipse", "line", "arrow", "link", "lasso",
+]);
 export type ReaderTool = z.infer<typeof ReaderToolSchema>;
 
 export const BrushStyleSchema = z.object({

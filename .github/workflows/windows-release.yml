@@ -41,6 +41,8 @@ jobs:
         run: node --import tsx scripts/region-smoke.ts
       - name: Cross-page ink and eraser acceptance
         run: node --import tsx scripts/ink-smoke.ts
+      - name: Canvas objects and annotation links acceptance
+        run: node --import tsx scripts/objects-smoke.ts
       - name: Chat HTTP and UI acceptance
         run: node --import tsx scripts/chat-smoke.ts
       - name: Screenshot input and panel resize acceptance
@@ -64,6 +66,10 @@ jobs:
         run: node scripts/ink-packaged-smoke.mjs release/win-unpacked/AIReader.exe
         env:
           AIREADER_CI: "1"
+      - name: Packaged canvas objects acceptance
+        run: node scripts/objects-packaged-smoke.mjs release/win-unpacked/AIReader.exe
+        env:
+          AIREADER_CI: "1"
       - name: Packaged desktop smoke test
         shell: pwsh
         run: |
@@ -72,6 +78,7 @@ jobs:
         env:
           AIREADER_CI: "1"
       - name: Installer, update, and uninstall acceptance
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $installer = @(Get-ChildItem release/AIReader-Setup-*-x64.exe)
@@ -79,6 +86,14 @@ jobs:
           ./scripts/installer-smoke.ps1 -Installer $installer[0].FullName -ExpectedVersion '0.1.${{ github.run_number }}'
         env:
           AIREADER_CI: "1"
+      - name: UI review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aireader-ui-screenshots-${{ github.sha }}
+          path: .local/screenshots/*.png
+          retention-days: 30
+          if-no-files-found: warn
       - name: Checksums
         shell: pwsh
         run: |

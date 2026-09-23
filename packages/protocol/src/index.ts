@@ -175,7 +175,8 @@ export interface CoreEvent {
     | "account"
     | "runtime"
     | "annotation"
-    | "note";
+    | "note"
+    | "workspace";
   bookId?: string;
   taskId?: string;
   data?: unknown;

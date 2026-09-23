@@ -45,8 +45,11 @@ function apply(snapshot: BookWorkspace, changes: WorkspaceCommand[]): BookWorksp
   return { ...snapshot, cards: [...cards.values()], objects: [...objects.values()], links: [...links.values()] };
 }
 
+type ExternalHistory = { kind: "external"; undo: () => Promise<void>; redo: () => Promise<void> };
+type HistoryEntry = WorkspaceCommand[] | ExternalHistory;
+
 /** Book-local command queue; failures preserve the exact idempotency key and unsaved draft. */
-export function useWorkspace(bookId: string) {
+export function useWorkspace(bookId: string, externalEndpointIds: string[] = []) {
   const [value, setValue] = useState<BookWorkspace>();
   const [status, setStatus] = useState("正在加载工作区…");
   const [error, setError] = useState("");
@@ -56,12 +59,17 @@ export function useWorkspace(bookId: string) {
   const viewGeneration = useRef(0), viewSaved = useRef(0);
   const inFlight = useRef<{ batch: WorkspaceCommandBatch; generation: number } | undefined>(undefined);
   const pending = useRef<Promise<boolean>>(undefined);
-  const history = useRef<WorkspaceCommand[][]>([]);
-  const redoHistory = useRef<WorkspaceCommand[][]>([]);
+  const history = useRef<HistoryEntry[]>([]);
+  const redoHistory = useRef<HistoryEntry[]>([]);
+  const [, setHistoryVersion] = useState(0);
+  const historyChanged = () => setHistoryVersion((value) => value + 1);
+  const historyQueue = useRef<Promise<void>>(Promise.resolve());
   const live = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const externalIds = useRef(new Set(externalEndpointIds));
+  externalIds.current = new Set(externalEndpointIds);
 
-  async function reload() {
+  async function reload(preserveHistory = false) {
     clearTimeout(timer.current);
     if (pending.current) await pending.current;
     if (generation.current !== saved.current) {
@@ -76,8 +84,11 @@ export function useWorkspace(bookId: string) {
       generation.current = saved.current = 0;
       viewGeneration.current = viewSaved.current = 0;
       inFlight.current = undefined;
-      history.current = [];
-      redoHistory.current = [];
+      if (!preserveHistory) {
+        history.current = [];
+        redoHistory.current = [];
+      }
+      historyChanged();
       setValue(initial);
       setError("");
       setStatus("已保存");
@@ -160,14 +171,19 @@ export function useWorkspace(bookId: string) {
     const previous = draft.current;
     if (!previous) return;
     let next = typeof update === "function" ? update(previous) : update;
+    const previousInternal = new Set([...previous.cards.map((card) => card.id),
+      ...previous.objects.map((object) => object.id)]);
     const remaining = new Set([...next.cards.map((card) => card.id),
-      ...next.objects.map((object) => object.id)]);
+      ...next.objects.map((object) => object.id), ...externalIds.current,
+      ...previous.links.flatMap((link) => [link.from, link.to])
+        .filter((id) => !previousInternal.has(id))]);
     const links = next.links.filter((link) => remaining.has(link.from) && remaining.has(link.to));
     if (links.length !== next.links.length) next = { ...next, links };
     const changes = difference(previous, next);
     if (remember && changes.length) {
       history.current = [...history.current.slice(-99), difference(next, previous)];
       redoHistory.current = [];
+      historyChanged();
     }
     draft.current = next;
     if (changes.length) generation.current++;
@@ -177,21 +193,43 @@ export function useWorkspace(bookId: string) {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), 500);
   }
-  function undo() {
+  function enqueueHistory(action: () => Promise<void>) {
+    const queued = historyQueue.current.then(action);
+    historyQueue.current = queued.catch(() => {});
+    return queued;
+  }
+  function undo() { return enqueueHistory(async () => {
     const inverse = history.current.pop();
-    if (inverse && draft.current) {
+    if (!inverse || !draft.current) return;
+    if (!Array.isArray(inverse)) {
+      if (!(await flush())) { history.current.push(inverse); return; }
+      try { await inverse.undo(); redoHistory.current.push(inverse); }
+      catch (cause) { history.current.push(inverse); setError(`撤销失败：${String(cause)}`); }
+    } else {
       const next = apply(draft.current, inverse);
       redoHistory.current.push(difference(next, draft.current));
       change(next, false);
     }
-  }
-  function redo() {
+    historyChanged();
+  }); }
+  function redo() { return enqueueHistory(async () => {
     const changes = redoHistory.current.pop();
-    if (changes && draft.current) {
+    if (!changes || !draft.current) return;
+    if (!Array.isArray(changes)) {
+      if (!(await flush())) { redoHistory.current.push(changes); return; }
+      try { await changes.redo(); history.current.push(changes); }
+      catch (cause) { redoHistory.current.push(changes); setError(`重做失败：${String(cause)}`); }
+    } else {
       const next = apply(draft.current, changes);
       history.current.push(difference(next, draft.current));
       change(next, false);
     }
+    historyChanged();
+  }); }
+  function recordExternal(action: ExternalHistory) {
+    history.current = [...history.current.slice(-99), action];
+    redoHistory.current = [];
+    historyChanged();
   }
   function revision() { return committed.current?.revision; }
   function acceptExternal(snapshot: BookWorkspace) {
@@ -203,6 +241,7 @@ export function useWorkspace(bookId: string) {
     if (inverse.length) {
       history.current = [...history.current.slice(-99), inverse];
       redoHistory.current = [];
+      historyChanged();
     }
     committed.current = snapshot;
     draft.current = snapshot;
@@ -210,6 +249,6 @@ export function useWorkspace(bookId: string) {
     setStatus("已保存");
     setError("");
   }
-  return { value, status, error, change, undo, redo, flush, reload, revision, acceptExternal,
+  return { value, status, error, change, undo, redo, recordExternal, flush, reload, revision, acceptExternal,
     canUndo: history.current.length > 0, canRedo: redoHistory.current.length > 0 };
 }

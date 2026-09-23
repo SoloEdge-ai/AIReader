@@ -96,6 +96,13 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     });
     expect(regionResponse.status).toBe(201);
     const region = await regionResponse.json();
+    const linkedWorkspace = await (await request(`books/${book.id}/workspace`)).json();
+    const linkedResponse = await request(`books/${book.id}/workspace/commands`, {
+      bookId: book.id, commandId: "archive-annotation-link", expectedVersion: linkedWorkspace.revision,
+      changes: [{ type: "upsert-link", link: { id: "annotation-link", from: annotation.id,
+        to: card.id, label: "explains" } }],
+    });
+    expect(linkedResponse.status).toBe(200);
     const download = await request(`books/${book.id}/workspace/archive`);
     expect(download.status).toBe(200);
     const archive = new Uint8Array(await download.arrayBuffer());
@@ -141,6 +148,9 @@ test("workspace package restores PDF, notes, region image, links and camera as a
       anchors: annotation.anchors,
     });
     expect(annotations[0].id).not.toBe(annotation.id);
+    expect(restoredWorkspace.links[1]).toMatchObject({
+      from: annotations[0].id, to: restoredWorkspace.cards[0].id, label: "explains",
+    });
     expect(
       (
         await request(

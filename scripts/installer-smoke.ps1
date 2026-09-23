@@ -31,14 +31,26 @@ function Machine-Entry {
 }
 
 function Invoke-Setup([string[]]$Arguments, [int]$ExpectedExit = 0) {
-  $process = Start-Process -FilePath $Installer -ArgumentList $Arguments -PassThru -Wait -WindowStyle Hidden
+  Write-Output "Installer check: $($Arguments -join ' ')"
+  $process = Start-Process -FilePath $Installer -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+  if (-not $process.WaitForExit(180000)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw "Installer did not exit within three minutes for $($Arguments -join ' ')"
+  }
   if ($process.ExitCode -ne $ExpectedExit) {
     throw "Installer returned $($process.ExitCode); expected $ExpectedExit for $($Arguments -join ' ')"
   }
+  Write-Output "Installer exit: $($process.ExitCode)"
 }
 
 function Assert-Installed([string]$ExpectedDir) {
-  $entry = @(Installed-Entry)
+  for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    $entry = @(Installed-Entry)
+    if ($entry.Count -eq 1 -and $entry[0].DisplayVersion -eq $ExpectedVersion -and
+        (Test-Path -LiteralPath (Join-Path $ExpectedDir 'AIReader.exe')) -and
+        (Test-Path -LiteralPath $startMenu) -and (Test-Path -LiteralPath $desktop)) { break }
+    Start-Sleep -Seconds 1
+  }
   if ($entry.Count -ne 1 -or $entry[0].DisplayVersion -ne $ExpectedVersion) {
     $found = ($entry | ForEach-Object { "$($_.DisplayName) [$($_.DisplayVersion)]" }) -join ', '
     throw "Installer did not register exactly one current-user installation with version $ExpectedVersion; found $($entry.Count): $found"
@@ -76,12 +88,14 @@ function Invoke-Uninstall([object]$Entry, [string]$ExpectedDir) {
   # Exercise the normal installed uninstall command, including NSIS self-copy.
   # Its launcher can return 0 before the real uninstaller finishes, so actual
   # filesystem/registry/shortcut postconditions below remain mandatory.
-  $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'AIReader.exe'" |
-    Select-Object ProcessId, ParentProcessId, ExecutablePath, CommandLine)
-  if ($remaining.Count) { Write-Output ($remaining | ConvertTo-Json -Depth 3) }
+  Write-Output "Uninstall check: $ExpectedDir"
   $mainExecutable = Join-Path $ExpectedDir 'AIReader.exe'
   Write-Output (Get-Item -LiteralPath $mainExecutable | Select-Object FullName,Length,Attributes | ConvertTo-Json)
-  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser') -PassThru -Wait -WindowStyle Hidden
+  $process = Start-Process -FilePath $uninstaller -ArgumentList @('/S', '/currentuser') -PassThru -WindowStyle Hidden
+  if (-not $process.WaitForExit(180000)) {
+    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    throw 'Uninstaller did not exit within three minutes.'
+  }
   if ($process.ExitCode -ne 0) { throw "Uninstaller returned $($process.ExitCode)" }
   for ($attempt = 0; $attempt -lt 30; $attempt++) {
     if (-not (Test-Path -LiteralPath $ExpectedDir) -and
@@ -123,6 +137,7 @@ New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
 Set-Content -LiteralPath $marker -Value 'keep-data-on-update-and-uninstall' -Encoding ascii
 try {
   # No /D: verify the real default path and the app's default data location.
+  Write-Output 'Default install and launch'
   Invoke-Setup @('/S', '/currentuser')
   $entry = Assert-Installed $defaultProgramDir
   $env:AIREADER_SMOKE_USE_DEFAULT = '1'
@@ -133,14 +148,17 @@ try {
   Remove-Item Env:AIREADER_CREATE_NOTE
   Remove-Item Env:AIREADER_BLOCK_SETUP
 
+  Write-Output 'Same-version update and preserved data'
   Invoke-Setup @('/S', '/currentuser')
   $entry = Assert-Installed $defaultProgramDir
   Assert-Data
   $env:AIREADER_EXPECT_EXISTING = '1'
   node scripts/desktop-smoke.mjs (Join-Path $defaultProgramDir 'AIReader.exe')
   if ($LASTEXITCODE -ne 0) { throw 'Installed application could not read its existing book and note.' }
+  Write-Output 'Existing profile continuity passed'
   Remove-Item Env:AIREADER_EXPECT_EXISTING
 
+  Write-Output 'Downgrade guard'
   Set-ItemProperty -LiteralPath $entry.PSPath -Name DisplayVersion -Value '999.0.0'
   try {
     Invoke-Setup @('/S', '/currentuser') 3
@@ -150,6 +168,7 @@ try {
   Invoke-Uninstall $entry $defaultProgramDir
 
   # A custom first install must be upgraded at its registered path, without /D.
+  Write-Output 'Custom-path install and update'
   Invoke-Setup @('/S', '/currentuser', "/D=$customProgramDir")
   $entry = Assert-Installed $customProgramDir
   Invoke-Setup @('/S', '/currentuser')

@@ -37,7 +37,7 @@ export function useReaderToolController({
         return;
       }
       if ((event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) return;
-      const shortcut = ({ v: "pointer", t: "text", r: "region", p: "pen", h: "highlighter", e: "eraser" } as const)[event.key.toLowerCase() as "v" | "t" | "r" | "p" | "h" | "e"];
+      const shortcut = ({ v: "pointer", t: "text", r: "region", p: "pen", h: "highlighter", e: "eraser", l: "lasso" } as const)[event.key.toLowerCase() as "v" | "t" | "r" | "p" | "h" | "e" | "l"];
       if (shortcut && bookId) {
         event.preventDefault();
         activate(shortcut);

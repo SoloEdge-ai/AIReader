@@ -9,7 +9,19 @@ const tools = [
   { id: "pen", label: "画笔（P）", icon: "pen" },
   { id: "highlighter", label: "荧光笔（H）", icon: "highlighter" },
   { id: "eraser", label: "整笔橡皮（E）", icon: "eraser" },
+  { id: "link", label: "关系连线", icon: "link" },
+  { id: "lasso", label: "套索（L）", icon: "lasso" },
+] as const;
+const addTools = [
+  { id: "free-text", label: "文本", icon: "textSelect" },
+  { id: "note-card", label: "个人笔记卡片", icon: "note" },
   { id: "sticky", label: "页内便签", icon: "sticky" },
+] as const;
+const shapeTools = [
+  { id: "rectangle", label: "矩形", icon: "rectangle" },
+  { id: "ellipse", label: "椭圆", icon: "ellipse" },
+  { id: "line", label: "直线", icon: "line" },
+  { id: "arrow", label: "箭头", icon: "shapeArrow" },
 ] as const;
 
 export function ReaderToolPalette({
@@ -30,14 +42,11 @@ export function ReaderToolPalette({
   const dragPointer = useRef<number | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const settings = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const [menuType, setMenuType] = useState<"add" | "shape">("add");
   const [settingTool, setSettingTool] = useState<"pen" | "highlighter">("pen");
-  function updateBrush(patch: Partial<ToolPreferences["pen"]>) {
-    onPreferences({ ...preferences, [settingTool]: { ...preferences[settingTool], ...patch } });
-  }
-  function openBrush(next: "pen" | "highlighter") {
-    setSettingTool(next);
-    const panel = settings.current;
-    if (!panel || !palette.current) return;
+  function place(panel: HTMLElement) {
+    if (!palette.current) return;
     panel.showPopover();
     const bar = palette.current.getBoundingClientRect(), box = panel.getBoundingClientRect();
     const left = preferences.dock === "right" ? bar.left - box.width - 8
@@ -45,6 +54,19 @@ export function ReaderToolPalette({
     const top = preferences.dock === "bottom" ? bar.top - box.height - 8 : bar.top;
     panel.style.left = `${Math.max(8, Math.min(window.innerWidth - box.width - 8, left))}px`;
     panel.style.top = `${Math.max(8, Math.min(window.innerHeight - box.height - 8, top))}px`;
+  }
+  function openMenu(next: "add" | "shape") {
+    setMenuType(next);
+    if (settings.current?.matches(":popover-open")) settings.current.hidePopover();
+    requestAnimationFrame(() => { if (menu.current) place(menu.current); });
+  }
+  function updateBrush(patch: Partial<ToolPreferences["pen"]>) {
+    onPreferences({ ...preferences, [settingTool]: { ...preferences[settingTool], ...patch } });
+  }
+  function openBrush(next: "pen" | "highlighter") {
+    setSettingTool(next);
+    if (menu.current?.matches(":popover-open")) menu.current.hidePopover();
+    if (settings.current) place(settings.current);
   }
   useEffect(() => {
     const cancel = () => {
@@ -66,7 +88,7 @@ export function ReaderToolPalette({
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  const active = tools.find((item) => item.id === tool) ?? tools[0];
+  const active = [...tools, ...addTools, ...shapeTools].find((item) => item.id === tool) ?? tools[0];
   const style = drag
     ? ({ left: drag.x, top: drag.y, transform: "translate(-50%, -50%)" } as CSSProperties)
     : ({
@@ -143,7 +165,7 @@ export function ReaderToolPalette({
         </button>
       ) : (
         <>
-          {tools.map((item) => (
+          {tools.slice(0, 3).map((item) => (
             <button
               key={item.id}
               aria-label={item.label}
@@ -160,6 +182,28 @@ export function ReaderToolPalette({
             >
               <Icon name={item.icon} />
             </button>
+          ))}
+          <span className="palette-separator" />
+          {tools.slice(3, 6).map((item) => (
+            <button key={item.id} aria-label={item.label} title={item.label}
+              aria-pressed={tool === item.id}
+              onClick={() => {
+                if ((item.id === "pen" || item.id === "highlighter") && tool === item.id)
+                  openBrush(item.id);
+                else { if (settings.current?.matches(":popover-open")) settings.current.hidePopover(); onTool(item.id); }
+              }}><Icon name={item.icon} /></button>
+          ))}
+          <span className="palette-separator" />
+          <button aria-label="添加文本或卡片" title="添加文本或卡片"
+            aria-pressed={addTools.some((item) => item.id === tool)}
+            onClick={() => openMenu("add")}><Icon name="plus" /></button>
+          <button aria-label="添加形状" title="添加形状"
+            aria-pressed={shapeTools.some((item) => item.id === tool)}
+            onClick={() => openMenu("shape")}><Icon name="rectangle" /></button>
+          {tools.slice(6).map((item) => (
+            <button key={item.id} aria-label={item.label} title={item.label}
+              aria-pressed={tool === item.id} onClick={() => onTool(item.id)}>
+              <Icon name={item.icon} /></button>
           ))}
           <span className="palette-separator" />
           <button
@@ -198,6 +242,14 @@ export function ReaderToolPalette({
           background: preferences[settingTool].color,
           opacity: preferences[settingTool].opacity,
         }} /></div>
+      </div>
+      <div ref={menu} popover="auto" role="menu" aria-label={menuType === "add" ? "添加内容" : "添加形状"}
+        className="reader-tool-menu">
+        {(menuType === "add" ? addTools : shapeTools).map((item) =>
+          <button key={item.id} role="menuitem" onClick={() => {
+            menu.current?.hidePopover();
+            onTool(item.id);
+          }}><Icon name={item.icon} />{item.label}</button>)}
       </div>
     </div>
   );

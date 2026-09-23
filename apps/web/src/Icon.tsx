@@ -37,6 +37,11 @@ const paths = {
   crop: "M5 2v17h17M2 5h17v17",
   undo: "M8 5 3 10l5 5M3 10h11a6 6 0 0 1 0 12",
   redo: "M16 5l5 5-5 5m5-5H10a6 6 0 0 0 0 12",
+  lasso: "M5 7c3-4 11-5 14-1 3 4-1 10-7 12-5 2-10 0-10-4 0-2 3-2 4 0 3 3 3 6 1 7",
+  rectangle: "M4 5h16v14H4Z",
+  ellipse: "M12 4c5 0 9 4 9 8s-4 8-9 8-9-4-9-8 4-8 9-8Z",
+  line: "M4 20 20 4",
+  shapeArrow: "M4 20 20 4m-8 0h8v8",
 };
 export function Icon({ name }: { name: keyof typeof paths }) {
   return (
