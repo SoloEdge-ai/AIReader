@@ -1014,6 +1014,33 @@ progress::-webkit-progress-value {
 .composer-materials:empty {
   display: none;
 }
+.question-material-list { display: grid; gap: 7px; margin-bottom: 9px; }
+.question-material-heading { color: var(--muted); font-size: 11px; }
+.question-material-item {
+  border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px;
+  background: var(--surface); font-size: 12px;
+}
+.question-material-item-head { display: flex; align-items: center; gap: 6px; }
+.question-material-item-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-material-item button { border: 0; background: transparent; color: var(--muted); padding: 3px; }
+.question-material-item button:hover { color: var(--text); }
+.question-material-item details { margin-top: 5px; color: var(--muted); }
+.question-material-item details p { margin: 5px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.question-material-item details small { margin-right: 6px; color: var(--accent); }
+.question-material-item details img { display: block; max-width: 100%; max-height: 140px;
+  object-fit: contain; margin-top: 6px; border: 1px solid var(--line); }
+.question-material-item figure, .sent-material figure { margin: 6px 0 0; }
+.question-material-item figcaption, .sent-material figcaption {
+  color: var(--muted); font-size: 11px; margin-top: 4px;
+}
+.sent-materials { margin: 6px 0 12px; color: var(--muted); font-size: 12px; }
+.sent-material { padding: 8px 0; border-top: 1px solid var(--line); }
+.sent-material strong { color: var(--text); margin-right: 8px; }
+.sent-material button { border: 0; background: none; color: var(--accent); }
+.sent-material p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sent-material small { display: inline-block; margin-right: 6px; }
+.sent-material img { max-width: 100%; max-height: 180px; object-fit: contain; }
+.note-origin-materials { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; }
 .question-attachment {
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);

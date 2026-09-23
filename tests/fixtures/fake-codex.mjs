@@ -137,6 +137,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             ? `# Capacity\n\n**Bold** and *emphasis* with [safe](https://example.com) and [unsafe](javascript:alert(1)).\n\n- First item\n- Second item\n\n1. Step one\n2. Step two\n\n> Quote explanation\n\n\`\`\`ts\nconst capacity = 42;\n\`\`\`\n\nInline $n^2$ and block:\n\n$$\nE=mc^2\n$$\n\n| Input | Output |\n| --- | --- |\n| 2 | 4 |\n\n<img src=x onerror=alert(1)>\n\n![remote](https://example.invalid/private.png)\n\n${cite ? "[[" + cite + "]]" : ""}`
             : question.includes("NOTES_NO_SOURCE")
               ? "General explanation without a book citation."
+              : question.includes("CHECK_MATERIAL")
+                ? `Materials received: ${JSON.stringify({ pictures, materialPrompt: prompt.split("\n本轮显式选择的材料")[1] ?? "MISSING" })}`
               : question.includes("CHECK_IMAGE")
                 ? `Images received: ${pictures.length}; ${pictures.join("; ")}`
                 : prompt === "CONFIG"

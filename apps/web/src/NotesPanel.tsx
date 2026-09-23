@@ -365,10 +365,14 @@ export function NotesPanel({
   bookId,
   state,
   onJump,
+  onAddToQuestion,
+  onAddAnnotation,
 }: {
   bookId: string;
   state: BookNotes;
   onJump: (page: number, anchor?: SourceAnchor) => void;
+  onAddToQuestion?: (note: Note) => Promise<void>;
+  onAddAnnotation?: (annotation: Annotation) => Promise<void>;
 }) {
   const [query, setQuery] = useState(""),
     [kind, setKind] = useState(""),
@@ -383,6 +387,9 @@ export function NotesPanel({
   }, [bookId]);
   const selected = state.notes.find((n) => n.id === state.selected),
     annotation = state.annotations.find((a) => a.id === selected?.annotationId);
+  const materialImageIds = new Set(selected?.origin?.materials?.flatMap((material) =>
+    material.images.map((image) => image.id)) ?? []);
+  const questionImages = selected?.origin?.images?.filter((image) => !materialImageIds.has(image.id)) ?? [];
   const run = (fn: () => Promise<unknown>) =>
     void fn().catch((e) => window.alert(String(e)));
   async function exportNote(note: Note) {
@@ -532,17 +539,29 @@ export function NotesPanel({
                 {!selected.origin.sources.length && (
                   <p>此回答没有已校验的书中出处，请自行核对。</p>
                 )}
-                {!!selected.origin.images?.length && (
+                {!!questionImages.length && (
                   <>
                     <p>原问题附图 · 用户提供的材料，不是已校验的书中引文</p>
                     <ChatImageList
-                      images={selected.origin.images.map((image) => ({
+                      images={questionImages.map((image) => ({
                         ...image,
                         url: `${base}/api/books/${bookId}/chat-images/${image.id}`,
                       }))}
                     />
                   </>
                 )}
+                {!!selected.origin.materials?.length && <div className="note-origin-materials">
+                  <p>本轮选定材料 · 加入时的冻结内容；个人笔记和标注不是作者原文</p>
+                  {selected.origin.materials.map((material, index) => <div key={index}>
+                    <strong>{material.title}</strong>
+                    {material.sections.map((section, sectionIndex) => <p key={sectionIndex}>
+                      {section.title}：{section.text}
+                    </p>)}
+                    <ChatImageList images={material.images.map((image) => ({
+                      ...image, url: `${base}/api/books/${bookId}/chat-images/${image.id}`,
+                    }))} />
+                  </div>)}
+                </div>}
               </details>
             </div>
           )}
@@ -584,6 +603,14 @@ export function NotesPanel({
           <NoteEditor key={selected.id} note={selected} state={state} />
           <footer>
             <span role="status">{state.status}</span>
+            {onAddToQuestion && <button onClick={() => run(async () => {
+              if (!(await state.flush())) throw new Error("笔记尚未保存，请先重试");
+              const latest = state.notes.find((note) => note.id === selected.id) ?? selected;
+              await onAddToQuestion(latest);
+            })}>加入提问</button>}
+            {annotation && onAddAnnotation && <button onClick={() => run(() => onAddAnnotation(annotation))}>
+              加入批注到提问
+            </button>}
             <button
               disabled={exporting}
               onClick={() => void exportNote(selected)}

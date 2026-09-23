@@ -11,6 +11,8 @@ import {
   type Annotation,
   type AnnotationInputSchema,
   type Note,
+  type QuestionMaterialInput,
+  type QuestionMaterialSnapshot,
   ToolPreferencesSchema,
   type ToolPreferences,
 } from "../../../packages/protocol/src";
@@ -51,6 +53,7 @@ export function App() {
   const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<SelectionAction>();
   const [questionDrafts] = useState(() => new QuestionDraftStore());
+  const [chatSessions, setChatSessions] = useState<Record<string, string>>({});
   const [questionCapture, setQuestionCapture] = useState<{
     bookId: string;
     fingerprint: string;
@@ -135,6 +138,26 @@ export function App() {
     setToolPreferences(next);
     void api<ToolPreferences>("tool-preferences", { method: "PUT", body: JSON.stringify(next) })
       .catch((e) => setError(`工具盘设置未保存：${String(e)}`));
+  }
+  async function ensureQuestionSession(bookId: string) {
+    const sessions = await api<{ id: string }[]>(`books/${bookId}/sessions`);
+    const preferred = chatSessions[bookId] ?? localStorage.getItem(`session-${bookId}`);
+    const selected = sessions.find((session) => session.id === preferred) ??
+      sessions[0] ?? await post<{ id: string }>(`books/${bookId}/sessions`, {});
+    localStorage.setItem(`session-${bookId}`, selected.id);
+    setChatSessions((old) => old[bookId] === selected.id ? old : { ...old, [bookId]: selected.id });
+    return selected.id;
+  }
+  async function addQuestionMaterials(bookId: string, selection: Pick<QuestionMaterialInput,
+    "workspaceRevision" | "targets" | "previews">) {
+    const sessionId = await ensureQuestionSession(bookId);
+    const snapshot = await post<QuestionMaterialSnapshot>(`books/${bookId}/question-materials`, {
+      bookId, sessionId, requestId: crypto.randomUUID(), ...selection,
+    });
+    const key = `${bookId}:${sessionId}`;
+    if (!questionDrafts.addMaterial(key, snapshot))
+      throw new Error(questionDrafts.get(key).materialError ?? "本轮材料已满");
+    if (current.current === bookId) updateLayout({ ...layout, panel: "chat" });
   }
   useEffect(() => {
     if (layout.panel === "notes") setQuestionCapture(undefined);
@@ -856,6 +879,7 @@ export function App() {
                     await notes.refresh();
                   } catch (cause) { setError(String(cause)); throw cause; }
                 }}
+                onQuestionMaterials={(selection) => addQuestionMaterials(book.id, selection)}
                 key={active}
                 id={active!}
                 initialPage={book.progress}
@@ -964,7 +988,19 @@ export function App() {
                     </button>
                   </header>
                   {layout.panel === "notes" ? (
-                    <NotesPanel bookId={book.id} state={notes} onJump={jump} />
+                    <NotesPanel bookId={book.id} state={notes} onJump={jump}
+                      onAddAnnotation={async (annotation) => {
+                        const added = await workspace.current?.addToQuestion([annotation.id]);
+                        if (!added) throw new Error("批注预览尚未准备好；请在正文定位并重试");
+                      }}
+                      onAddToQuestion={async (note) => {
+                        const snapshot = await api<{ revision: number }>(`books/${book.id}/workspace`);
+                        const latest = (await api<Note[]>(`books/${book.id}/notes`))
+                          .find((item) => item.id === note.id && !item.deletedAt);
+                        if (!latest) throw new Error("笔记已变化，请重新选择");
+                        await addQuestionMaterials(book.id, { workspaceRevision: snapshot.revision,
+                          targets: [{ kind: "note", id: latest.id, revision: latest.revision }], previews: [] });
+                      }} />
                   ) : (
                     <ChatPanel
                       key={active}
@@ -986,6 +1022,8 @@ export function App() {
                       onNoteSaved={openSavedNote}
                       onStartRegion={startQuestionCapture}
                       onSessionChange={(sessionId) => {
+                        setChatSessions((old) => old[book.id] === sessionId ? old :
+                          { ...old, [book.id]: sessionId });
                         if (
                           questionCapture &&
                           questionCapture.sessionId !== sessionId
@@ -993,6 +1031,10 @@ export function App() {
                           setQuestionCapture(undefined);
                           readerTools.finish();
                         }
+                      }}
+                      onMaterialLocate={(anchors) => {
+                        workspace.current?.locate(anchors);
+                        if (viewportWidth <= 1180) updateLayout({ ...layout, panel: "none" });
                       }}
                     />
                   )}

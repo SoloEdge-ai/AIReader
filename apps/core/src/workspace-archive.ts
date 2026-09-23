@@ -55,6 +55,12 @@ const image = z.object({
     label: z.string().max(200),
   }).optional(),
 });
+const materialImage = image.extend({
+  userRendered: z.boolean(),
+  includesPdfBackground: z.boolean().optional(),
+  surface: z.enum(["pdf", "board"]).optional(),
+  page: z.number().int().positive().optional(),
+});
 const annotation = AnnotationInputSchema.omit({ image: true })
   .extend({
     id,
@@ -91,6 +97,16 @@ const note = z
           .array(z.object({ anchor, text: z.string().max(100000) }))
           .max(500),
         images: z.array(image).max(4).optional(),
+        materials: z.array(z.object({
+          title: z.string().max(300),
+          sections: z.array(z.object({
+            kind: z.enum(["book-excerpt", "book-region", "user-note", "user-mark", "relation"]),
+            title: z.string().max(300), text: z.string().max(100000),
+            anchors: z.array(PdfAnchorSchema).max(500).optional(),
+            imageIds: z.array(id).max(4).optional(),
+          })).max(20),
+          images: z.array(materialImage).max(4),
+        })).max(20).optional(),
       })
       .optional(),
   })
@@ -303,6 +319,18 @@ export class WorkspaceArchives {
           throw new Error("笔记图片来源不匹配");
         referencedAssets.add(img.id);
       }
+      for (const material of n.origin?.materials ?? []) {
+        for (const section of material.sections) {
+          section.anchors?.forEach(validAnchor);
+          for (const imageId of section.imageIds ?? [])
+            if (!material.images.some((image) => image.id === imageId) ||
+              !n.origin?.images?.some((image) => image.id === imageId))
+              throw new Error("笔记材料图片来源不匹配");
+        }
+        for (const image of material.images)
+          if (!n.origin?.images?.some((item) => item.id === image.id))
+            throw new Error("笔记材料附件缺失");
+      }
     }
     for (const b of data.bookmarks)
       if (b.bookId !== data.bookId || b.page > data.pages)
@@ -404,6 +432,13 @@ export class WorkspaceArchives {
                   source: img.source ? { ...img.source, bookId } : undefined,
                 };
               }),
+              materials: n.origin.materials?.map((material) => ({
+                ...material,
+                images: material.images.map((image) => ({ ...image, id: mapped(image.id) })),
+                sections: material.sections.map((section) => ({ ...section,
+                  imageIds: section.imageIds?.map(mapped),
+                })),
+              })),
             }
           : undefined,
       }));

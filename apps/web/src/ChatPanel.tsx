@@ -6,8 +6,10 @@ import type {
   ReadingSelection,
   SourceAnchor,
   Note,
+  PdfAnchor,
 } from "../../../packages/protocol/src";
-import { api, post } from "./api";
+import { MAX_QUESTION_MATERIALS, questionMaterialCount } from "../../../packages/protocol/src";
+import { api, post, base } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
@@ -35,6 +37,7 @@ export function ChatPanel({
   onNoteSaved,
   onStartRegion,
   onSessionChange,
+  onMaterialLocate,
 }: {
   book: Book;
   page: number;
@@ -49,6 +52,7 @@ export function ChatPanel({
   onNoteSaved: (note: Note) => Promise<void>;
   onStartRegion: (sessionId: string) => void;
   onSessionChange: (sessionId: string) => void;
+  onMaterialLocate: (anchors: PdfAnchor[]) => void;
 }) {
   const ai = useAi();
   const [session, setSession] = useState(""),
@@ -59,7 +63,7 @@ export function ChatPanel({
   const draft = useSyncExternalStore(savedDrafts.subscribe, () =>
     savedDrafts.get(draftKey),
   );
-  const { question, scope, attachment, images, preparing, imageError } = draft;
+  const { question, scope, attachment, images, materials, preparing, imageError, materialError } = draft;
   const imagePicker = useRef<HTMLInputElement>(null);
   function addImages(files: File[]) {
     if (session && files.length) void savedDrafts.addImages(draftKey, files);
@@ -178,8 +182,10 @@ export function ChatPanel({
   const valid = chosen?.supportedReasoningEfforts.some(
     (e) => e.reasoningEffort === ai.choice?.effort,
   );
+  const materialCount = questionMaterialCount(materials, images.length, Boolean(attachment));
   const canSubmit =
-    (!!question.trim() || !!images.length) &&
+    (!!question.trim() || !!images.length || !!materials.length) &&
+    materialCount <= MAX_QUESTION_MATERIALS &&
     !preparing &&
     !!session &&
     !!valid &&
@@ -205,12 +211,13 @@ export function ChatPanel({
       };
       const turn = await post<ChatTurn>(`books/${book.id}/turns`, {
         reading,
-        question: question.trim() || "请解释这些图片。",
+        question: question.trim() || (materials.length ? "请解释本轮选定材料。" : "请解释这些图片。"),
         images: images.map(({ name, dataUrl, source }) => ({
           name,
           dataUrl,
           source,
         })),
+        materialIds: materials.map((material) => material.id),
         sessionId: session,
         ...ai.choice,
       });
@@ -396,6 +403,7 @@ export function ChatPanel({
             onCitation={onCitation}
             savedNote={notes.find((note) => note.origin?.turnId === turn.id)}
             onNoteSaved={onNoteSaved}
+            onMaterialLocate={onMaterialLocate}
           />
         ))}
       </div>
@@ -430,6 +438,39 @@ export function ChatPanel({
         }}
       >
         <div className="composer-materials">
+          {(!!materials.length || !!images.length || !!attachment) &&
+            <span className="question-material-heading">本轮材料 · {materialCount} 项</span>}
+          {!!materials.length && <div className="question-material-list" aria-label="本轮材料">
+            {materials.map((material) => {
+              const anchors = material.sections.flatMap((section) => section.anchors ?? []);
+              return <div className="question-material-item" key={material.id}>
+                <div className="question-material-item-head">
+                  <span>{material.title} · {material.itemCount} 项</span>
+                  {anchors.length > 0 && <button onClick={() => onMaterialLocate(anchors)}>定位</button>}
+                  <button aria-label={`移除材料 ${material.title}`} onClick={() => updateDraft({
+                    materials: materials.filter((item) => item.id !== material.id), materialError: undefined,
+                  })}>移除</button>
+                </div>
+                <details><summary>查看将发送的内容</summary>
+                  {material.sections.map((section, index) => <p key={index}>
+                    <small>{section.kind === "book-excerpt" ? "原文摘录" :
+                      section.kind === "book-region" ? "PDF 区域" :
+                        section.kind === "relation" ? "关系" : "用户材料"}</small>
+                    {section.text}
+                  </p>)}
+                  {material.images.map((image) => <figure key={image.id}>
+                    <img src={`${base}/api/books/${book.id}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(session)}`}
+                      alt={`${material.title}的冻结预览`} />
+                    <figcaption>{image.includesPdfBackground ? `包含 PDF 第 ${image.page} 页背景` : "仅所选个人对象"}
+                      {image.userRendered && " · 用户选择的视觉预览，非核验原文"}</figcaption>
+                  </figure>)}
+                </details>
+              </div>;
+            })}
+          </div>}
+          {materialError && <p className="error" role="alert">{materialError}</p>}
+          {materialCount > MAX_QUESTION_MATERIALS &&
+            <p className="error" role="alert">本轮材料最多 20 项，请移除部分内容。</p>}
           <ChatImageList
             images={images.map((image) => ({
               ...image,

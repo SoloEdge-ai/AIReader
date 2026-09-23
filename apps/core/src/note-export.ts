@@ -118,6 +118,16 @@ export function exportNoteArchive(
           .join("\n"),
       ),
     );
+    if (note.origin.materials?.length) {
+      lines.push("## 本轮选定材料", "以下内容在加入提问时冻结。个人笔记、标注、绘画与关系并非作者原文；图片内容不构成已核验的文本引用。");
+      for (const material of note.origin.materials) {
+        lines.push(`### ${escapeText(material.title)}`);
+        for (const section of material.sections)
+          lines.push(`- ${escapeText(section.title)}（${section.kind}）：${escapeText(section.text)}`);
+        for (const image of material.images)
+          lines.push(`- 图片预览：${image.includesPdfBackground ? `包含 PDF 物理页 ${image.page} 的背景` : "仅所选个人对象"}；${image.userRendered ? "由用户选择的视觉预览，像素未被 Core 核验为原始 PDF" : "已保存的区域截图"}。`);
+      }
+    }
   }
   if (annotation) {
     lines.push(
@@ -137,7 +147,7 @@ export function exportNoteArchive(
     lines.push(
       "## 关联图片",
       note.origin
-        ? "以下为原问题附图，不自动视为已核验的书中原文。"
+        ? "以下为原问题附图及本轮选定材料图片，不自动视为已核验的书中原文。"
         : "以下为关联的页内区域摘录。",
     );
     assets.forEach((asset, index) => {

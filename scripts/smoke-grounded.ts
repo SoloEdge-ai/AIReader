@@ -3,9 +3,15 @@ import { Library } from "../apps/core/src/library";
 import { CodexAdapter } from "../apps/core/src/codex";
 import { ChatService } from "../apps/core/src/chat";
 import { IndexService } from "../apps/core/src/indexer";
+import { Workspaces } from "../apps/core/src/workspace";
+import { WorkspaceAssets } from "../apps/core/src/workspace-assets";
+import { Notes } from "../apps/core/src/notes";
+import { QuestionMaterials } from "../apps/core/src/question-materials";
 const library = new Library(resolve(".local/smoke-library"));
 const codex = new CodexAdapter(resolve(".local/codex-control"));
-const chat = new ChatService(library, codex);
+const workspaces = new Workspaces(library);
+const chat = new ChatService(library, codex,
+  new QuestionMaterials(library, workspaces, new Notes(library), new WorkspaceAssets(library, workspaces)));
 const indexer = new IndexService(library, codex);
 try {
   library.resume();

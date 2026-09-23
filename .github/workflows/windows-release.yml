@@ -43,6 +43,8 @@ jobs:
         run: node --import tsx scripts/ink-smoke.ts
       - name: Canvas objects and annotation links acceptance
         run: node --import tsx scripts/objects-smoke.ts
+      - name: Selected question materials UI acceptance
+        run: node --import tsx scripts/materials-smoke.ts
       - name: Chat HTTP and UI acceptance
         run: node --import tsx scripts/chat-smoke.ts
       - name: Screenshot input and panel resize acceptance
