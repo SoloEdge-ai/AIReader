@@ -30,6 +30,7 @@ const paths = {
   bookmark: "M6 3h12v18l-6-4-6 4Z",
   more: "M5 12h.01M12 12h.01M19 12h.01",
   book: "M12 5C7 2 3 3 3 3v16s4-1 9 2c5-3 9-2 9-2V3s-4-1-9 2Zm0 0v16",
+  workspace: "M3 4h18v16H3ZM8 4v16M12 9h5M12 13h5",
   arrow: "M12 20V4m-7 7 7-7 7 7",
   pen: "m4 16 12-12 4 4L8 20H4Zm10-10 4 4",
   highlighter: "m5 17 10-10 5 5-10 10H5Zm-2 5h17M13 9l4 4",

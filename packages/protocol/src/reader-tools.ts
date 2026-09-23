@@ -16,6 +16,7 @@ export type BrushStyle = z.infer<typeof BrushStyleSchema>;
 export const ToolPreferencesSchema = z.object({
   dock: z.enum(["bottom", "left", "right"]).default("bottom"),
   offset: z.number().finite().min(0).max(1).default(0.5),
+  collapsedOffset: z.number().finite().min(0).max(1).default(0.5),
   collapsed: z.boolean().default(false),
   pen: BrushStyleSchema.default({ color: "#345d84", width: 2, opacity: 1 }),
   highlighter: BrushStyleSchema.default({ color: "#e6b72d", width: 12, opacity: 0.3 }),

@@ -13,6 +13,7 @@
     "dev": "node scripts/build-worker.mjs && concurrently -k \"tsx watch apps/core/src/main.ts\" \"vite apps/web --host 127.0.0.1\"",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/build-worker.mjs && vitest run",
+    "test:reader-ui": "playwright test --config tests/palette-playwright.config.ts",
     "build": "node scripts/build.mjs && node scripts/bundled-core-smoke.mjs",
     "desktop:portable": "pnpm build && electron-builder --win portable --x64 --publish never",
     "desktop:windows": "pnpm build && electron-builder --win --x64 --publish never",

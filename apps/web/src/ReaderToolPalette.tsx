@@ -92,9 +92,9 @@ export function ReaderToolPalette({
   const style = drag
     ? ({ left: drag.x, top: drag.y, transform: "translate(-50%, -50%)" } as CSSProperties)
     : ({
-        "--tool-offset": `${preferences.offset * 100}%`,
-        "--palette-half-width": `${size.width / 2 + 16}px`,
-        "--palette-half-height": `${size.height / 2 + 16}px`,
+        "--tool-offset": `${(preferences.collapsed ? preferences.collapsedOffset : preferences.offset) * 100}%`,
+        "--palette-half-width": preferences.collapsed ? "24px" : `${size.width / 2 + 16}px`,
+        "--palette-half-height": preferences.collapsed ? "24px" : `${size.height / 2 + 16}px`,
       } as CSSProperties);
   return (
     <div
@@ -209,7 +209,18 @@ export function ReaderToolPalette({
           <button
             aria-label="收起工具盘"
             title="收起工具盘"
-            onClick={() => onPreferences({ ...preferences, collapsed: true })}
+            onClick={(event) => {
+              const area = palette.current?.closest(".reading")?.getBoundingClientRect();
+              if (!area) return onPreferences({ ...preferences, collapsed: true });
+              const button = event.currentTarget.getBoundingClientRect();
+              const clickX = event.detail === 0 ? button.left + button.width / 2 : event.clientX;
+              const clickY = event.detail === 0 ? button.top + button.height / 2 : event.clientY;
+              const collapsedOffset = preferences.dock === "bottom"
+                ? (clickX - area.left) / area.width
+                : (clickY - area.top) / area.height;
+              onPreferences({ ...preferences, collapsed: true,
+                collapsedOffset: Math.max(0, Math.min(1, collapsedOffset)) });
+            }}
           >
             <Icon name="chevron" />
           </button>

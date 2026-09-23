@@ -362,22 +362,32 @@
 .focus-document:hover {
   opacity: 1;
 }
-.workspace-toolbar {
+.workspace-menu-slot,
+.workspace-menu { position: relative; display: flex; align-items: center; }
+.workspace-menu > button { position: relative; }
+.workspace-save-indicator {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 5px 7px;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #496a92);
+}
+.workspace-save-indicator.is-error { background: var(--danger, #c04040); }
+.workspace-menu-popover {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 200px;
+  padding: 5px;
+  display: grid;
+  gap: 1px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--surface, white);
-  box-shadow: 0 3px 14px #263c4110;
-  max-width: calc(100% - 24px);
-  overflow-x: auto;
-  scrollbar-width: none;
-  white-space: nowrap;
+  box-shadow: 0 8px 24px #263c4120;
 }
 .workspace-scroll.pointer-tool .pdf-page,
 .workspace-scroll.pointer-tool .pdf-page .textLayer,
@@ -387,27 +397,27 @@
 }
 .workspace-scroll.pointer-tool.panning .pdf-page,
 .workspace-scroll.pointer-tool.panning .pdf-page * { cursor: grabbing; }
-.workspace-toolbar button {
-  font-size: 11px;
-  padding: 6px 7px;
+.workspace-menu-popover button {
+  font-size: 12px;
+  padding: 8px 10px;
   gap: 5px;
-  flex-shrink: 0;
+  justify-content: flex-start;
+  width: 100%;
 }
-.workspace-toolbar svg {
+.workspace-menu-popover button:hover { background: var(--hover, #8a94a01b); }
+.workspace-menu-popover svg {
   width: 15px;
   height: 15px;
 }
-.workspace-toolbar-divider {
-  height: 17px;
-  width: 1px;
-  flex-shrink: 0;
+.workspace-menu-divider {
+  height: 1px;
   background: var(--line);
-  margin: 0 3px;
+  margin: 4px 6px;
 }
-.workspace-toolbar span {
+.workspace-menu-popover span {
   font-size: 10px;
   color: var(--muted);
-  padding: 0 6px;
+  padding: 6px 10px 3px;
 }
 .workspace-notice,
 .workspace-error {

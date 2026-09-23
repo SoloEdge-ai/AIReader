@@ -36,6 +36,7 @@ import { SelectionToolbar } from "./SelectionToolbar";
 import { useReaderToolController } from "./ReaderToolController";
 export function App() {
   const workspace = useRef<BookWorkspaceHandle>(null);
+  const [workspaceToolbarHost, setWorkspaceToolbarHost] = useState<HTMLDivElement | null>(null);
   const [navigating, setNavigating] = useState(false);
   const [books, setBooks] = useState<Book[]>([]),
     [active, setActive] = useState<string>();
@@ -724,6 +725,7 @@ export function App() {
             >
               ↻
             </button>
+            <div className="workspace-menu-slot" ref={setWorkspaceToolbarHost} />
             <button
               aria-label="书籍菜单"
               onClick={() => setBookMenu(!bookMenu)}
@@ -853,6 +855,7 @@ export function App() {
                 book={book}
                 page={page}
                 toolPreferences={toolPreferences}
+                toolbarHost={workspaceToolbarHost}
                 workspaceEvent={workspaceEvents[book.id] ?? 0}
                 onAnnotationColor={async (annotation, color) => {
                   try {

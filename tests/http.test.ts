@@ -28,17 +28,17 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
     const headers = { Cookie: cookie, Origin: base };
     const toolEndpoint = base + "/api/tool-preferences";
     expect(await (await fetch(toolEndpoint, { headers })).json()).toEqual({
-      dock: "bottom", offset: 0.5, collapsed: false,
+      dock: "bottom", offset: 0.5, collapsedOffset: 0.5, collapsed: false,
       pen: { color: "#345d84", width: 2, opacity: 1 },
       highlighter: { color: "#e6b72d", width: 12, opacity: 0.3 },
     });
     expect((await fetch(toolEndpoint, {
       method: "PUT",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ dock: "left", offset: 0.35, collapsed: true }),
+      body: JSON.stringify({ dock: "left", offset: 0.35, collapsedOffset: 0.72, collapsed: true }),
     })).status).toBe(200);
     expect(await (await fetch(toolEndpoint, { headers })).json()).toEqual({
-      dock: "left", offset: 0.35, collapsed: true,
+      dock: "left", offset: 0.35, collapsedOffset: 0.72, collapsed: true,
       pen: { color: "#345d84", width: 2, opacity: 1 },
       highlighter: { color: "#e6b72d", width: 12, opacity: 0.3 },
     });
