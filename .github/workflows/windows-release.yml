@@ -1,4 +1,4 @@
-name: Windows portable
+name: Windows desktop packages
 on:
   pull_request:
     branches: [main]
@@ -30,7 +30,7 @@ jobs:
           $manifest = Get-Content package.json -Raw | ConvertFrom-Json
           $manifest.version = '0.1.${{ github.run_number }}'
           $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
-      - run: pnpm desktop:portable
+      - run: pnpm desktop:windows
       - name: Model control UI acceptance
         run: node scripts/model-control-smoke.mjs
       - name: Chat HTTP and UI acceptance
@@ -52,18 +52,30 @@ jobs:
           node scripts/desktop-smoke.mjs $portable.FullName
         env:
           AIREADER_CI: "1"
+      - name: Installer, update, and uninstall acceptance
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem release/AIReader-Setup-*-x64.exe)
+          if ($installer.Count -ne 1) { throw 'Expected one installer' }
+          ./scripts/installer-smoke.ps1 -Installer $installer[0].FullName -ExpectedVersion '0.1.${{ github.run_number }}'
+        env:
+          AIREADER_CI: "1"
       - name: Checksums
         shell: pwsh
         run: |
-          $file = Get-ChildItem release/AIReader-Portable-*-x64.exe
-          if (@($file).Count -ne 1) { throw 'Expected one executable' }
-          $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $($file.Name)" | Set-Content release/SHA256SUMS.txt -Encoding ascii
+          $portable = @(Get-ChildItem release/AIReader-Portable-*-x64.exe)
+          $installer = @(Get-ChildItem release/AIReader-Setup-*-x64.exe)
+          if ($portable.Count -ne 1 -or $installer.Count -ne 1) { throw 'Expected portable and installer executables' }
+          @($portable[0], $installer[0]) | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content release/SHA256SUMS.txt -Encoding ascii
       - uses: actions/upload-artifact@v4
         with:
           name: aireader-windows11-x64-${{ github.sha }}
           path: |
             release/AIReader-Portable-*-x64.exe
+            release/AIReader-Setup-*-x64.exe
             release/SHA256SUMS.txt
           retention-days: 30
           compression-level: 0
