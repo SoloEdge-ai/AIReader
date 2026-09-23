@@ -5,6 +5,7 @@ import type {
   ReadingSnapshot,
   ReadingSelection,
   SourceAnchor,
+  Note,
 } from "../../../packages/protocol/src";
 import { api, post } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
@@ -30,6 +31,8 @@ export function ChatPanel({
   onClearSelection,
   onPickSelection,
   onCitation,
+  notes,
+  onNoteSaved,
 }: {
   book: Book;
   page: number;
@@ -40,6 +43,8 @@ export function ChatPanel({
   onClearSelection: () => void;
   onPickSelection: () => void;
   onCitation: (page: number, anchor: SourceAnchor) => void;
+  notes: Note[];
+  onNoteSaved: (note: Note) => Promise<void>;
 }) {
   const ai = useAi();
   const [session, setSession] = useState(""),
@@ -374,7 +379,13 @@ export function ChatPanel({
           </div>
         )}
         {turns.map((turn) => (
-          <ChatMessage key={turn.id} turn={turn} onCitation={onCitation} />
+          <ChatMessage
+            key={turn.id}
+            turn={turn}
+            onCitation={onCitation}
+            savedNote={notes.find((note) => note.origin?.turnId === turn.id)}
+            onNoteSaved={onNoteSaved}
+          />
         ))}
       </div>
       {awayFromBottom && (

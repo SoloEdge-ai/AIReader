@@ -5,8 +5,10 @@ import type {
   Annotation,
   Note,
   RichNode,
+  SourceAnchor,
 } from "../../../packages/protocol/src";
 import { api, base, post } from "./api";
+import { ChatImageList } from "./ChatImageList";
 type Draft = { title: string; document: RichNode; generation: number };
 const canonical = (value: unknown): string =>
   JSON.stringify(value, (_key, v) =>
@@ -366,15 +368,55 @@ export function NotesPanel({
 }: {
   bookId: string;
   state: BookNotes;
-  onJump: (page: number) => void;
+  onJump: (page: number, anchor?: SourceAnchor) => void;
 }) {
   const [query, setQuery] = useState(""),
     [kind, setKind] = useState(""),
-    [color, setColor] = useState("");
+    [color, setColor] = useState(""),
+    [exporting, setExporting] = useState(false),
+    [exportMessage, setExportMessage] = useState("");
+  const exportController = useRef<AbortController | undefined>(undefined);
+  useEffect(() => {
+    setExporting(false);
+    setExportMessage("");
+    return () => exportController.current?.abort();
+  }, [bookId]);
   const selected = state.notes.find((n) => n.id === state.selected),
     annotation = state.annotations.find((a) => a.id === selected?.annotationId);
   const run = (fn: () => Promise<unknown>) =>
     void fn().catch((e) => window.alert(String(e)));
+  async function exportNote(note: Note) {
+    if (exporting) return;
+    const controller = new AbortController();
+    exportController.current = controller;
+    setExporting(true);
+    setExportMessage("");
+    try {
+      if (!(await state.flush()))
+        throw new Error("当前修改未保存，草稿仍保留。请重试保存后再导出。");
+      controller.signal.throwIfAborted();
+      const response = await fetch(
+        `${base}/api/books/${bookId}/notes/${note.id}/export`,
+        {
+          credentials: "include",
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok)
+        throw new Error((await response.json()).error ?? "导出失败");
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `AIReader-Note-${note.id}.zip`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      setExportMessage("已生成 Markdown 与图片压缩包");
+    } catch (error) {
+      if (!controller.signal.aborted) setExportMessage(String(error));
+    } finally {
+      if (!controller.signal.aborted) setExporting(false);
+    }
+  }
   return (
     <section className="notes-panel">
       <div className="notes-actions">
@@ -405,6 +447,7 @@ export function NotesPanel({
             </option>
           ))}
           <option value="note">独立笔记</option>
+          <option value="chat">AI 回答笔记</option>
         </select>
         <select
           aria-label="批注颜色筛选"
@@ -431,7 +474,7 @@ export function NotesPanel({
           .filter((n) => {
             const a = state.annotations.find((a) => a.id === n.annotationId);
             return (
-              (!kind || (a?.kind ?? "note") === kind) &&
+              (!kind || (a?.kind ?? (n.origin ? "chat" : "note")) === kind) &&
               (!color || a?.color === color) &&
               (n.title + JSON.stringify(n.document) + (a?.quote ?? ""))
                 .toLowerCase()
@@ -457,7 +500,9 @@ export function NotesPanel({
                 <small>
                   {a
                     ? `${kindNames[a.kind]} · ${a.anchors.map((x) => x.page).join("、")} 页`
-                    : "独立笔记"}
+                    : n.origin
+                      ? "AI 回答笔记"
+                      : "独立笔记"}
                 </small>
               </button>
             );
@@ -465,6 +510,42 @@ export function NotesPanel({
       </div>
       {selected ? (
         <div className="note-detail">
+          {selected.origin && (
+            <div className="note-origin">
+              <p className="note-origin-label">AI 生成 · 可编辑的回答笔记</p>
+              <p>
+                下方正文可以修改；出处保留保存时的原文，不代表你的修改已获核验。
+              </p>
+              <details>
+                <summary>
+                  原问题与出处 · {selected.origin.sources.length} 处原文
+                </summary>
+                <p>{selected.origin.question}</p>
+                {selected.origin.sources.map(({ anchor, text }) => (
+                  <div className="note-origin-source" key={anchor.passageId}>
+                    <button onClick={() => onJump(anchor.page, anchor)}>
+                      第 {anchor.label} 页原文
+                    </button>
+                    <blockquote>{text}</blockquote>
+                  </div>
+                ))}
+                {!selected.origin.sources.length && (
+                  <p>此回答没有已校验的书中出处，请自行核对。</p>
+                )}
+                {!!selected.origin.images?.length && (
+                  <>
+                    <p>原问题附图 · 用户提供的材料，不是已校验的书中引文</p>
+                    <ChatImageList
+                      images={selected.origin.images.map((image) => ({
+                        ...image,
+                        url: `${base}/api/books/${bookId}/chat-images/${image.id}`,
+                      }))}
+                    />
+                  </>
+                )}
+              </details>
+            </div>
+          )}
           {annotation && (
             <div className="note-source">
               <button onClick={() => onJump(annotation.anchors[0].page)}>
@@ -503,6 +584,12 @@ export function NotesPanel({
           <NoteEditor key={selected.id} note={selected} state={state} />
           <footer>
             <span role="status">{state.status}</span>
+            <button
+              disabled={exporting}
+              onClick={() => void exportNote(selected)}
+            >
+              {exporting ? "导出中…" : "导出笔记"}
+            </button>
             {state.status.startsWith("保存失败") && (
               <>
                 <button onClick={() => void state.flush()}>重试保存</button>
@@ -518,6 +605,11 @@ export function NotesPanel({
               删除{annotation ? "批注" : "笔记"}
             </button>
           </footer>
+          {exportMessage && (
+            <p className="export-status" role="status">
+              {exportMessage}
+            </p>
+          )}
         </div>
       ) : (
         <p className="panel-empty muted">选择一条批注，或新建笔记</p>

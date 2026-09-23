@@ -37,6 +37,8 @@ jobs:
         run: node --import tsx scripts/chat-smoke.ts
       - name: Screenshot input and panel resize acceptance
         run: node --import tsx scripts/chat-attachments-smoke.ts
+      - name: Answer notes and Markdown export acceptance
+        run: node --import tsx scripts/answer-notes-smoke.ts
       - name: Annotation and save-recovery acceptance
         run: node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe
         env:

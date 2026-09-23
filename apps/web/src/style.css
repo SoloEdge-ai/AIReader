@@ -940,6 +940,7 @@ progress::-webkit-progress-value {
 }
 .answer-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 6px;
   margin-top: 13px;
@@ -951,6 +952,11 @@ progress::-webkit-progress-value {
 }
 .answer-actions > button svg {
   width: 14px;
+}
+.answer-actions .save-answer-note {
+  font-size: 11px;
+  gap: 4px;
+  white-space: nowrap;
 }
 .answer-details {
   flex: 1;
@@ -1795,6 +1801,41 @@ summary {
 .note-source select {
   font-size: 12px;
   padding: 3px;
+}
+.note-origin {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.note-origin p {
+  margin: 5px 0;
+}
+.note-origin-label {
+  color: var(--text);
+  font-weight: 500;
+}
+.note-origin summary {
+  cursor: pointer;
+  margin-top: 8px;
+}
+.note-origin-source {
+  margin-top: 12px;
+}
+.note-origin-source blockquote {
+  border-left: 2px solid var(--line);
+  margin: 6px 0;
+  padding-left: 10px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.export-status {
+  color: var(--muted);
+  font-size: 12px;
 }
 .toolbar > select {
   font-size: 12px;
