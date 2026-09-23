@@ -85,7 +85,8 @@ test("late chapter search hits survive the context budget and blank pages remain
       Buffer.from(await pdf.save()),
       "Long chapter.pdf",
     );
-    await library.waitForBook(book.id);
+    const parsed = await library.waitForBook(book.id);
+    expect(parsed.error).toBeUndefined();
     const context = buildContext(
       library,
       { bookId: book.id, page: 1, scope: "chapter", selection: "" },

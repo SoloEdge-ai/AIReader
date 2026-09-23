@@ -23,7 +23,8 @@ test("semantic jobs persist pause/resume state and only reference their own sour
       Buffer.from(await pdf.save()),
       "Fixture.pdf",
     );
-    await library.waitForBook(book.id);
+    const parsed = await library.waitForBook(book.id);
+    expect(parsed.error).toBeUndefined();
     const job = indexer.start(book.id, 1);
     indexer.control(book.id, job.id, "pause");
     expect(indexer.list(book.id)[0].status).toBe("paused");

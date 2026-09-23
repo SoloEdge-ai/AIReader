@@ -19,7 +19,8 @@ test("import is deduplicated, searchable and progress survives restart", async (
   try {
     const book = await library.import(bytes, "Example.pdf");
     expect((await library.import(bytes, "Duplicate.pdf")).id).toBe(book.id);
-    await library.waitForBook(book.id);
+    const parsed = await library.waitForBook(book.id);
+    expect(parsed.error).toBeUndefined();
     expect(library.book(book.id)).toMatchObject({
       status: "ready",
       pages: 2,
