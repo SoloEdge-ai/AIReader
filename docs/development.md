@@ -13,7 +13,7 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 | pnpm desktop:windows | Setup和Portable |
 | pnpm test:e2e | 桌面smoke |
 
-开发默认数据位置与桌面相同；隔离时显式设置AIREADER_DATA为临时目录。测试不得使用用户数据库。工作前读索引/规范、检查分支/用户改动；按可观察流程实现、验证、同步文档，再提交。
+开发默认数据位置与桌面相同；隔离时显式设置AIREADER_DATA为临时目录。测试不得使用用户数据库。`pnpm test:e2e` 现在默认创建并清理独立临时数据库，避免旧测试库版本阻止窗口启动；安装连续性测试通过 `AIREADER_SMOKE_USE_DEFAULT=1` 明确选择受控的安装测试目录，不能对用户默认目录运行。工作前读索引/规范、检查分支/用户改动；按可观察流程实现、验证、同步文档，再提交。
 
 当前分支使用 DB v5，不会打开旧 v4 目录。开发／预览必须配置独立 AIREADER_DATA，不要为了启动而删除默认用户目录。`node --import tsx scripts/measure-workspace-writes.ts` 用生成样本和临时目录测量 HTTP 耗时及 SQLite 实际变更行数；它不是绘画帧率或 516 页性能验收。
 

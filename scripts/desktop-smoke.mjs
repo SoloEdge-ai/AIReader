@@ -1,7 +1,8 @@
 import { _electron as electron, chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 await mkdir(".local/screenshots", { recursive: true });
 const fixture = resolve(".local/desktop-fixture.pdf");
@@ -15,13 +16,17 @@ pdf
     y: 700,
   });
 await writeFile(fixture, await pdf.save());
+// A normal smoke must never reopen (or upgrade) a previous run's database.
+// Installer continuity deliberately opts into the real default path instead.
+const scratchData = process.env.AIREADER_SMOKE_USE_DEFAULT === "1" || process.env.AIREADER_SMOKE_DATA
+  ? undefined : await mkdtemp(join(tmpdir(), "aireader-desktop-smoke-"));
 const env = {
   ...process.env,
   ELECTRON_RUN_AS_NODE: undefined,
   AIREADER_DATA:
     process.env.AIREADER_SMOKE_USE_DEFAULT === "1"
       ? undefined
-      : resolve(process.env.AIREADER_SMOKE_DATA ?? ".local/desktop-library"),
+      : resolve(process.env.AIREADER_SMOKE_DATA ?? scratchData),
 };
 const portable = process.argv[2]?.includes("Portable-");
 let app;
@@ -178,6 +183,7 @@ try {
     await session.send("Browser.close").catch(() => {});
     await browser.close();
   }
+  if (scratchData) await rm(scratchData, { recursive: true, force: true });
   if (closeError) throw closeError;
 }
 console.log("Desktop smoke closed cleanly.");
