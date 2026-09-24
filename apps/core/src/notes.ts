@@ -17,6 +17,7 @@ import { ChatImages } from "./chat-images";
 import { changeNotePlacement } from "./note-placements";
 import { NoteTransactions } from "./note-transactions";
 import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
+import { Workspaces } from "./workspace";
 export function richDocument(input: unknown): RichNode {
   if (JSON.stringify(input)?.length > 100000) throw new Error("笔记内容过长");
   let count = 0;
@@ -175,21 +176,59 @@ export class Notes {
       throw new Error("记录不存在或不属于此书籍");
     return value;
   }
-  createNote(bookId: string, title = "新笔记", annotationId?: string) {
+  createNote(bookId: string, title = "新笔记", annotationId?: string,
+    sourceCard?: Note["sourceCard"], document?: RichNode) {
     this.library.book(bookId);
     const now = new Date().toISOString();
     const note: Note = {
       id: randomUUID(),
       bookId,
       annotationId,
+      sourceCard,
       title,
-      document: { type: "doc", content: [{ type: "paragraph" }] },
+      document: richDocument(document ?? { type: "doc", content: [{ type: "paragraph" }] }),
       revision: 1,
       createdAt: now,
       updatedAt: now,
     };
     this.changes.save(note);
     return note;
+  }
+  promoteCard(bookId: string, cardId: string): { note: Note; created: boolean } {
+    let note!: Note, created = false;
+    this.changes.run(() => {
+      const workspace = new Workspaces(this.library);
+      const snapshot = workspace.get(bookId);
+      const card = snapshot.cards.find((item) => item.id === cardId);
+      if (!card) throw new Error("卡片不存在或不属于此书籍");
+      if (card.noteId) {
+        note = this.get<Note>("note", bookId, card.noteId);
+        if (note.deletedAt || (card.kind !== "note" && note.sourceCard?.cardId !== card.id))
+          throw new Error("卡片笔记与来源不匹配");
+        return;
+      }
+      const paragraphs = (card.kind === "note" ? [card.text, card.comment].filter(Boolean)
+        : [card.comment]).flatMap((value) => value.split(/\r?\n/));
+      let document: RichNode = { type: "doc", content: (paragraphs.length ? paragraphs : [""]).map((line) => ({
+        type: "paragraph", content: line ? [{ type: "text", text: line }] : [],
+      })) };
+      // Legacy cards allow many short lines. Keep the original text if rich block overhead
+      // would exceed Note's bounded document format; never clear the card before validation.
+      if (JSON.stringify(document).length > 90000)
+        document = { type: "doc", content: [{ type: "paragraph", content: [{
+          type: "text", text: paragraphs.join("\n"),
+        }] }] };
+      note = this.createNote(bookId, card.title || (card.kind === "note" ? "新笔记" : "摘录评论"), undefined,
+        card.kind === "note" ? undefined : { cardId: card.id, kind: card.kind, title: card.title,
+          text: card.text, source: card.source, region: card.region },
+        document);
+      workspace.save(bookId, { ...snapshot, cards: snapshot.cards.map((item) => item.id === card.id
+        ? { ...item, noteId: note.id, title: card.kind === "note" ? "" : item.title,
+          text: card.kind === "note" ? "" : item.text, comment: "" } : item) }, true);
+      created = true;
+    });
+    if (created) this.library.emit({ type: "workspace", bookId, taskId: cardId });
+    return { note, created };
   }
   comment(bookId: string, annotationId: string) {
     let result: Note;
@@ -302,6 +341,10 @@ export class Notes {
           bytes: await readFile(this.asset(bookId, annotation.assetId)),
         });
     }
+    if (note.sourceCard?.region)
+      assets.push({ name: "assets/excerpt-region.png",
+        bytes: await readFile(join(this.library.directory, "workspace-assets", bookId,
+          note.sourceCard.region.assetId + ".png")) });
     return {
       buffer: exportNoteArchive(
         book,

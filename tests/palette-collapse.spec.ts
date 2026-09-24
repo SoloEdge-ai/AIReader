@@ -47,3 +47,18 @@ test("keyboard collapse stays beside the focused button", async ({ page }) => {
     Math.abs(after!.x + after!.width / 2 - before!.x - before!.width / 2),
   ).toBeLessThanOrEqual(24);
 });
+
+test("dragging the handle docks the palette at the nearest edge", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/tests/palette.html");
+  const grip = page.getByRole("button", { name: "拖动工具盘" });
+  const box = await grip.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(20, page.viewportSize()!.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.getByRole("toolbar", { name: "阅读工具盘" })).toHaveAttribute("data-dock", "left");
+  const after = await grip.boundingBox();
+  expect(after).not.toBeNull();
+  expect(after!.x).toBeLessThan(70);
+});

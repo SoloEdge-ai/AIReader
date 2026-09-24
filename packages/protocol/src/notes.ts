@@ -2,6 +2,7 @@ import { z } from "zod";
 import { PdfAnchorSchema } from "./anchors";
 import type { SourceAnchor } from "./reading";
 import type { ChatImage } from "./images";
+import type { WorkspaceCard } from "./workspace";
 
 export const AnnotationInputSchema = z.object({
   kind: z.enum(["highlight", "underline", "strike", "sticky", "region"]),
@@ -36,6 +37,8 @@ export interface Note {
   id: string;
   bookId: string;
   annotationId?: string;
+  /** Immutable source retained if the excerpt card is later removed. */
+  sourceCard?: Pick<WorkspaceCard, "kind" | "title" | "text" | "source" | "region"> & { cardId: string };
   /** Read-only source projection, including a deleted annotation's provenance. */
   annotationSource?: Annotation;
   /** Frozen, Core-owned provenance; user edits never rewrite this metadata. */

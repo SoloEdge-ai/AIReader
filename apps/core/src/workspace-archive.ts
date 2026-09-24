@@ -12,7 +12,7 @@ import {
   type Note,
   type Book,
 } from "../../../packages/protocol/src";
-import { WorkspaceSchema } from "../../../packages/protocol/src/workspace";
+import { WorkspaceCardSchema, WorkspaceSchema } from "../../../packages/protocol/src/workspace";
 import { Library } from "./library";
 import { richDocument } from "./notes";
 import { Workspaces } from "./workspace";
@@ -79,6 +79,14 @@ const note = z
     id,
     bookId: id,
     annotationId: id.optional(),
+    sourceCard: z.object({
+      cardId: id,
+      kind: z.enum(["excerpt", "region"]),
+      title: WorkspaceCardSchema.shape.title,
+      text: WorkspaceCardSchema.shape.text,
+      source: WorkspaceCardSchema.shape.source,
+      region: WorkspaceCardSchema.shape.region,
+    }).strict().optional(),
     title: z.string().max(200),
     document: z.unknown().transform(richDocument),
     revision: z.number().int().nonnegative(),
@@ -192,6 +200,13 @@ export class WorkspaceArchives {
         files[`assets/${assetId}.png`] = bytes;
         assets[assetId] = sha(bytes);
       }
+    for (const n of values)
+      if (n.sourceCard?.region && !assets[n.sourceCard.region.assetId]) {
+        const assetId = id.parse(n.sourceCard.region.assetId);
+        const bytes = await readFile(join(this.library.directory, "workspace-assets", bookId, assetId + ".png"));
+        files[`assets/${assetId}.png`] = bytes;
+        assets[assetId] = sha(bytes);
+      }
     const manifest = manifestSchema.parse({
       format: "AIReader-workspace",
       version: 2,
@@ -299,6 +314,25 @@ export class WorkspaceArchives {
           !annotationIds.has(n.annotationId))
       )
         throw new Error("笔记所属书籍或批注不匹配");
+      if (n.sourceCard) {
+        const source = n.sourceCard;
+        if ((source.kind === "excerpt") !== Boolean(source.source) ||
+            (source.kind === "region") !== Boolean(source.region))
+          throw new Error("摘录评论来源类型无效");
+        if (source.source) {
+          if (source.source.fingerprint !== data.fingerprint)
+            throw new Error("摘录评论不属于此文档");
+          source.source.anchors.forEach(validAnchor);
+        }
+        if (source.region) {
+          if (data.version !== 2 || source.region.fingerprint !== data.fingerprint ||
+              source.region.page > data.pages ||
+              source.region.rect[2] <= source.region.rect[0] ||
+              source.region.rect[3] <= source.region.rect[1])
+            throw new Error("摘录评论图片来源无效");
+          referencedAssets.add(source.region.assetId);
+        }
+      }
       for (const s of n.origin?.sources ?? []) {
         if (
           s.anchor.bookId !== data.bookId ||
@@ -349,6 +383,11 @@ export class WorkspaceArchives {
         const content = data.notes.find((note) => note.id === card.noteId);
         if (!content || content.deletedAt || placedNotes.has(card.noteId))
           throw new Error("笔记位置引用缺失、已删除或重复的笔记");
+        if (card.kind !== "note" && (content.sourceCard?.cardId !== card.id ||
+            content.sourceCard.kind !== card.kind || content.sourceCard.text !== card.text ||
+            JSON.stringify(content.sourceCard.source) !== JSON.stringify(card.source) ||
+            JSON.stringify(content.sourceCard.region) !== JSON.stringify(card.region) || card.comment))
+          throw new Error("摘录评论与卡片不匹配");
         placedNotes.add(card.noteId);
       }
       if (card.source) {
@@ -406,7 +445,8 @@ export class WorkspaceArchives {
         throw new Error("工作区 PDF 无法解析或页数不匹配");
       const bookId = book.id;
       const ids = new Map(
-        [...noteIds, ...annotationIds, ...referencedAssets, ...cards, ...objectIds,
+        [...noteIds, ...annotationIds, ...referencedAssets, ...cards,
+          ...data.notes.flatMap((note) => note.sourceCard ? [note.sourceCard.cardId] : []), ...objectIds,
           ...data.workspace.links.map((link) => link.id)].map((old) => [
           old,
           randomUUID(),
@@ -419,6 +459,12 @@ export class WorkspaceArchives {
         bookId,
         revision: 1,
         annotationId: n.annotationId ? mapped(n.annotationId) : undefined,
+        sourceCard: n.sourceCard ? {
+          ...n.sourceCard,
+          cardId: mapped(n.sourceCard.cardId),
+          region: n.sourceCard.region ? { ...n.sourceCard.region,
+            assetId: mapped(n.sourceCard.region.assetId) } : undefined,
+        } : undefined,
         origin: n.origin
           ? {
               ...n.origin,
@@ -487,24 +533,26 @@ export class WorkspaceArchives {
             );
             writtenImages.add(img.id);
           }
-      for (const card of data.workspace.cards)
-        if (card.region)
-          await writeFile(join(this.library.directory, "workspace-assets", bookId,
-            mapped(card.region.assetId) + ".png"), decoded.get(card.region.assetId)!.buffer, { flag: "wx" });
+      const workspaceAssets = new Set([
+        ...data.workspace.cards.flatMap((card) => card.region ? [card.region.assetId] : []),
+        ...data.notes.flatMap((note) => note.sourceCard?.region ? [note.sourceCard.region.assetId] : []),
+      ]);
+      for (const assetId of workspaceAssets)
+        await writeFile(join(this.library.directory, "workspace-assets", bookId,
+          mapped(assetId) + ".png"), decoded.get(assetId)!.buffer, { flag: "wx" });
       this.library.store.transaction(() => {
         for (const n of restoredNotes)
           this.library.store.put("note", n.id, bookId, n);
         for (const a of restoredAnnotations)
           this.library.store.put("annotation", a.id, bookId, a);
-        for (const card of data.workspace.cards)
-          if (card.region) {
-            const image = decoded.get(card.region.assetId)!;
-            const assetId = mapped(card.region.assetId);
+        for (const originalId of workspaceAssets) {
+            const image = decoded.get(originalId)!;
+            const assetId = mapped(originalId);
             this.library.store.put("workspace-asset", assetId, bookId, {
               id: assetId, bookId, width: image.width, height: image.height,
               bytes: image.buffer.length, sha256: sha(image.buffer),
             });
-          }
+        }
         for (const mark of data.bookmarks) {
           const id = randomUUID();
           this.library.store.put("bookmark", id, bookId, {

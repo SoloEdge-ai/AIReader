@@ -377,6 +377,13 @@ export const BookWorkspace = forwardRef<
         ),
       }));
   }
+  async function promoteCard(card: WorkspaceCard) {
+    if (!(await state.flush())) throw new Error("卡片草稿尚未保存，请重试后编辑笔记");
+    const note = await props.notes.promoteCard(card.id);
+    if (!note) throw new Error("笔记草稿尚未保存，请重试");
+    await state.reload(true);
+    props.onExpandNote(note);
+  }
   function selectTarget(id: string, shift = false) {
     setStyleOpen(false);
     const next = shift ? (selectedIds.includes(id) ? selectedIds.filter((value) => value !== id) : [...selectedIds, id]) :
@@ -957,8 +964,16 @@ export const BookWorkspace = forwardRef<
               </span>
             </header>
             <div className="workspace-card-body">
-              {card.noteId ? <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
-                state={props.notes} editing={selectedIds.length === 1 && selectedIds[0] === card.id} /> : <><input
+              {card.kind === "note" ? (card.noteId
+                ? <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
+                  state={props.notes} editing={selectedIds.length === 1 && selectedIds[0] === card.id} />
+                : <div className="workspace-legacy-note">
+                    <strong>{card.title || "未命名笔记"}</strong>
+                    <p>{[card.text, card.comment].filter(Boolean).join("\n") || "还没有内容"}</p>
+                    <button onClick={() => { void promoteCard(card).catch((error) => setInkError(String(error))); }}>
+                      编辑笔记
+                    </button>
+                  </div>) : <><input
                 aria-label="卡片标题"
                 value={card.title}
                 maxLength={200}
@@ -970,25 +985,22 @@ export const BookWorkspace = forwardRef<
                   alt={`第 ${props.book.labels[card.region.page - 1] ?? card.region.page} 页图片摘录`} />
               ) : card.kind === "excerpt" ? (
                 <blockquote>{card.text}</blockquote>
-              ) : (
-                <textarea
-                  aria-label="个人笔记内容"
-                  placeholder="写下你的理解…"
-                  value={card.text}
-                  maxLength={20000}
-                  onChange={(e) => update(card.id, { text: e.target.value })}
-                />
-              )}
-              {(card.kind === "excerpt" || card.kind === "region") && (
-                <textarea
-                  aria-label="摘录个人评论"
-                  className="workspace-comment"
-                  placeholder="添加你的理解…"
-                  value={card.comment}
-                  maxLength={10000}
-                  onChange={(e) => update(card.id, { comment: e.target.value })}
-                />
-              )}
+              ) : null}
+              {card.noteId
+                ? <div className="workspace-comment"><small>个人评论 · 非书中原文</small>
+                    <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
+                      state={props.notes} editing={false} compact />
+                    <button onClick={() => {
+                      const note = props.notes.notes.find((item) => item.id === card.noteId);
+                      if (note) props.onExpandNote(note);
+                    }}>编辑评论</button>
+                  </div>
+                : <div className="workspace-comment">
+                    {card.comment && <p>{card.comment}</p>}
+                    <button onClick={() => { void promoteCard(card).catch((error) => setInkError(String(error))); }}>
+                      {card.comment ? "编辑评论" : "写评论"}
+                    </button>
+                  </div>}
               </>}
             </div>
             <footer>

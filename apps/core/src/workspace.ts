@@ -105,7 +105,7 @@ export class Workspaces {
     });
     return result!;
   }
-  save(bookId: string, input: unknown): BookWorkspace {
+  save(bookId: string, input: unknown, allowNoteBinding = false): BookWorkspace {
     const value = WorkspaceSchema.parse(input);
     if (value.bookId !== bookId) throw new Error("工作区与书籍不匹配");
     const current = this.get(bookId);
@@ -113,13 +113,14 @@ export class Workspaces {
       throw new Error(
         "工作区已在其他窗口更新；草稿已保留，请重新打开后处理冲突",
       );
-    this.validate(bookId, value, current, true);
+    this.validate(bookId, value, current, true, allowNoteBinding);
     const saved = { ...value, revision: current.revision + 1 };
     this.library.store.workspaces.save(saved);
     if (value.camera) this.camera(bookId, value.camera);
     return saved;
   }
-  private validate(bookId: string, value: BookWorkspace, current: BookWorkspace, prepareRegionAsset = false) {
+  private validate(bookId: string, value: BookWorkspace, current: BookWorkspace,
+    prepareRegionAsset = false, allowNoteBinding = false) {
     const book = this.library.book(bookId);
     const ids = new Set([...value.cards.map((card) => card.id), ...value.objects.map((object) => object.id)]);
     if (
@@ -132,6 +133,11 @@ export class Workspaces {
       if (card.noteId) {
         const note = this.library.store.get<Note>("note", card.noteId);
         if (!note || note.bookId !== bookId || note.deletedAt) throw new Error("笔记不存在或不属于此书籍");
+        if (card.kind !== "note" && (note.sourceCard?.cardId !== card.id ||
+          note.sourceCard.kind !== card.kind || note.sourceCard.text !== card.text ||
+          JSON.stringify(note.sourceCard.source) !== JSON.stringify(card.source) ||
+          JSON.stringify(note.sourceCard.region) !== JSON.stringify(card.region)))
+          throw new Error("摘录评论与原文来源不匹配");
         if (placedNotes.has(card.noteId)) throw new Error("此笔记已经放到画布，请定位已有卡片");
         placedNotes.add(card.noteId);
       }
@@ -163,7 +169,7 @@ export class Workspaces {
       if (
         previous &&
         (previous.kind !== card.kind ||
-          ("noteId" in previous && previous.noteId !== card.noteId) ||
+          (!allowNoteBinding && "noteId" in previous && previous.noteId !== card.noteId) ||
           JSON.stringify(previous.source) !== JSON.stringify(card.source) ||
           JSON.stringify(previous.region) !== JSON.stringify(card.region) ||
           (card.kind !== "note" && previous.text !== card.text))

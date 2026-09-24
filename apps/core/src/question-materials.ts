@@ -136,12 +136,7 @@ export class QuestionMaterials {
       if (target.kind === "card") {
         const card = cards.get(target.id);
         if (!card) throw new Error("卡片不存在或不属于本书");
-        if (card.noteId) {
-          const note = notes.get(card.noteId);
-          if (!note || target.revision !== note.revision) throw new Error("卡片笔记已变化，请重新加入材料");
-          linkedNotes.set(note.id, note.revision);
-          sections.push({ kind: "user-note", targetId: card.id, title: note.title, text: plainText(note.document) });
-        } else if (card.kind === "excerpt") sections.push({ kind: "book-excerpt", targetId: card.id, title: card.title,
+        if (card.kind === "excerpt") sections.push({ kind: "book-excerpt", targetId: card.id, title: card.title,
           text: card.text, anchors: card.source?.anchors });
         else if (card.kind === "region" && card.region) {
           const bytes = Buffer.from(await this.workspaceAssets.read(bookId, card.region.assetId));
@@ -150,7 +145,13 @@ export class QuestionMaterials {
           sections.push({ kind: "book-region", targetId: card.id, title: card.title,
             text: card.region.includePersonalMarks ? "PDF 区域截图，含个人标注" : "PDF 区域截图",
             anchors: [{ page: card.region.page, rects: [card.region.rect] }], imageIds: [id] });
-        } else sections.push({ kind: "user-note", targetId: card.id, title: card.title, text: card.text });
+        } else if (!card.noteId) sections.push({ kind: "user-note", targetId: card.id, title: card.title, text: card.text });
+        if (card.noteId) {
+          const note = notes.get(card.noteId);
+          if (!note || target.revision !== note.revision) throw new Error("卡片笔记已变化，请重新加入材料");
+          linkedNotes.set(note.id, note.revision);
+          sections.push({ kind: "user-note", targetId: card.id, title: note.title, text: plainText(note.document) });
+        }
         if (card.comment) sections.push({ kind: "user-note", targetId: card.id,
           title: `${card.title} · 个人评论`, text: card.comment });
       } else if (target.kind === "object") {

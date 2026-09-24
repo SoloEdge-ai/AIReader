@@ -178,7 +178,9 @@ export function NotesPanel({
                     ? `${kindNames[a.kind]} · ${a.anchors.map((x) => x.page).join("、")} 页`
                     : n.origin
                       ? "AI 回答笔记"
-                      : "独立笔记"}
+                      : n.sourceCard
+                        ? `摘录评论 · 第 ${n.sourceCard.region?.page ?? n.sourceCard.source?.anchors[0].page} 页`
+                        : "独立笔记"}
                 </small>
               </button>
             );
@@ -278,6 +280,16 @@ export function NotesPanel({
               </label>
             </div>
           )}
+          {selected.sourceCard && <div className="note-source">
+            <p>摘录来源 · 下方评论是个人内容，不是书中原文</p>
+            <button onClick={() => onJump(selected.sourceCard!.region?.page ??
+              selected.sourceCard!.source!.anchors[0].page)}>
+              第 {selected.sourceCard.region?.page ?? selected.sourceCard.source?.anchors[0].page} 页原文 ↗
+            </button>
+            {selected.sourceCard.text && <blockquote>{selected.sourceCard.text}</blockquote>}
+            {selected.sourceCard.region && <img alt="摘录图片"
+              src={`${base}/api/books/${bookId}/workspace-assets/${selected.sourceCard.region.assetId}`} />}
+          </div>}
           <NoteEditor key={selected.id} note={selected} state={state} />
           <footer>
             <span role="status">{state.status}</span>

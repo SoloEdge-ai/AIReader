@@ -72,6 +72,26 @@ test("region cards own immutable book-scoped PNG assets and retry without duplic
     await connect();
     expect((await (await request(`books/${first.id}/workspace`)).json()).cards[0]).toMatchObject(card);
     expect((await request(`books/${first.id}/workspace-assets/${card.region.assetId}`)).status).toBe(200);
+    const converted = await request(`books/${first.id}/workspace/cards/${card.id}/note`, {});
+    expect(converted.status).toBe(201);
+    const note = await converted.json();
+    expect(note.sourceCard.region.assetId).toBe(card.region.assetId);
+    const current = await (await request(`books/${first.id}/workspace`)).json();
+    expect((await request(`books/${first.id}/workspace/commands`, {
+      bookId: first.id, commandId: "remove-commented-region", expectedVersion: current.revision,
+      changes: [{ type: "delete-card", id: card.id }],
+    })).status).toBe(200);
+    const exported = await request(`books/${first.id}/workspace/archive`);
+    expect(exported.status).toBe(200);
+    const restored = await fetch(origin + "/api/workspace-archives", {
+      method: "POST", headers: { Origin: origin, Cookie: cookie, "Content-Type": "application/octet-stream" },
+      body: Buffer.from(await exported.arrayBuffer()),
+    });
+    expect(restored.status).toBe(201);
+    const copy = await restored.json();
+    const copyNote = (await (await request(`books/${copy.id}/notes`)).json())[0];
+    expect(copyNote.sourceCard.region.assetId).not.toBe(card.region.assetId);
+    expect((await request(`books/${copy.id}/workspace-assets/${copyNote.sourceCard.region.assetId}`)).status).toBe(200);
   } finally {
     core.close();
     await rm(directory, { recursive: true, force: true });

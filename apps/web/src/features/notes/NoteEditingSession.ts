@@ -55,6 +55,13 @@ export class NoteEditingSession {
     await this.refresh();
     this.setSelected(note.id);
   };
+  promoteCard = async (id: string) => {
+    if (!this.client || !(await this.flush())) return;
+    const note = await this.client.promoteCard(id);
+    await this.refresh();
+    this.setSelected(note.id);
+    return note;
+  };
   pause = () => { clearTimeout(this.timer); };
   refresh = async (adoptDraftBase = false): Promise<void> => {
     if (!this.client) return;

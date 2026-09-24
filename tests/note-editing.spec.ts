@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { createCore } from "../apps/core/src/server";
+import { Workspaces } from "../apps/core/src/workspace";
 
 let core: ReturnType<typeof createCore>;
 let directory: string;
@@ -115,6 +116,65 @@ test("card, sidebar and expanded editor share one note; removal preserves conten
   await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
   await page.getByRole("button", { name: "返回书库" }).click();
   await expect(page.locator(".book-card").first()).toBeVisible();
+});
+
+test("excerpt keeps original source visible while its comment uses the shared editor", async ({ page }) => {
+  const workspaces = new Workspaces(core.library);
+  const snapshot = workspaces.get(bookId);
+  const id = "ui-excerpt-comment";
+  workspaces.save(bookId, { ...snapshot, cards: [...snapshot.cards, {
+    id, kind: "excerpt", title: "原文卡片", text: "不可编辑的书中原文", comment: "先前写下的理解",
+    x: 2000, y: 80, width: 320, height: 290,
+    source: { fingerprint: core.library.book(bookId).fingerprint,
+      anchors: [{ page: 1, rects: [[20, 30, 130, 60]] }] },
+  }] });
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  const card = page.locator(`[data-card-id="${id}"]`);
+  await expect(card).toContainText("不可编辑的书中原文");
+  await expect(card).toContainText("先前写下的理解");
+  await page.locator(".workspace-scroll").evaluate((element) => { element.scrollLeft = 1800; });
+  await card.getByRole("button", { name: "编辑评论" }).click();
+  await expect(card).toContainText("不可编辑的书中原文");
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expect(expanded.getByRole("textbox", { name: "笔记正文" })).toHaveText("先前写下的理解");
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("修改后的个人理解");
+  await expect(card).toContainText("修改后的个人理解");
+  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await expect(card).toContainText("不可编辑的书中原文");
+  expect((await card.locator("blockquote").boundingBox())?.height).toBeGreaterThanOrEqual(46);
+  await page.screenshot({ path: "test-results/excerpt-comment-note.png" });
+  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
+  await expect(card).toHaveCount(0);
+  const panel = page.locator(".notes-panel");
+  if (!(await panel.isVisible())) await page.getByLabel("笔记", { exact: true }).click();
+  await panel.locator(".notes-list button").filter({ hasText: "摘录评论" }).last().click();
+  await expect(panel).toContainText("不可编辑的书中原文");
+  await expect(panel).toContainText("修改后的个人理解");
+});
+
+test("a legacy personal card moves into one Note before editing", async ({ page }) => {
+  const workspaces = new Workspaces(core.library);
+  const snapshot = workspaces.get(bookId);
+  const id = "ui-personal-legacy";
+  workspaces.save(bookId, { ...snapshot, cards: [...snapshot.cards, {
+    id, kind: "note", title: "旧卡片标题", text: "旧卡片正文", comment: "",
+    x: 2000, y: 80, width: 320, height: 290,
+  }] });
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  await page.locator(".workspace-scroll").evaluate((element) => { element.scrollLeft = 1800; });
+  const card = page.locator(`[data-card-id="${id}"]`);
+  await expect(card).toContainText("旧卡片正文");
+  await card.getByRole("button", { name: "编辑笔记" }).click();
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expect(expanded.getByRole("textbox", { name: "笔记正文" })).toHaveText("旧卡片正文");
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("Note 是唯一正文");
+  await expect(card).toContainText("Note 是唯一正文");
+  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await expect(card.getByRole("button", { name: "编辑笔记" })).toHaveCount(0);
+  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
+  await expect(card).toHaveCount(0);
 });
 
 test("two views edit one live note draft and reopening reads its saved content", async ({ page }) => {

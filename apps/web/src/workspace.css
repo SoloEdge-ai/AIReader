@@ -254,6 +254,11 @@
   line-height: 1.85;
   scrollbar-width: thin;
 }
+.workspace-card.excerpt .workspace-card-body > blockquote {
+  flex: 0 1 auto;
+  min-height: 46px;
+  max-height: 34%;
+}
 .workspace-region-image {
   display: block;
   flex: 1;
@@ -265,14 +270,37 @@
   border: 1px solid var(--workspace-rule);
   border-radius: 3px;
 }
-.workspace-card.region .workspace-comment {
-  flex: 0 0 46px;
+.workspace-card.region .workspace-region-image {
+  flex: 0 1 auto;
+  min-height: 72px;
+  max-height: 45%;
 }
-.workspace-card textarea.workspace-comment {
+.workspace-card .workspace-comment {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   border-top: 1px solid var(--workspace-rule);
   padding-top: 7px;
   font-size: 11px;
   color: var(--workspace-accent);
+  overflow: auto;
+  min-height: 40px;
+}
+.workspace-card .workspace-comment > small {
+  display: block;
+  color: var(--muted);
+}
+.workspace-card .workspace-comment > p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+.workspace-card .workspace-comment > button {
+  padding: 4px 0;
+}
+.workspace-legacy-note p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 .workspace-card footer {
   display: flex;

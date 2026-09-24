@@ -336,6 +336,13 @@ export function createCore(
             send(res, workspaces.command(id, batch));
             return;
           }
+          if (parts[3] === "workspace" && parts[4] === "cards" && parts[5] &&
+            parts[6] === "note" && parts.length === 7 && req.method === "POST") {
+            z.object({}).strict().parse(await jsonBody(req));
+            const result = notes.promoteCard(id, parts[5]);
+            send(res, result.note, result.created ? 201 : 200);
+            return;
+          }
           if (parts[3] === "workspace" && parts[4] === "camera" && parts.length === 5 && req.method === "PUT") {
             send(res, workspaces.camera(id, await jsonBody(req)));
             return;

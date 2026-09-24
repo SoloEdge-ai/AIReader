@@ -34,8 +34,8 @@ Annotation.noteId 已可缺省；POST /api/books/:id/annotations/:annotationId/n
 
 Note.annotationId 保留来源引用，可能指向已删除标注或不再以该 Note 为当前评论的标注。列表返回只读 annotationSource 投影；更新正文不能修改此来源。归档保留活跃 Note 引用的标注 tombstone 和区域资源，恢复重映射 ID；导出已删除源标注时明确标识。当前归档仍为 v2，允许没有 noteId 的独立标注，完整 v3 仍待后续阶段。
 
-新个人卡片使用 WorkspaceCard.noteId 引用本书活跃 Note，每个 Note 最多一张卡片；兼容字段 title/text/comment 必须为空，禁止卡片保存另一份正文。旧无 noteId 的卡片保留原行为，摘录评论尚未统一。Note 接口仍为 v1，尚未获得 v2 命令回执和统一跨实体历史。
+新个人卡片使用 WorkspaceCard.noteId 引用本书活跃 Note，每个 Note 最多一张卡片；兼容字段 title/text/comment 必须为空，禁止卡片保存另一份正文。原文／区域摘录卡片保留不可编辑的原始 text/source/region，可用 noteId 引用评论 Note，但 comment 必须为空。`POST /api/books/:id/workspace/cards/:cardId/note` 在一个数据库事务中把旧纯文本评论或独立个人卡片转成 Note 并绑定卡片；个人卡片的 title/text/comment 清空，重复请求返回现有 Note。Note.sourceCard 冻结卡片来源，删除源卡片后仍保留，归档恢复会重映射来源卡片及图片资源 ID。旧无 noteId 的独立个人卡片在首次编辑前仍可阅读，但界面不再写旧正文路径。Note 接口仍为 v1，尚未获得 v2 命令回执和统一跨实体历史。
 
-删除 Note 在同一事务保存其位置／关系逆操作并删除这些实体；恢复时若 ID 已冲突或关系端点缺失，整次恢复失败，不部分恢复。单独删除卡片不删除 Note。材料选择关联卡片必须携带 Note revision，Core 读取并冻结正文为 user-note，最终提交前再次核对 Note 版本。归档 v2 校验活跃 Note 引用及单位置约束，恢复副本重映射 noteId；旧归档不强制生成引用。
+删除 Note 在同一事务保存其位置／关系逆操作并删除个人卡片；源摘录卡片只解除评论引用。恢复时若 ID 已冲突或关系端点缺失，整次恢复失败，不部分恢复。单独删除卡片不删除 Note。材料选择关联卡片必须携带 Note revision，Core 将摘录原文与评论分别分类并冻结；最终提交前再次核对 Note 版本。归档 v2 校验活跃 Note 引用、来源快照及单位置约束，恢复副本重映射 noteId/sourceCard.cardId 和图片资源；旧归档不强制生成引用。
 
 归档当前支持v1/v2；重构切换v3后只支持v3。保留大小、路径、hash、图片及跨书验证；恢复独立副本并重映射引用。账号、执行文件和完整聊天不入包。

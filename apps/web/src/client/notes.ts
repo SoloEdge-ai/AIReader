@@ -10,6 +10,7 @@ export function notesClient(bookId: string) {
     annotations: () => api<Annotation[]>(`${book}/annotations`),
     create: () => post<Note>(`${book}/notes`, {}),
     comment: (id: string) => post<Note>(entity("annotations", id) + "/note", {}),
+    promoteCard: (id: string) => post<Note>(`${book}/workspace/cards/${encodeURIComponent(id)}/note`, {}),
     update: (id: string, input: { revision: number; title: string; document: RichNode }) =>
       post<Note>(entity("notes", id), input),
     color: (id: string, revision: number, color: Annotation["color"]) =>
