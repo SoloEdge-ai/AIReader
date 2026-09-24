@@ -45,7 +45,7 @@ export class NoteEditingSession {
   }
   setSelected = (id?: string) => { this.publish({ selected: id }); };
   pause = () => { clearTimeout(this.timer); };
-  refresh = async (adoptDraftBase = false) => {
+  refresh = async (adoptDraftBase = false): Promise<void> => {
     if (!this.client) return;
     const sequence = ++this.refreshSequence;
     if (this.pending) await this.pending;
@@ -53,7 +53,8 @@ export class NoteEditingSession {
     try {
       const [notes, annotations] = await Promise.all([this.client.list(), this.client.annotations()]);
       // A slow refresh must not replace a newer successful save's revision.
-      if (sequence !== this.refreshSequence || generation !== this.committedGeneration) return;
+      if (sequence !== this.refreshSequence) return;
+      if (generation !== this.committedGeneration) return this.refresh(adoptDraftBase);
       const present = new Set(notes.map((note) => note.id));
       this.records = [
         ...notes.map((note) => !adoptDraftBase && this.drafts.has(note.id)

@@ -17,6 +17,8 @@ function Harness() {
     <button onClick={() => void state.flush()}>重试保存</button>
     <button onClick={() => void state.refresh()}>刷新记录</button>
     <button onClick={() => void state.retryWithLatest()}>用草稿覆盖最新版本</button>
+    <button onClick={() => void state.create()}>新建笔记</button>
+    <span aria-label="笔记数量">{state.notes.length}</span>
     {note && <div style={{ display: "flex", gap: 24 }}>
       <section aria-label="列表编辑器"><NoteEditor note={note} state={state} /></section>
       <section aria-label="展开编辑器"><NoteEditor note={note} state={state} /></section>

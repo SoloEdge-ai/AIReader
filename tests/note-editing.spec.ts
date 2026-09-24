@@ -54,6 +54,10 @@ test("expanded note stays editable beside chat and keeps the sidebar draft synch
   await page.locator(".panel-tabs").getByRole("button", { name: "问答", exact: true }).click();
   await expect(expanded).toBeVisible();
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("问答打开时仍可写笔记");
+  await expanded.getByTitle("链接", { exact: true }).click();
+  await expanded.getByLabel("笔记链接地址").press("Escape");
+  await expect(expanded.getByLabel("笔记链接地址")).toHaveCount(0);
+  await expect(expanded).toBeVisible();
   await page.screenshot({ path: "test-results/expanded-note-and-chat.png" });
   await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
   await expect(expanded).toHaveCount(0);
@@ -137,5 +141,43 @@ test("a lost response for an older edit never drops a newer draft", async ({ pag
     await expect(page.getByRole("status")).toHaveText("已保存");
     await page.reload();
     await expect(first).toHaveText("这是用户后来输入的内容");
+  } finally { release(); }
+});
+
+test("a passive editor cannot undo another editor's synchronized content", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
+  const first = page.getByRole("region", { name: "列表编辑器" });
+  const second = page.getByRole("region", { name: "展开编辑器" });
+  await second.getByRole("textbox", { name: "笔记正文" }).fill("只在展开编辑器键入的内容");
+  await expect(first.getByRole("textbox", { name: "笔记正文" })).toHaveText("只在展开编辑器键入的内容");
+  await first.getByTitle("撤销编辑", { exact: true }).click();
+  await expect(second.getByRole("textbox", { name: "笔记正文" })).toHaveText("只在展开编辑器键入的内容");
+});
+
+test("creating a note still refreshes the list when another note saves during the read", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
+  const first = page.getByRole("region", { name: "列表编辑器" }).getByRole("textbox", { name: "笔记正文" });
+  await expect(first).toBeVisible();
+  const count = Number(await page.getByLabel("笔记数量").textContent());
+  let release!: () => void;
+  const released = new Promise<void>((done) => { release = done; });
+  let read!: () => void;
+  const fetched = new Promise<void>((done) => { read = done; });
+  let delayed = false;
+  await page.route("**/api/books/*/notes", async (route) => {
+    if (route.request().method() !== "GET" || delayed) { await route.continue(); return; }
+    delayed = true;
+    const response = await route.fetch(); read();
+    await released; await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole("button", { name: "新建笔记", exact: true }).click();
+    await fetched;
+    const saved = page.waitForResponse((response) => /\/notes\/[^/]+$/.test(response.url()) && response.request().method() === "POST");
+    await first.fill("新建期间继续编辑原笔记");
+    expect((await saved).status()).toBe(200);
+    await expect(page.getByRole("status")).toHaveText("已保存");
+    release();
+    await expect(page.getByLabel("笔记数量")).toHaveText(String(count + 1));
   } finally { release(); }
 });

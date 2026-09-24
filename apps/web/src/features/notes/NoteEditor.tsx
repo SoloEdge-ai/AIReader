@@ -53,7 +53,8 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
   useEffect(() => {
     if (!editor || composition.current) return;
     if (canonicalDocument(editor.getJSON()) !== canonicalDocument(note.document))
-      editor.commands.setContent(note.document, { emitUpdate: false });
+      editor.chain().setContent(note.document, { emitUpdate: false })
+        .setMeta("addToHistory", false).run();
   }, [editor, note.document]);
   if (!editor) return null;
   return (
@@ -132,6 +133,13 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
       {link !== undefined && (
         <form
           className="note-link-form"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setLink(undefined);
+            editor.commands.focus();
+          }}
           onSubmit={(e) => {
             e.preventDefault();
             try {
