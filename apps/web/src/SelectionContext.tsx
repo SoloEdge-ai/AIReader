@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReadingSelection } from "../../../packages/protocol/src";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
 
 function pages(selection: ReadingSelection) {
   return [...new Set(selection.anchors.map((anchor) => anchor.page))].join(

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ReaderPreferences } from "../../../packages/protocol/src";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
+import { buildInfo } from "./build-info";
 export function Settings({
   prefs,
   onChange,
@@ -95,7 +96,9 @@ export function Settings({
         </details>
         <details>
           <summary>关于 AIReader</summary>
-          <p>Windows 11 x64 · 免安装桌面阅读器</p>
+          <p>Windows 11 x64</p>
+          <p>{buildInfo ? `${buildInfo.version} · ${buildInfo.channel} · ${buildInfo.commit.slice(0, 12)}` : "开发环境"}</p>
+          {buildInfo && <p>数据格式 v{buildInfo.databaseVersion} · 工作区归档 v{buildInfo.archiveVersion} · API v{buildInfo.apiVersion}</p>}
           <p>
             书籍、批注和笔记保存在本机用户目录。AI
             问答会按需发送相关原文；全书索引需要另行确认。

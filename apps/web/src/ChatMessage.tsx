@@ -10,7 +10,7 @@ import type {
   SourceAnchor,
   PdfAnchor,
 } from "../../../packages/protocol/src";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
 import { effortLabel } from "./ModelControl";
 import { ChatImageList } from "./ChatImageList";
 import { base, post } from "./api";

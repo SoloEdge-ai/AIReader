@@ -17,8 +17,9 @@ import type {
 } from "../../../packages/protocol/src";
 import type { z } from "zod";
 import { fileUrl } from "./api";
-import { zoomWorkspaceAtPointer } from "./WorkspaceViewport";
-import type { InkPoint } from "./InkGeometry";
+import { zoomWorkspaceAtPointer } from "../../../packages/workspace-engine/src/viewport";
+import type { InkPoint } from "../../../packages/workspace-engine/src/ink";
+import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
 import type { InkStroke, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import {
   WORKSPACE_DOCUMENT_X,
@@ -536,16 +537,6 @@ function Page({
     </div>
   );
 }
-export type WorkspacePage = {
-  page: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  locate: (rect: Rect) => { x: number; y: number };
-  toPdf: (point: InkPoint) => InkPoint;
-  toWorld: (point: InkPoint) => InkPoint;
-};
 export interface PdfReaderProps {
   id: string;
   initialPage: number;

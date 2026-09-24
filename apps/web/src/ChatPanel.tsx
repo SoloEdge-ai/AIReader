@@ -11,8 +11,8 @@ import type {
 import { MAX_QUESTION_MATERIALS, questionMaterialCount } from "../../../packages/protocol/src";
 import { api, post, base } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
-import { Icon } from "./Icon";
-import { Popover } from "./Popover";
+import { Icon } from "./ui/Icon";
+import { Popover } from "./ui/Popover";
 import { ChatMessage } from "./ChatMessage";
 import { SelectionContext } from "./SelectionContext";
 import { ChatImageList } from "./ChatImageList";

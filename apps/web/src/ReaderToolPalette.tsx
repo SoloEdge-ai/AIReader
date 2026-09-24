@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { ReaderTool, ToolPreferences } from "../../../packages/protocol/src";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
 
 const tools = [
   { id: "pointer", label: "指针（V）", icon: "pointer" },

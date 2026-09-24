@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { Book } from "../../../packages/protocol/src";
 import { api } from "./api";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
 
 export function WorkspaceRestore({
   disabled,

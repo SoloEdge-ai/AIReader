@@ -24,7 +24,7 @@ import { ChatPanel, type SelectionAction } from "./ChatPanel";
 import { QuestionDraftStore } from "./QuestionDrafts";
 import { PanelResizer } from "./PanelResizer";
 import { BookCover } from "./BookCover";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
 import { Settings } from "./Settings";
 import { AccountControls } from "./AiState";
 import { IndexPanel } from "./IndexPanel";
@@ -282,7 +282,7 @@ export function App() {
           const event = JSON.parse(e.data) as CoreEvent;
           if (event.type === "book")
             setBooks((old) => {
-              const b = event.data as Book;
+              const b = event.data;
               return [...old.filter((x) => x.id !== b.id), b];
             });
           if (event.type === "workspace" && event.bookId)

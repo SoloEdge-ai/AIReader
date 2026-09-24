@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Annotation, ReadingSelection } from "../../../packages/protocol/src";
-import { Icon } from "./Icon";
-import { Popover } from "./Popover";
+import { Icon } from "./ui/Icon";
+import { Popover } from "./ui/Popover";
 
 const colors = [
   { id: "yellow", name: "黄色", hex: "#f5d549" },

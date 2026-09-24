@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PdfAnchor } from "./index";
+import type { PdfAnchor } from "./anchors";
 
 export const MAX_QUESTION_MATERIALS = 20;
 

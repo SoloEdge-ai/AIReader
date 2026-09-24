@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PdfAnchorSchema } from "./index";
+import { PdfAnchorSchema } from "./anchors";
 
 const identity = z
   .string()

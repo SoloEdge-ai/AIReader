@@ -170,12 +170,10 @@ export class Notes {
   }
   private save(value: Annotation | Note, kind: "annotation" | "note") {
     this.library.store.put(kind, value.id, value.bookId, value);
-    this.library.emit({
-      type: kind,
-      bookId: value.bookId,
-      taskId: value.id,
-      data: value,
-    });
+    if ("document" in value)
+      this.library.emit({ type: "note", bookId: value.bookId, taskId: value.id, data: value });
+    else
+      this.library.emit({ type: "annotation", bookId: value.bookId, taskId: value.id, data: value });
   }
   createNote(bookId: string, title = "新笔记", annotationId?: string) {
     this.library.book(bookId);

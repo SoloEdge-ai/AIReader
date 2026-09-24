@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
+import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
 import type {
   Book,
   Annotation,
@@ -22,19 +23,18 @@ import type { BrushStyle, ToolPreferences } from "../../../packages/protocol/src
 import {
   PdfReader,
   type PdfReaderProps,
-  type WorkspacePage,
   type QuestionRegion,
   type RegionAction,
 } from "./PdfReader";
 import { useWorkspace } from "./WorkspaceState";
-import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPoint, type ProjectedInk } from "./InkGeometry";
+import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPoint, type ProjectedInk } from "../../../packages/workspace-engine/src/ink";
 import { InkCanvas, type InkCanvasHandle } from "./InkCanvas";
 import { WorkspaceObjectView } from "./WorkspaceObjectView";
 import { captureMaterialPreviews } from "./WorkspaceMaterialPreview";
 import { lassoHitsPath, lassoHitsRect, newShape, objectRect, resizeObject,
-  translateObject, worldToSurface } from "./WorkspaceGeometry";
+  translateObject, worldToSurface } from "../../../packages/workspace-engine/src/objects";
 import { dockBesideDocument } from "./WorkspaceLayout";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
 import { base, post } from "./api";
 import "./workspace.css";
 
@@ -611,7 +611,7 @@ export const BookWorkspace = forwardRef<
     }
     if (gesture.kind === "shape") {
       if (Math.hypot(point[0] - gesture.start[0], point[1] - gesture.start[1]) * props.zoom < 5) return;
-      const shape = newShape(props.mode as "rectangle" | "ellipse" | "line" | "arrow",
+      const shape = newShape(crypto.randomUUID(), props.mode as "rectangle" | "ellipse" | "line" | "arrow",
         gesture.start, point, pages.current, props.book.fingerprint);
       state.change((current) => ({ ...current, objects: [...current.objects, shape] }));
       setSelectedIds([shape.id]);
@@ -829,7 +829,7 @@ export const BookWorkspace = forwardRef<
           <path d={`M ${canvasGesture.points.map((point) => point.join(" ")).join(" L ")} Z`} />
         </svg>}
         {canvasGesture?.kind === "shape" && (() => {
-          const preview = newShape(props.mode as "rectangle" | "ellipse" | "line" | "arrow",
+          const preview = newShape("preview", props.mode as "rectangle" | "ellipse" | "line" | "arrow",
             canvasGesture.start, canvasGesture.current, layout, props.book.fingerprint);
           return <WorkspaceObjectView object={preview} pages={layout} zoom={props.zoom} selected={false} editing={false}
             onSelect={() => {}} onEdit={() => {}} onCommit={() => {}} onResize={() => {}} />;
