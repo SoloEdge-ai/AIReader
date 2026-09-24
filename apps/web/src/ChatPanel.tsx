@@ -17,6 +17,7 @@ import { ChatMessage } from "./ChatMessage";
 import { SelectionContext } from "./SelectionContext";
 import { ChatImageList } from "./ChatImageList";
 import type { QuestionDraft, QuestionDraftStore } from "./QuestionDrafts";
+import { mergeTurnSnapshot, upsertTurn, type ObservedTurn } from "./features/chat/turn-sync";
 export type SelectionAction = {
   name: string;
   nonce: number;
@@ -38,6 +39,8 @@ export function ChatPanel({
   onStartRegion,
   onSessionChange,
   onMaterialLocate,
+  turnEvents,
+  streamRevision,
 }: {
   book: Book;
   page: number;
@@ -53,6 +56,8 @@ export function ChatPanel({
   onStartRegion: (sessionId: string) => void;
   onSessionChange: (sessionId: string) => void;
   onMaterialLocate: (anchors: PdfAnchor[]) => void;
+  turnEvents: ObservedTurn[];
+  streamRevision: number;
 }) {
   const ai = useAi();
   const [session, setSession] = useState(""),
@@ -74,6 +79,9 @@ export function ChatPanel({
     messages = useRef<HTMLDivElement>(null);
   const currentSession = useRef(session),
     submitting = useRef(false);
+  const observedSequence = useRef(0);
+  const observedTurns = useRef<ObservedTurn[]>([]);
+  const lastParentSequence = useRef(0);
   const [sending, setSending] = useState(false),
     [creating, setCreating] = useState(false);
   const followBottom = useRef(true);
@@ -133,13 +141,26 @@ export function ChatPanel({
     };
   }, [book.id]);
   useEffect(() => {
+    const pending = turnEvents.filter((event) => event.sequence > lastParentSequence.current);
+    for (const { sequence: parentSequence, turn } of pending) {
+      lastParentSequence.current = parentSequence;
+      if (turn.bookId !== book.id) continue;
+      const sequence = ++observedSequence.current;
+      observedTurns.current.push({ sequence, turn });
+      if (observedTurns.current.length > 128) observedTurns.current.shift();
+      if (turn.sessionId === currentSession.current)
+        setTurns((old) => upsertTurn(old, turn, book.id, currentSession.current));
+      setSessions((old) => old.map((item) => item.id === turn.sessionId && item.title === "新会话"
+        ? { ...item, title: turn.question.slice(0, 60) }
+        : item));
+    }
+  }, [turnEvents, book.id]);
+  useEffect(() => {
     if (!session) return;
     localStorage.setItem("session-" + book.id, session);
     let live = true;
-    let updating = false;
-    const tick = async () => {
-      if (updating) return;
-      updating = true;
+    const startedAt = observedSequence.current;
+    const refresh = async () => {
       try {
         const [values, list] = await Promise.all([
           api<ChatTurn[]>(
@@ -148,22 +169,25 @@ export function ChatPanel({
           api<Session[]>(`books/${book.id}/sessions`),
         ]);
         if (live) {
-          setTurns(values);
-          setSessions(list);
+          setTurns(mergeTurnSnapshot(values, observedTurns.current, startedAt, book.id, session));
+          const recent = observedTurns.current.filter((event) => event.sequence > startedAt);
+          setSessions(list.map((item) => {
+            const event = recent.find(({ turn }) => turn.sessionId === item.id);
+            return event && item.title === "新会话"
+              ? { ...item, title: event.turn.question.slice(0, 60) }
+              : item;
+          }));
+          setError((old) => old.startsWith("会话同步失败：") ? "" : old);
         }
       } catch (e) {
-        if (live) setError(String(e));
-      } finally {
-        updating = false;
+        if (live) setError(`会话同步失败：${String(e)}`);
       }
     };
-    void tick();
-    const timer = setInterval(() => void tick(), 1000);
+    void refresh();
     return () => {
       live = false;
-      clearInterval(timer);
     };
-  }, [book.id, session]);
+  }, [book.id, session, streamRevision]);
   useEffect(() => {
     if (action && session) {
       attach(action.selection);
@@ -223,6 +247,7 @@ export function ChatPanel({
       });
       savedDrafts.clearIfUnchanged(draftKey, submittedDraft);
       if (currentSession.current === requestedSession) {
+        observedTurns.current.push({ sequence: ++observedSequence.current, turn });
         setTurns((old) =>
           old.some((t) => t.id === turn.id) ? old : [...old, turn],
         );

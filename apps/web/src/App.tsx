@@ -23,6 +23,7 @@ import { NotesPanel } from "./NotesPanel";
 import { useBookNotes } from "./features/notes/useBookNotes";
 import { ExpandedNote } from "./features/notes/ExpandedNote";
 import { ChatPanel, type SelectionAction } from "./ChatPanel";
+import type { ObservedTurn } from "./features/chat/turn-sync";
 import { QuestionDraftStore } from "./QuestionDrafts";
 import { PanelResizer } from "./PanelResizer";
 import { BookCover } from "./BookCover";
@@ -99,6 +100,8 @@ export function App() {
   const [annotationColor, setAnnotationColor] =
     useState<Annotation["color"]>("yellow");
   const [workspaceEvents, setWorkspaceEvents] = useState<Record<string, number>>({});
+  const [turnEvents, setTurnEvents] = useState<ObservedTurn[]>([]);
+  const [streamRevision, setStreamRevision] = useState(0);
   const openSequence = useRef(0);
   const readerTools = useReaderToolController({
     bookId: active,
@@ -267,37 +270,71 @@ export function App() {
     }
   }
   useEffect(() => {
-    let socket: WebSocket;
     let live = true;
-    void post("session", {})
-      .then(async () => {
-        const [list, p, toolPrefs] = await Promise.all([
-          api<Book[]>("books"),
-          api<ReaderPreferences>("preferences"),
-          api<ToolPreferences>("tool-preferences"),
-        ]);
+    const resync = () => { if (live) setStreamRevision((old) => old + 1); };
+    const onVisibility = () => { if (!document.hidden) resync(); };
+    window.addEventListener("online", resync);
+    document.addEventListener("visibilitychange", onVisibility);
+    let socket: WebSocket | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    let initialized = false;
+    const scheduleRetry = () => {
+      if (!live) return;
+      retry = setTimeout(() => void connect(), Math.min(10_000, 500 * 2 ** Math.min(attempt++, 5)));
+    };
+    const connect = async () => {
+      try {
+        await post("session", {});
+        const list = await api<Book[]>("books");
         if (!live) return;
         setBooks(list);
-        setPrefs(p);
-        setToolPreferences(ToolPreferencesSchema.parse(toolPrefs));
-        socket = new WebSocket(
+        if (!initialized) {
+          const [p, toolPrefs] = await Promise.all([
+            api<ReaderPreferences>("preferences"),
+            api<ToolPreferences>("tool-preferences"),
+          ]);
+          if (!live) return;
+          setPrefs(p);
+          setToolPreferences(ToolPreferencesSchema.parse(toolPrefs));
+          initialized = true;
+        }
+        const channel = new WebSocket(
           (base || location.origin).replace("http:", "ws:") + "/events",
         );
-        socket.onmessage = (e) => {
+        socket = channel;
+        channel.onopen = () => {
+          if (!live) return;
+          attempt = 0;
+          setError((old) => old.startsWith("连接 Core 失败") ? "" : old);
+          setStreamRevision((old) => old + 1);
+        };
+        channel.onmessage = (e) => {
+          if (!live) return;
           const event = JSON.parse(e.data) as CoreEvent;
           if (event.type === "book")
-            setBooks((old) => {
-              const b = event.data;
-              return [...old.filter((x) => x.id !== b.id), b];
-            });
-          if (event.type === "workspace" && event.bookId)
+            setBooks((old) => [...old.filter((x) => x.id !== event.data.id), event.data]);
+          if (event.type === "turn") setTurnEvents((old) => [...old.slice(-127), {
+            sequence: (old.at(-1)?.sequence ?? 0) + 1,
+            turn: event.data,
+          }]);
+          if (event.type === "workspace")
             setWorkspaceEvents((old) => ({ ...old,
-              [event.bookId!]: (old[event.bookId!] ?? 0) + 1 }));
+              [event.bookId]: (old[event.bookId] ?? 0) + 1 }));
         };
-      })
-      .catch((e) => setError(e.message));
+        channel.onerror = () => channel.close();
+        channel.onclose = scheduleRetry;
+      } catch (error) {
+        if (live) setError(`连接 Core 失败，正在重试：${String(error)}`);
+        scheduleRetry();
+      }
+    };
+    void connect();
     return () => {
       live = false;
+      window.removeEventListener("online", resync);
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (retry) clearTimeout(retry);
       socket?.close();
     };
   }, []);
@@ -1053,6 +1090,8 @@ export function App() {
                         workspace.current?.locate(anchors);
                         if (viewportWidth <= 1180) updateLayout({ ...layout, panel: "none" });
                       }}
+                      turnEvents={turnEvents}
+                      streamRevision={streamRevision}
                     />
                   )}
                 </div>

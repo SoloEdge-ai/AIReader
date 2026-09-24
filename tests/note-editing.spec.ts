@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { createCore } from "../apps/core/src/server";
 import { Workspaces } from "../apps/core/src/workspace";
+import type { ChatTurn } from "../packages/protocol/src/chat";
 
 let core: ReturnType<typeof createCore>;
 let directory: string;
@@ -25,6 +26,62 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   core?.close();
   if (directory) await rm(directory, { recursive: true, force: true });
+});
+
+test("chat receives book-scoped turn events without polling the complete session", async ({ page }) => {
+  let turnReads = 0;
+  page.on("request", (request) => {
+    if (request.method() === "GET" && /\/books\/[^/]+\/turns\?session=/.test(request.url())) turnReads++;
+  });
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  if (!(await page.locator(".chat").isVisible())) await page.getByRole("button", { name: "问答", exact: true }).first().click();
+  await expect(page.locator(".chat")).toBeVisible();
+  const session = await page.evaluate(async (id) => {
+    const response = await fetch(`http://127.0.0.1:43120/api/books/${id}/sessions`, { credentials: "include" });
+    return (await response.json() as { id: string }[])[0].id;
+  }, bookId);
+  await expect.poll(() => turnReads).toBeGreaterThan(0);
+  const initialReads = turnReads;
+  const turn = {
+    id: "stream-test-turn",
+    bookId,
+    sessionId: session,
+    question: "事件同步测试",
+    answer: "回答第一段",
+    reasoning: "公开过程摘要",
+    status: "running",
+    createdAt: new Date().toISOString(),
+    citations: [],
+    tools: [],
+    context: { reading: { bookId, page: 1, scope: "auto", selection: "" },
+      estimatedTokens: 0, budget: 12000, coverage: "", evidence: [], memory: "", recent: "", navigation: "" },
+  } as ChatTurn;
+  core.library.store.put("turn", turn.id, bookId, turn);
+  core.library.emit({ type: "turn", bookId, taskId: turn.id, data: turn });
+  await expect(page.locator(".turn").filter({ hasText: "事件同步测试" })).toContainText("回答第一段");
+  const updated = { ...turn, answer: "回答第一段，继续由事件更新", status: "complete" as const };
+  core.library.store.put("turn", turn.id, bookId, updated);
+  core.library.emit({ type: "turn", bookId, taskId: turn.id, data: updated });
+  await expect(page.locator(".turn").filter({ hasText: "事件同步测试" })).toContainText("继续由事件更新");
+  await page.waitForTimeout(2200);
+  expect(turnReads).toBe(initialReads);
+  await page.context().setOffline(true);
+  await page.waitForTimeout(500);
+  const missed = { ...updated, answer: "断线期间保存的最终答案" };
+  core.library.store.put("turn", turn.id, bookId, missed);
+  await page.context().setOffline(false);
+  await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
+    .toContainText("断线期间保存的最终答案", { timeout: 12_000 });
+  const closed = new Promise<void>((resolve) => core.server.once("close", resolve));
+  core.close();
+  await closed;
+  core = createCore(directory, resolve("dist/web"));
+  await new Promise<void>((done) => core.server.listen(43120, "127.0.0.1", done));
+  const afterRestart = { ...missed, answer: "Core 重启后读回的答案" };
+  core.library.store.put("turn", turn.id, bookId, afterRestart);
+  await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
+    .toContainText("Core 重启后读回的答案", { timeout: 15_000 });
 });
 
 test("annotation comments are explicit and deleting either entity preserves the other", async ({ page }) => {
