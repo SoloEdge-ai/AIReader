@@ -53,12 +53,12 @@ test("workspace actions live in the reader header, not over the PDF", async ({
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitem", { name: "定位正文" })).toBeFocused();
   await page.setViewportSize({ width: 960, height: 720 });
-  const menu = await page
-    .getByRole("menu", { name: "工作区操作" })
-    .boundingBox();
-  expect(menu).not.toBeNull();
-  expect(menu!.x + menu!.width).toBeLessThanOrEqual(960);
+  await expect.poll(async () => {
+    const menu = await page.getByRole("menu", { name: "工作区操作" }).boundingBox();
+    return menu ? menu.x + menu.width : Infinity;
+  }).toBeLessThanOrEqual(960);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("menu", { name: "工作区操作" })).toHaveCount(0);
+  // Native popovers remain mounted when dismissed; visibility is the user-facing contract.
+  await expect(page.getByRole("menu", { name: "工作区操作" })).toBeHidden();
   await expect(actions).toBeFocused();
 });

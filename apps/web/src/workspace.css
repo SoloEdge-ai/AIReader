@@ -404,11 +404,7 @@
 }
 .workspace-save-indicator.is-error { background: var(--danger, #c04040); }
 .workspace-menu-popover {
-  position: absolute;
-  z-index: 50;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 200px;
+  position: fixed;
   padding: 5px;
   display: grid;
   gap: 1px;
@@ -417,6 +413,7 @@
   background: var(--surface, white);
   box-shadow: 0 8px 24px #263c4120;
 }
+.workspace-menu-popover:not(:popover-open) { display: none; }
 .workspace-scroll.pointer-tool .pdf-page,
 .workspace-scroll.pointer-tool .pdf-page .textLayer,
 .workspace-scroll.pointer-tool .pdf-page .textLayer * {
