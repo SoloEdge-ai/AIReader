@@ -64,6 +64,11 @@ test("material navigation lists canvas cards and locates the selected placement"
   await expect(catalog.getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
   await catalog.getByRole("button", { name: /定位.*卡片/ }).click();
   await expect(page.locator(".workspace-card.selected")).toHaveCount(1);
+  await page.route("**/api/books/*/question-materials", (route) => route.fulfill({ status: 503,
+    json: { error: "暂时无法加入" } }));
+  await catalog.getByRole("button", { name: /加入提问/ }).click();
+  await expect(catalog.getByRole("alert")).toContainText("画布材料尚未准备好");
+  await page.unroute("**/api/books/*/question-materials");
   await catalog.getByRole("button", { name: /加入提问/ }).click();
   await expect(page.locator(".side-panel .question-material-list .question-material-item"))
     .toHaveCount(1);
