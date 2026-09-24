@@ -1,29 +1,36 @@
 export function PanelResizer({
   width,
   maximum,
+  minimum = 320,
+  side = "right",
+  label = "调整侧栏宽度",
   onChange,
   onCommit,
 }: {
   width: number;
   maximum: number;
+  minimum?: number;
+  side?: "left" | "right";
+  label?: string;
   onChange: (width: number) => void;
   onCommit: (width: number) => void;
 }) {
   const clamp = (value: number) =>
-    Math.round(Math.max(320, Math.min(maximum, value)));
+    Math.round(Math.max(minimum, Math.min(maximum, value)));
   const fromPointer = (event: React.PointerEvent<HTMLDivElement>) =>
     clamp(
-      event.currentTarget.parentElement!.getBoundingClientRect().right -
-        event.clientX,
+      side === "left"
+        ? event.clientX - event.currentTarget.parentElement!.getBoundingClientRect().left
+        : event.currentTarget.parentElement!.getBoundingClientRect().right - event.clientX,
     );
   return (
     <div
-      className="splitter"
+      className={`splitter ${side === "left" ? "navigation-resizer" : ""}`}
       role="separator"
       tabIndex={0}
-      aria-label="调整侧栏宽度"
+      aria-label={label}
       aria-orientation="vertical"
-      aria-valuemin={320}
+      aria-valuemin={minimum}
       aria-valuemax={maximum}
       aria-valuenow={width}
       title="拖动调整宽度 · 方向键微调"
@@ -34,10 +41,10 @@ export function PanelResizer({
         onCommit(
           clamp(
             event.key === "Home"
-              ? 320
+              ? minimum
               : event.key === "End"
                 ? maximum
-                : width + (event.key === "ArrowLeft" ? 24 : -24),
+                : width + (event.key === "ArrowLeft" ? (side === "left" ? -24 : 24) : (side === "left" ? 24 : -24)),
           ),
         );
       }}

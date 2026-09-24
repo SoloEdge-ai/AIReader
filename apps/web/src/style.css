@@ -555,11 +555,13 @@ progress::-webkit-progress-value {
   overflow: hidden;
 }
 .navigation {
-  width: 240px;
+  width: var(--navigation-width, 240px);
   flex-shrink: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   background: var(--surface);
-  border-right: 1px solid var(--line);
 }
 .nav-tabs {
   display: flex;
@@ -573,6 +575,24 @@ progress::-webkit-progress-value {
 .nav-tabs button {
   font-size: 12px;
   padding: 6px 8px;
+}
+.navigation-content {
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+}
+.navigation-content:has(.notes-panel) {
+  display: flex;
+}
+.navigation .notes-panel {
+  padding: 12px;
+  width: 100%;
+}
+.navigation .notes-list {
+  max-height: 35vh;
+}
+.navigation-resizer::after {
+  inset: 0 3px;
 }
 .toc-item {
   width: 100%;
@@ -1581,6 +1601,9 @@ summary {
     top: 0;
     bottom: 0;
   }
+  .navigation-resizer {
+    display: none;
+  }
   .navigation {
     position: absolute;
     left: 0;
@@ -1846,24 +1869,6 @@ summary {
 @media (max-width: 630px) {
   .reader-context-bar .context-count,
   .reader-context-bar button span:not(.reader-color-dot) { display: none; }
-}
-.panel-tabs {
-  display: flex;
-  height: 100%;
-  gap: 22px;
-}
-.panel-tabs button {
-  padding: 0;
-  border-radius: 0;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--muted);
-  font-size: 13px;
-}
-.panel-tabs button.chosen {
-  background: transparent;
-  color: var(--text);
-  border-bottom-color: var(--text);
 }
 .notes-panel {
   min-height: 0;

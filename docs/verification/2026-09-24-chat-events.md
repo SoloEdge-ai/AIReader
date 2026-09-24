@@ -7,4 +7,5 @@
 - WebSocket 关闭后重新建立 HTTP 会话并指数退避重连。事件没有持久重放，成功连接、恢复联网或窗口重新可见时读取 HTTP 快照。
 - 真实浏览器断网测试先失败：浏览器恢复联网时现有 WebSocket 不一定关闭，所以仅靠 WebSocket `onopen` 会漏掉离线期间的回答；增加 `online`／可见性补读后通过。
 - 同一浏览器测试关闭并重新启动真实 Core，保持书库与会话，验证断线期间的回答从新 Core 的 HTTP 快照读回；定向测试通过。
-- `pnpm test`：29 文件／47 测试通过；加入离线与进程重启用例后的 `pnpm test:reader-ui`：21 项通过；`pnpm typecheck` 与生产 `pnpm build`（含打包 Core smoke）：通过。Windows Setup／Portable 构建通过；最后仅调整了会话同步错误提示，提交对应的 CI 双产物仍待验证。
+- PR 在 `46ef030` 的 CI 找到一处旧验收脚本等待“每秒轮询”响应，因轮询已移除而超时；改为在事件回答展开后直接检查滚动位置，本机 `node --import tsx scripts/chat-smoke.ts` 的真实 Core／模拟 Codex 验收通过。后续提交需由 CI 再验收。
+- `pnpm test`：29 文件／47 测试通过；加入离线与进程重启用例后的 `pnpm test:reader-ui`：21 项通过；`pnpm typecheck` 与生产 `pnpm build`（含打包 Core smoke）：通过。Windows Setup／Portable 构建通过；后续提交对应的 CI 双产物仍待验证。

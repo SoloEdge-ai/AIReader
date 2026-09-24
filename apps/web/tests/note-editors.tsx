@@ -20,7 +20,7 @@ function Harness() {
     <button onClick={() => void state.create()}>新建笔记</button>
     <span aria-label="笔记数量">{state.notes.length}</span>
     {note && <div style={{ display: "flex", gap: 24 }}>
-      <section aria-label="列表编辑器"><NoteEditor note={note} state={state} /></section>
+      <section aria-label="列表编辑器" data-note-id={note.id}><NoteEditor note={note} state={state} /></section>
       <section aria-label="展开编辑器"><NoteEditor note={note} state={state} /></section>
     </div>}
   </main>;

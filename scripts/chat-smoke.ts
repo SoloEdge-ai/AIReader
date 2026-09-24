@@ -147,12 +147,8 @@ try {
   const positionAfterExpansion = await page
     .locator(".messages")
     .evaluate((node) => node.scrollTop);
-  for (let poll = 0; poll < 2; poll++)
-    await page.waitForResponse(
-      (response) =>
-        response.url().includes("/turns?session=") &&
-        response.request().method() === "GET",
-    );
+  // Turns now stream over Core events; preserve scroll position without waiting for removed polling.
+  await page.waitForTimeout(1200);
   await page.evaluate(
     () =>
       new Promise((resolve) =>

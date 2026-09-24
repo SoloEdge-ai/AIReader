@@ -28,6 +28,93 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
+test("material navigation and chat remain visible beside the same PDF", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  await page.getByRole("button", { name: "笔记", exact: true }).first().click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  const chatButton = page.getByRole("button", { name: "问答", exact: true }).first();
+  if ((await chatButton.getAttribute("aria-pressed")) !== "true") await chatButton.click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  await expect(page.locator(".side-panel .chat")).toBeVisible();
+  await expect(page.locator(".reading .pdf-page").first()).toBeVisible();
+  await page.screenshot({ path: "test-results/materials-and-chat.png" });
+  await page.evaluate(async (id) => {
+    const url = `http://127.0.0.1:43120/api/books/${id}/preferences`;
+    const previous = await (await fetch(url, { credentials: "include" })).json();
+    await fetch(url, { method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...previous, navigation: false, panel: "notes" }) });
+  }, bookId);
+  await page.reload();
+  await page.locator(".book-card").first().click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  await expect(page.locator(".side-panel .chat")).toBeVisible();
+});
+
+test("narrow reader opens materials and chat as alternating drawers", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 720 });
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  const notesButton = page.getByRole("button", { name: "笔记", exact: true }).first();
+  if ((await notesButton.getAttribute("aria-pressed")) !== "true") await notesButton.click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  await expect(page.locator(".side-panel")).toHaveCount(0);
+  await page.getByRole("button", { name: "问答", exact: true }).first().click();
+  await expect(page.locator(".navigation")).toHaveCount(0);
+  await expect(page.locator(".side-panel .chat")).toBeVisible();
+});
+
+test("left navigation width is draggable and persists per book", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  const notesButton = page.getByRole("button", { name: "笔记", exact: true }).first();
+  if ((await notesButton.getAttribute("aria-pressed")) !== "true") await notesButton.click();
+  const navigation = page.locator(".navigation");
+  const before = (await navigation.boundingBox())!.width;
+  const divider = await page.getByRole("separator", { name: "调整导航宽度" }).boundingBox();
+  const x = divider!.x + divider!.width / 2, y = divider!.y + divider!.height / 2;
+  const dx = before > 270 ? -48 : 48;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => (await navigation.boundingBox())!.width).toBeGreaterThan(219);
+  const changed = (await navigation.boundingBox())!.width;
+  expect(Math.abs(changed - before)).toBeGreaterThan(25);
+  await page.reload();
+  await page.locator(".book-card").first().click();
+  await expect.poll(async () => (await page.locator(".navigation").boundingBox())!.width)
+    .toBe(changed);
+  const separator = page.getByRole("separator", { name: "调整导航宽度" });
+  await separator.focus();
+  await separator.press("Home");
+  await expect.poll(async () => (await page.locator(".navigation").boundingBox())!.width).toBe(220);
+  await separator.press("End");
+  await expect.poll(async () => (await page.locator(".navigation").boundingBox())!.width).toBe(320);
+});
+
+test("leaving material navigation keeps an unsaved note draft visible", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  const notesButton = page.getByRole("button", { name: "笔记", exact: true }).first();
+  if ((await notesButton.getAttribute("aria-pressed")) !== "true") await notesButton.click();
+  await page.locator(".notes-list button").first().click();
+  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 503, json: { error: "暂时无法保存" } }) : route.continue());
+  await page.locator(".notes-panel").getByRole("textbox", { name: "笔记正文" }).fill("切换导航前必须保留");
+  await page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true }).click();
+  await expect(page.locator(".nav-tabs").getByRole("button", { name: "材料" })).toHaveClass(/chosen/);
+  await expect(page.locator(".notes-panel").getByRole("textbox", { name: "笔记正文" }))
+    .toHaveText("切换导航前必须保留");
+  await page.unroute("**/api/books/*/notes/*");
+  await page.locator(".notes-panel").getByRole("button", { name: "重试保存", exact: true }).click();
+  await expect(page.locator(".notes-panel").getByRole("status")).toHaveText("已保存");
+  await page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true }).click();
+  await expect(page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true })).toHaveClass(/chosen/);
+});
+
 test("chat receives book-scoped turn events without polling the complete session", async ({ page }) => {
   let turnReads = 0;
   page.on("request", (request) => {
@@ -35,7 +122,8 @@ test("chat receives book-scoped turn events without polling the complete session
   });
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
-  if (!(await page.locator(".chat").isVisible())) await page.getByRole("button", { name: "问答", exact: true }).first().click();
+  const chatToggle = page.getByRole("button", { name: "问答", exact: true }).first();
+  if ((await chatToggle.getAttribute("aria-pressed")) !== "true") await chatToggle.click();
   await expect(page.locator(".chat")).toBeVisible();
   const session = await page.evaluate(async (id) => {
     const response = await fetch(`http://127.0.0.1:43120/api/books/${id}/sessions`, { credentials: "include" });
@@ -271,7 +359,7 @@ test("two views edit one live note draft and reopening reads its saved content",
   await expect(second.getByLabel("笔记标题", { exact: true })).toHaveValue("同一份笔记");
 });
 
-test("expanded note stays editable beside chat and keeps the sidebar draft synchronized", async ({ page }) => {
+test("expanded note stays editable beside chat and keeps the material draft synchronized", async ({ page }) => {
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
   await expect(page.locator(".reader-body")).toBeVisible();
@@ -281,7 +369,10 @@ test("expanded note stays editable beside chat and keeps the sidebar draft synch
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("展开与列表共用同一份草稿");
   await expect(page.locator(".notes-panel .tiptap")).toHaveText("展开与列表共用同一份草稿");
-  await page.locator(".panel-tabs").getByRole("button", { name: "问答", exact: true }).click();
+  const chatButton = page.getByRole("button", { name: "问答", exact: true }).first();
+  if ((await chatButton.getAttribute("aria-pressed")) !== "true") await chatButton.click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  await expect(page.locator(".side-panel .chat")).toBeVisible();
   await expect(expanded).toBeVisible();
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("问答打开时仍可写笔记");
   await expanded.getByTitle("链接", { exact: true }).click();
@@ -291,7 +382,6 @@ test("expanded note stays editable beside chat and keeps the sidebar draft synch
   await page.screenshot({ path: "test-results/expanded-note-and-chat.png" });
   await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
   await expect(expanded).toHaveCount(0);
-  await page.locator(".panel-tabs").getByRole("button", { name: "笔记", exact: true }).click();
   await expect(page.locator(".notes-panel .tiptap")).toHaveText("问答打开时仍可写笔记");
 });
 
@@ -327,7 +417,9 @@ test("refreshing a dirty note cannot silently adopt a conflicting remote revisio
   const origin = "http://127.0.0.1:43120";
   const headers = { Origin: origin };
   const url = `${origin}/api/books/${bookId}/notes`;
-  const current = (await (await page.request.get(url, { headers })).json())[0];
+  const editingId = await page.getByRole("region", { name: "列表编辑器" }).getAttribute("data-note-id");
+  const current = (await (await page.request.get(url, { headers })).json() as { id: string; revision: number }[])
+    .find((note) => note.id === editingId)!;
   expect((await page.request.post(`${url}/${current.id}`, { headers, data: {
     revision: current.revision, title: "另一个编辑窗口",
     document: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "远端的新内容" }] }] },
@@ -339,7 +431,8 @@ test("refreshing a dirty note cannot silently adopt a conflicting remote revisio
   await page.unroute("**/api/books/*/notes/*");
   await page.getByRole("button", { name: "重试保存" }).click();
   await expect(page.getByRole("status")).toContainText("保存失败");
-  expect(JSON.stringify((await (await page.request.get(url, { headers })).json())[0].document)).toContain("远端的新内容");
+  expect(JSON.stringify((await (await page.request.get(url, { headers })).json() as { id: string; document: unknown }[])
+    .find((note) => note.id === editingId)!.document)).toContain("远端的新内容");
   await page.getByRole("button", { name: "用草稿覆盖最新版本" }).click();
   await expect(page.getByRole("status")).toHaveText("已保存");
   await page.reload();

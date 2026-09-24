@@ -4,6 +4,8 @@
 
 SQLite records 仍保存笔记、批注等独立 JSON 实体，passages/FTS5 保存索引；工作区不再写整份 JSON。笔记仍有独立 revision／保存接口。
 
+`ReaderPreferences` 新增 `navigationWidth`（220–320，默认 240），按书籍保存；旧偏好缺省时由协议补默认值。历史 `panel: "notes"` 仍可读取，renderer 打开该书时把笔记入口显示在左侧材料栏、问答放右侧，不在 Core 中破坏性改写旧记录。
+
 ## v5 工作区存储
 
 `WorkspaceRepository` 独占工作区 SQL。workspace_books 保存书籍工作区版本；workspace_entities 按书籍／类型／ID 分行保存卡片和对象的校验后 JSON；workspace_links 单独保存端点、名称、方向与顺序；workspace_views 保存视野；workspace_receipts 保存命令摘要和原始回执。子表外键引用工作区根，清理失败恢复副本时一起删除；连线端点可能是 records 中的批注，因此端点有效性仍由 Core 在事务中校验。

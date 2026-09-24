@@ -76,7 +76,7 @@ export function App() {
         1600,
         viewportWidth <= 1180
           ? viewportWidth * 0.9
-          : viewportWidth - 408 - (layout.navigation ? 240 : 0),
+          : viewportWidth - 408 - (layout.navigation ? layout.navigationWidth : 0),
       ),
     ),
   );
@@ -140,7 +140,7 @@ export function App() {
     setQuestionCapture(undefined);
     readerTools.finish();
     if (questionCapture?.bookId === active && viewportWidth <= 1180)
-      updateLayout({ ...layout, panel: "chat" });
+      void openChatPanel();
   }
   function updateToolPreferences(next: ToolPreferences) {
     setToolPreferences(next);
@@ -165,7 +165,7 @@ export function App() {
     const key = `${bookId}:${sessionId}`;
     if (!questionDrafts.addMaterial(key, snapshot))
       throw new Error(questionDrafts.get(key).materialError ?? "本轮材料已满");
-    if (current.current === bookId) updateLayout({ ...layout, panel: "chat" });
+    if (current.current === bookId) void openChatPanel();
   }
   useEffect(() => {
     if (layout.panel === "notes") setQuestionCapture(undefined);
@@ -211,7 +211,7 @@ export function App() {
         rect: region.rect,
       },
     );
-    updateLayout({ ...layout, panel: "chat" });
+    void openChatPanel();
   }
   async function handleWorkspaceRegion(region: QuestionRegion, action: "card" | "question" | "annotation", includePersonalMarks: boolean) {
     if (!book || current.current !== book.id) throw new Error("书籍已切换，请重新选择区域");
@@ -232,17 +232,17 @@ export function App() {
     if (questionDrafts.get(key).imageError) throw new Error(questionDrafts.get(key).imageError);
     if (current.current === bookId && localStorage.getItem("session-" + bookId) === sessionId) {
       readerTools.finish();
-      updateLayout({ ...layout, panel: "chat" });
+      void openChatPanel();
     }
   }
   async function openSavedNote(note: Note) {
     if (note.bookId !== current.current) return;
     if (!(await notes.flush()))
-      throw new Error("笔记已保存，请先处理尚未保存的草稿，再打开笔记。");
+      throw new Error("笔记尚未保存，请先处理草稿，再打开其他笔记。");
     await notes.refresh();
     if (note.bookId !== current.current) return;
     notes.setSelected(note.id);
-    updateLayout({ ...layout, panel: "notes" });
+    openMaterials();
   }
   async function createAnnotation(
     value: z.infer<typeof AnnotationInputSchema>,
@@ -262,7 +262,7 @@ export function App() {
       notes.selectAnnotation(a.id);
       if (value.kind === "sticky") await notes.comment(a.id);
       readerTools.finish(value.kind === "sticky" || value.kind === "region" ? "pointer" : "text");
-      updateLayout({ ...layout, panel: "notes" });
+      openMaterials();
       return true;
     } catch (e) {
       setError(String(e));
@@ -415,15 +415,7 @@ export function App() {
     },
     [active],
   );
-  const updateLayout = (p: ReaderPreferences) => {
-    if (layout.panel === "notes" && p.panel !== "notes") {
-      void notes.flush().then((ok) => {
-        if (ok) persistLayout(p);
-      });
-      return;
-    }
-    persistLayout(p);
-  };
+  const updateLayout = (p: ReaderPreferences) => persistLayout(p);
   const persistLayout = (p: ReaderPreferences) => {
     setLayout(p);
     if (active)
@@ -431,6 +423,25 @@ export function App() {
         setError(e.message),
       );
   };
+  const changeNavigation = async (next: string, visible: boolean) => {
+    const bookId = active;
+    if (nav === "材料" && (next !== "材料" || !visible) && !(await notes.flush())) return;
+    if (current.current !== bookId) return;
+    setNav(next);
+    persistLayout({ ...layout, navigation: visible,
+      panel: visible && viewportWidth <= 1180 ? "none" : layout.panel === "notes" ? "chat" : layout.panel });
+  };
+  function openMaterials() {
+    setNav("材料");
+    persistLayout({ ...layout, navigation: true,
+      panel: viewportWidth <= 1180 ? "none" : layout.panel === "notes" ? "chat" : layout.panel });
+  }
+  async function openChatPanel() {
+    const bookId = active;
+    if (viewportWidth <= 1180 && nav === "材料" && layout.navigation && !(await notes.flush())) return;
+    if (current.current !== bookId) return;
+    updateLayout({ ...layout, panel: "chat", navigation: viewportWidth <= 1180 ? false : layout.navigation });
+  }
   const updatePrefs = (p: ReaderPreferences) => {
     setPrefs(p);
     void post("preferences", p).catch((e) => setError(e.message));
@@ -443,7 +454,10 @@ export function App() {
       if (workspace.current && !(await workspace.current.flush())) return;
       const p = await api<ReaderPreferences>(`books/${b.id}/preferences`);
       if (request !== openSequence.current) return;
-      setLayout(p);
+      if (p.panel === "notes") {
+        setNav("材料");
+        setLayout({ ...p, panel: viewportWidth <= 1180 ? "none" : "chat", navigation: true });
+      } else setLayout(p);
       setPage(b.progress);
       setActive(b.id);
       await post(`books/${b.id}/open`, {});
@@ -499,11 +513,9 @@ export function App() {
       setBusy(false);
     }
   }
-  const togglePanel = () =>
-    updateLayout({
-      ...layout,
-      panel: layout.panel === "none" ? "chat" : "none",
-    });
+  const togglePanel = () => layout.panel === "none"
+    ? void openChatPanel()
+    : updateLayout({ ...layout, panel: "none" });
   const visibleBooks = [...books]
     .filter((b) =>
       b.title.toLocaleLowerCase().includes(filter.toLocaleLowerCase()),
@@ -513,6 +525,22 @@ export function App() {
         a.lastOpenedAt ?? a.createdAt,
       ),
     );
+  const materialPanel = book ? <NotesPanel bookId={book.id} state={notes} onJump={jump}
+    beforeWorkspaceChange={async () => (await workspace.current?.flush()) ?? false}
+    onPlace={(note) => workspace.current!.placeNote(note)}
+    onExpand={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
+    onAddAnnotation={async (annotation) => {
+      const added = await workspace.current?.addToQuestion([annotation.id]);
+      if (!added) throw new Error("批注预览尚未准备好；请在正文定位并重试");
+    }}
+    onAddToQuestion={async (note) => {
+      const snapshot = await api<{ revision: number }>(`books/${book.id}/workspace`);
+      const latest = (await api<Note[]>(`books/${book.id}/notes`))
+        .find((item) => item.id === note.id && !item.deletedAt);
+      if (!latest) throw new Error("笔记已变化，请重新选择");
+      await addQuestionMaterials(book.id, { workspaceRevision: snapshot.revision,
+        targets: [{ kind: "note", id: latest.id, revision: latest.revision }], previews: [] });
+    }} /> : null;
   return (
     <>
       <input
@@ -640,22 +668,13 @@ export function App() {
             <button
               aria-label="目录"
               aria-pressed={layout.navigation && nav === "目录"}
-              onClick={() => {
-                setNav("目录");
-                updateLayout({
-                  ...layout,
-                  navigation: !layout.navigation || nav !== "目录",
-                });
-              }}
+              onClick={() => void changeNavigation("目录", !layout.navigation || nav !== "目录")}
             >
               <Icon name="menu" />
             </button>
             <button
               aria-label="书内搜索"
-              onClick={() => {
-                setNav("搜索");
-                updateLayout({ ...layout, navigation: true });
-              }}
+              onClick={() => void changeNavigation("搜索", true)}
             >
               <Icon name="search" />
             </button>
@@ -743,13 +762,10 @@ export function App() {
             </button>
             <button
               aria-label="笔记"
-              aria-pressed={layout.panel === "notes"}
-              onClick={() =>
-                updateLayout({
-                  ...layout,
-                  panel: layout.panel === "notes" ? "none" : "notes",
-                })
-              }
+              aria-pressed={layout.navigation && nav === "材料"}
+              onClick={() => layout.navigation && nav === "材料"
+                ? void changeNavigation("材料", false)
+                : openMaterials()}
             >
               笔记
             </button>
@@ -784,30 +800,31 @@ export function App() {
             style={
               {
                 "--panel-width": panelWidth + "px",
+                "--navigation-width": layout.navigationWidth + "px",
               } as React.CSSProperties
             }
           >
             {layout.navigation && (
+              <>
               <aside className="navigation">
                 <div className="nav-tabs">
-                  {["目录", "书签", "搜索"].map((name) => (
+                  {["目录", "书签", "搜索", "材料"].map((name) => (
                     <button
                       className={nav === name ? "chosen" : ""}
                       key={name}
-                      onClick={() => setNav(name)}
+                      onClick={() => void changeNavigation(name, true)}
                     >
                       {name}
                     </button>
                   ))}
                   <button
-                    aria-label="收起目录"
-                    onClick={() =>
-                      updateLayout({ ...layout, navigation: false })
-                    }
+                    aria-label="收起导航"
+                    onClick={() => void changeNavigation(nav, false)}
                   >
                     <Icon name="close" />
                   </button>
                 </div>
+                <div className="navigation-content">
                 {nav === "目录" &&
                   (book.chapters.length ? (
                     book.chapters.map((ch) => (
@@ -882,7 +899,19 @@ export function App() {
                     ))}
                   </>
                 )}
+                {nav === "材料" && materialPanel}
+                </div>
               </aside>
+              {viewportWidth > 1180 && <PanelResizer
+                side="left"
+                label="调整导航宽度"
+                minimum={220}
+                maximum={320}
+                width={layout.navigationWidth}
+                onChange={(navigationWidth) => setLayout((old) => ({ ...old, navigationWidth }))}
+                onCommit={(navigationWidth) => updateLayout({ ...layout, navigationWidth })}
+              />}
+              </>
             )}
             <section
               className="reading"
@@ -952,7 +981,7 @@ export function App() {
                   void notes.flush().then((ok) => {
                     if (ok) {
                       notes.selectAnnotation(id);
-                      updateLayout({ ...layout, panel: "notes" });
+                      openMaterials();
                     }
                   });
                 }}
@@ -990,7 +1019,7 @@ export function App() {
                     anchors: selection.anchors,
                   })}
                   onAi={(name) => {
-                    updateLayout({ ...layout, panel: "chat" });
+                    void openChatPanel();
                     setAction({ name, nonce: Date.now(), selection: structuredClone(selection) });
                     selectionPinned.current = false;
                     clearSelection();
@@ -1016,46 +1045,11 @@ export function App() {
                 />
                 <div className="side-panel">
                   <header className="panel-header">
-                    <div className="panel-tabs">
-                      <button
-                        className={layout.panel === "chat" ? "chosen" : ""}
-                        onClick={() =>
-                          updateLayout({ ...layout, panel: "chat" })
-                        }
-                      >
-                        问答
-                      </button>
-                      <button
-                        className={layout.panel === "notes" ? "chosen" : ""}
-                        onClick={() =>
-                          updateLayout({ ...layout, panel: "notes" })
-                        }
-                      >
-                        笔记
-                      </button>
-                    </div>
+                    <strong>问答</strong>
                     <button aria-label="收起侧栏" onClick={togglePanel}>
                       <Icon name="close" />
                     </button>
                   </header>
-                  {layout.panel === "notes" ? (
-                    <NotesPanel bookId={book.id} state={notes} onJump={jump}
-                      beforeWorkspaceChange={async () => (await workspace.current?.flush()) ?? false}
-                      onPlace={(note) => workspace.current!.placeNote(note)}
-                      onExpand={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
-                      onAddAnnotation={async (annotation) => {
-                        const added = await workspace.current?.addToQuestion([annotation.id]);
-                        if (!added) throw new Error("批注预览尚未准备好；请在正文定位并重试");
-                      }}
-                      onAddToQuestion={async (note) => {
-                        const snapshot = await api<{ revision: number }>(`books/${book.id}/workspace`);
-                        const latest = (await api<Note[]>(`books/${book.id}/notes`))
-                          .find((item) => item.id === note.id && !item.deletedAt);
-                        if (!latest) throw new Error("笔记已变化，请重新选择");
-                        await addQuestionMaterials(book.id, { workspaceRevision: snapshot.revision,
-                          targets: [{ kind: "note", id: latest.id, revision: latest.revision }], previews: [] });
-                      }} />
-                  ) : (
                     <ChatPanel
                       key={active}
                       book={book}
@@ -1093,7 +1087,6 @@ export function App() {
                       turnEvents={turnEvents}
                       streamRevision={streamRevision}
                     />
-                  )}
                 </div>
               </>
             )}
