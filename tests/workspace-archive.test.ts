@@ -7,7 +7,7 @@ import { PNG } from "pngjs";
 import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { createCore } from "../apps/core/src/server";
 
-test("workspace package restores PDF, notes, region image, links and camera as an independent copy", async () => {
+test("workspace package restores PDF, notes, region image, cross-page ink, links and camera as an independent copy", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aireader-archive-"));
   let core = createCore(directory, "dist/web");
   let origin = "",
@@ -39,6 +39,7 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     await connect();
     const pdf = await PDFDocument.create();
     pdf.addPage([500, 700]).drawText("Source document");
+    pdf.addPage([500, 700]).drawText("Second page");
     const bytes = await pdf.save();
     const book = await (await request("books", bytes)).json();
     await core.library.waitForBook(book.id);
@@ -61,7 +62,15 @@ test("workspace package restores PDF, notes, region image, links and camera as a
       changes: [
         { type: "upsert-card", card },
         { type: "upsert-card", card: { ...card, id: "second-card", x: 1900 } },
+        { type: "upsert-object", object: { id: "cross-page-ink", kind: "ink", brush: "pen",
+          color: "#345d84", width: 2, opacity: 1, segments: [
+            { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 1 }, points: [[20, 30], [50, 60]] },
+            { surface: { kind: "board" }, points: [[1500, 710], [1510, 730]] },
+            { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 2 }, points: [[70, 80], [100, 120]] },
+          ] } },
         { type: "upsert-link", link: { id: "link", from: card.id, to: "second-card", label: "supports" } },
+        { type: "upsert-link", link: { id: "ink-link", from: "cross-page-ink", to: card.id,
+          label: "sketched from" } },
       ],
     });
     await request(`books/${book.id}/workspace/camera`, { x: 800, y: 20, zoom: 1.2 }, "PUT");
@@ -132,6 +141,15 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     expect(restoredWorkspace.links[0]).toMatchObject({
       from: restoredWorkspace.cards[0].id, to: restoredWorkspace.cards[1].id, label: "supports",
     });
+    expect(restoredWorkspace.objects).toHaveLength(1);
+    expect(restoredWorkspace.objects[0].id).not.toBe("cross-page-ink");
+    expect(restoredWorkspace.objects[0].segments).toEqual([
+      { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 1 }, points: [[20, 30], [50, 60]] },
+      { surface: { kind: "board" }, points: [[1500, 710], [1510, 730]] },
+      { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 2 }, points: [[70, 80], [100, 120]] },
+    ]);
+    expect(restoredWorkspace.links.find((link: { label: string }) => link.label === "sketched from"))
+      .toMatchObject({ from: restoredWorkspace.objects[0].id, to: restoredWorkspace.cards[0].id });
     const restoredRegion = restoredWorkspace.cards[2];
     expect(restoredRegion).toMatchObject({ kind: "region", title: "Diagram",
       region: { fingerprint: book.fingerprint, page: 1, rect: [30, 40, 180, 220], includePersonalMarks: true } });
@@ -149,7 +167,7 @@ test("workspace package restores PDF, notes, region image, links and camera as a
       anchors: annotation.anchors,
     });
     expect(annotations[0].id).not.toBe(annotation.id);
-    expect(restoredWorkspace.links[1]).toMatchObject({
+    expect(restoredWorkspace.links.find((link: { label: string }) => link.label === "explains")).toMatchObject({
       from: annotations[0].id, to: restoredWorkspace.cards[0].id, label: "explains",
     });
     expect(
