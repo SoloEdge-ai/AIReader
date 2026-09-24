@@ -12,6 +12,8 @@ codex/architecture-refactor，一个Draft PR。PR更新自动检查/构建，不
 
 阶段验收后执行 `gh workflow run windows-release.yml --ref codex/architecture-refactor`。检查生成的 Release 为预览、Latest 未改变、SHA 与阶段提交一致，之后再决定本机安装。工作流接入和本地测试不等于远端发版已验证。
 
+构建格式元数据统一来自 `build/format-versions.json`，修改实际数据库／归档／API 格式时同时更新；本地和 CI 构建不得各自硬编码版本。
+
 ## 验收
 
 书籍隔离、来源冻结、模型实际图片、预算；保存失败/响应丢失/幂等/冲突/切书/退出；工具焦点/IME/取消/平移；旋转/CropBox/跨页/区域/来源返回；归档独立恢复与恶意文件拒绝。

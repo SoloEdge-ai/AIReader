@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import formats from "../build/format-versions.json";
 
 // Keep prereleases on the ordinary numeric NSIS version path. The channel is
 // metadata, not a suffix that Windows version comparison might ignore.
@@ -19,7 +20,7 @@ const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 const info = {
   version, channel, commit, ref, run: Number(run),
   // These describe the actual current formats, not planned refactor versions.
-  databaseVersion: 4, archiveVersion: 2, apiVersion: 1,
+  ...formats,
 };
 await writeFile(join(root, "package.json"), JSON.stringify({ ...manifest, version }, null, 2) + "\n");
 await mkdir(join(root, "release"), { recursive: true });

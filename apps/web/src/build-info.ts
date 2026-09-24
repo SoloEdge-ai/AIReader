@@ -2,6 +2,7 @@ interface BuildInfo {
   version: string;
   channel: "development" | "check" | "preview" | "stable";
   commit: string;
+  workingTreeDirty?: boolean;
   databaseVersion: number;
   archiveVersion: number;
   apiVersion: number;
