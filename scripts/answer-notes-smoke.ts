@@ -91,13 +91,8 @@ try {
   await expect(
     page.getByRole("status").filter({ hasText: /^已保存$/ }),
   ).toBeVisible();
-  await page
-    .locator(".panel-tabs")
-    .getByRole("button", {
-      name: "问答",
-      exact: true,
-    })
-    .click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  await expect(page.locator(".side-panel .chat")).toBeVisible();
   const [reopen] = await Promise.all([
     page.waitForResponse(
       (response) =>
@@ -125,6 +120,7 @@ try {
     .locator(".book-card")
     .filter({ hasText: "answer-notes-fixture" })
     .click();
+  await page.locator(".nav-tabs").getByRole("button", { name: "材料" }).click();
   await page
     .locator(".notes-list")
     .getByRole("button", {
