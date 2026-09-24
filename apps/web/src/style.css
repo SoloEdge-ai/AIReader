@@ -1795,7 +1795,8 @@ summary {
 .reader-tool-palette[data-dock="right"] { right: 16px; }
 .reader-tool-palette.is-dragging { bottom: auto; right: auto; }
 .reader-tool-palette.is-collapsed { border-radius: 50%; padding: 3px; }
-.reader-tool-palette .palette-grip { color: var(--muted); cursor: move; }
+.reader-tool-palette .palette-grip { color: var(--text); cursor: grab; touch-action: none; }
+.reader-tool-palette.is-dragging .palette-grip { cursor: grabbing; }
 .reader-tool-palette .palette-separator { width: 1px; height: 20px; background: var(--line); margin: 0 3px; }
 .reader-tool-palette[data-dock="left"] .palette-separator,
 .reader-tool-palette[data-dock="right"] .palette-separator { width: 20px; height: 1px; }

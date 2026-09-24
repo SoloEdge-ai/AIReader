@@ -177,6 +177,27 @@ test("a legacy personal card moves into one Note before editing", async ({ page 
   await expect(card).toHaveCount(0);
 });
 
+test("the tool handle drags across the real reader and keeps its dock on reopen", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  await expect(page.locator(".pdf-page").first()).toBeVisible();
+  const reading = page.locator(".reading");
+  const area = await reading.boundingBox();
+  const grip = page.getByRole("button", { name: "拖动工具盘" });
+  const box = await grip.boundingBox();
+  expect(area).not.toBeNull();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(area!.x + 20, area!.y + area!.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.getByRole("toolbar", { name: "阅读工具盘" })).toHaveAttribute("data-dock", "left");
+  await page.screenshot({ path: "test-results/palette-reader-left.png" });
+  await page.getByRole("button", { name: "返回书库" }).click();
+  await page.locator(".book-card").first().click();
+  await expect(page.getByRole("toolbar", { name: "阅读工具盘" })).toHaveAttribute("data-dock", "left");
+});
+
 test("two views edit one live note draft and reopening reads its saved content", async ({ page }) => {
   await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
   const first = page.getByRole("region", { name: "列表编辑器" });

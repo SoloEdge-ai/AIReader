@@ -3,6 +3,7 @@ import { readFile, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { z } from "zod";
+import formatVersions from "../../../build/format-versions.json" with { type: "json" };
 import {
   AnnotationInputSchema,
   PdfAnchorSchema,
@@ -12,7 +13,7 @@ import {
   type Note,
   type Book,
 } from "../../../packages/protocol/src";
-import { WorkspaceCardSchema, WorkspaceSchema } from "../../../packages/protocol/src/workspace";
+import { WorkspaceCardSchema, WorkspaceObjectSchema, WorkspaceSchema } from "../../../packages/protocol/src/workspace";
 import { Library } from "./library";
 import { richDocument } from "./notes";
 import { Workspaces } from "./workspace";
@@ -119,16 +120,21 @@ const note = z
       .optional(),
   })
   .strict();
+const archiveWorkspace = WorkspaceSchema.safeExtend({
+  formatVersion: z.literal(4),
+  layoutVersion: z.literal(2),
+  objects: WorkspaceObjectSchema.array().max(5000),
+});
 const manifestSchema = z
   .object({
     format: z.literal("AIReader-workspace"),
-    version: z.union([z.literal(1), z.literal(2)]),
+    version: z.literal(formatVersions.archiveVersion),
     bookId: id,
     title: z.string().min(1).max(300),
     fingerprint: digest,
     pages: z.number().int().positive().max(100000),
     progress: z.number().int().positive(),
-    workspace: WorkspaceSchema,
+    workspace: archiveWorkspace,
     preferences: ReaderPreferencesSchema,
     annotations: z.array(annotation).max(5000),
     notes: z.array(note).max(5000),
@@ -209,7 +215,7 @@ export class WorkspaceArchives {
       }
     const manifest = manifestSchema.parse({
       format: "AIReader-workspace",
-      version: 2,
+      version: formatVersions.archiveVersion,
       bookId,
       title: book.title,
       fingerprint: book.fingerprint,
@@ -271,7 +277,7 @@ export class WorkspaceArchives {
     if (!files["workspace.json"] || !files["document.pdf"])
       throw new Error("工作区缺少 PDF 或数据文件");
     const raw = JSON.parse(strFromU8(files["workspace.json"]));
-    if (raw?.version !== 1 && raw?.version !== 2)
+    if (raw?.version !== formatVersions.archiveVersion)
       throw new Error("工作区归档版本不受支持，请使用更新的 AIReader");
     const data = manifestSchema.parse(raw);
     if (
@@ -325,7 +331,7 @@ export class WorkspaceArchives {
           source.source.anchors.forEach(validAnchor);
         }
         if (source.region) {
-          if (data.version !== 2 || source.region.fingerprint !== data.fingerprint ||
+          if (source.region.fingerprint !== data.fingerprint ||
               source.region.page > data.pages ||
               source.region.rect[2] <= source.region.rect[0] ||
               source.region.rect[3] <= source.region.rect[1])
@@ -396,15 +402,13 @@ export class WorkspaceArchives {
         card.source.anchors.forEach(validAnchor);
       }
       if (card.region) {
-        if (data.version !== 2 || card.region.fingerprint !== data.fingerprint ||
+        if (card.region.fingerprint !== data.fingerprint ||
             card.region.page > data.pages || card.region.rect[2] <= card.region.rect[0] ||
             card.region.rect[3] <= card.region.rect[1])
           throw new Error("图片摘录不属于此文档");
         referencedAssets.add(card.region.assetId);
       }
     }
-    if (data.version === 1 && data.workspace.objects.length)
-      throw new Error("旧版归档包含不支持的画布对象");
     for (const object of data.workspace.objects) {
       const surfaces = object.kind === "ink" ? object.segments.map((segment) => segment.surface) : [object.surface];
       if (surfaces.some((surface) => surface.kind === "pdf" &&

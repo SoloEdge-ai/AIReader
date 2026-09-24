@@ -53,7 +53,7 @@ export function Icon({ name }: { name: keyof typeof paths }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth={name === "grip" ? "2.8" : "1.6"}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

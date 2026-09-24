@@ -107,7 +107,7 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     const download = await request(`books/${book.id}/workspace/archive`);
     expect(download.status).toBe(200);
     const archive = new Uint8Array(await download.arrayBuffer());
-    expect(JSON.parse(strFromU8(unzipSync(archive)["workspace.json"])).version).toBe(2);
+    expect(JSON.parse(strFromU8(unzipSync(archive)["workspace.json"])).version).toBe(3);
     const restoredResponse = await request("workspace-archives", archive);
     expect(restoredResponse.status).toBe(201);
     const restored = await restoredResponse.json();
@@ -168,22 +168,21 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     expect(
       (await (await request(`books/${book.id}/annotations`)).json())[0].id,
     ).toBe(annotation.id);
-    const legacyFiles = unzipSync(archive);
-    const legacyManifest = JSON.parse(strFromU8(legacyFiles["workspace.json"]));
-    const oldRegionAsset = legacyManifest.workspace.cards[2].region.assetId;
-    legacyManifest.version = 1;
-    legacyManifest.workspace.cards.pop();
-    delete legacyManifest.workspace.objects;
-    delete legacyManifest.workspace.formatVersion;
-    delete legacyManifest.assets[oldRegionAsset];
-    delete legacyFiles[`assets/${oldRegionAsset}.png`];
-    legacyFiles["workspace.json"] = strToU8(JSON.stringify(legacyManifest));
-    const legacyResponse = await request("workspace-archives", zipSync(legacyFiles));
-    expect(legacyResponse.status).toBe(201);
-    const legacy = await legacyResponse.json();
-    const legacyWorkspace = await (await request(`books/${legacy.id}/workspace`)).json();
-    expect(legacyWorkspace.cards).toHaveLength(2);
-    expect(legacyWorkspace.formatVersion).toBe(4);
+    for (const oldVersion of [1, 2]) {
+      const oldFiles = unzipSync(archive);
+      const oldManifest = JSON.parse(strFromU8(oldFiles["workspace.json"]));
+      oldManifest.version = oldVersion;
+      oldFiles["workspace.json"] = strToU8(JSON.stringify(oldManifest));
+      const oldResponse = await request("workspace-archives", zipSync(oldFiles));
+      expect(oldResponse.status).toBe(400);
+      expect((await oldResponse.json()).error).toContain("归档版本");
+    }
+    const incompleteFiles = unzipSync(archive);
+    const incompleteManifest = JSON.parse(strFromU8(incompleteFiles["workspace.json"]));
+    delete incompleteManifest.workspace.objects;
+    delete incompleteManifest.workspace.formatVersion;
+    incompleteFiles["workspace.json"] = strToU8(JSON.stringify(incompleteManifest));
+    expect((await request("workspace-archives", zipSync(incompleteFiles))).status).toBe(400);
     core.close();
     core = createCore(directory, "dist/web");
     await connect();
@@ -206,18 +205,18 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     );
     delete files["../outside.txt"];
     const manifest = JSON.parse(strFromU8(files["workspace.json"]));
-    manifest.version = 3;
+    manifest.version = 4;
     files["workspace.json"] = strToU8(JSON.stringify(manifest));
     const newer = await request("workspace-archives", zipSync(files));
     expect(newer.status).toBe(400);
     expect((await newer.json()).error).toContain("归档版本");
-    manifest.version = 2;
+    manifest.version = 3;
     manifest.fingerprint = "0".repeat(64);
     files["workspace.json"] = strToU8(JSON.stringify(manifest));
     expect((await request("workspace-archives", zipSync(files))).status).toBe(
       400,
     );
-    expect(await (await request("books")).json()).toHaveLength(3);
+    expect(await (await request("books")).json()).toHaveLength(2);
     // Independent annotations and deleted-source comments both survive an archive copy.
     await request(`books/${book.id}/annotations/${annotation.id}`, undefined, "DELETE");
     const standalone = await (await request(`books/${book.id}/annotations`, {
