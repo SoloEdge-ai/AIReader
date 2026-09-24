@@ -1,6 +1,6 @@
 # 数据与协议
 
-状态：当前 DB v5、workspace 快照 v4/layoutVersion 2、归档 v2；API v2 已接入工作区增量命令，其他接口仍为 v1。Note／placement 统一和归档 v3 尚未完成。
+状态：当前 DB v5、workspace 快照 v4/layoutVersion 2、归档 v2；API v2 已接入工作区增量命令，其他接口仍为 v1。个人 Note 引用卡片已接入，完整 Note／placement 统一和归档 v3 尚未完成。
 
 SQLite records 仍保存笔记、批注等独立 JSON 实体，passages/FTS5 保存索引；工作区不再写整份 JSON。笔记仍有独立 revision／保存接口。
 
@@ -32,6 +32,8 @@ Annotation.noteId 已可缺省；POST /api/books/:id/annotations/:annotationId/n
 
 Note.annotationId 保留来源引用，可能指向已删除标注或不再以该 Note 为当前评论的标注。列表返回只读 annotationSource 投影；更新正文不能修改此来源。归档保留活跃 Note 引用的标注 tombstone 和区域资源，恢复重映射 ID；导出已删除源标注时明确标识。当前归档仍为 v2，允许没有 noteId 的独立标注，完整 v3 仍待后续阶段。
 
-后续目标：Note 保存唯一富文本，Placement 只引用内容及位置，Excerpt 原文不可变。现有 Note 和卡片正文尚未合并，不能因数据库已使用 v5 就视为领域重构完成。Note 接口仍为 v1，尚未获得 v2 命令回执和统一跨实体历史。
+新个人卡片使用 WorkspaceCard.noteId 引用本书活跃 Note，每个 Note 最多一张卡片；兼容字段 title/text/comment 必须为空，禁止卡片保存另一份正文。旧无 noteId 的卡片保留原行为，摘录评论尚未统一。Note 接口仍为 v1，尚未获得 v2 命令回执和统一跨实体历史。
+
+删除 Note 在同一事务保存其位置／关系逆操作并删除这些实体；恢复时若 ID 已冲突或关系端点缺失，整次恢复失败，不部分恢复。单独删除卡片不删除 Note。材料选择关联卡片必须携带 Note revision，Core 读取并冻结正文为 user-note，最终提交前再次核对 Note 版本。归档 v2 校验活跃 Note 引用及单位置约束，恢复副本重映射 noteId；旧归档不强制生成引用。
 
 归档当前支持v1/v2；重构切换v3后只支持v3。保留大小、路径、hash、图片及跨书验证；恢复独立副本并重映射引用。账号、执行文件和完整聊天不入包。

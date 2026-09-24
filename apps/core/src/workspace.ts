@@ -6,7 +6,7 @@ import {
   type WorkspaceCard,
 } from "../../../packages/protocol/src/workspace";
 import { Library } from "./library";
-import type { Annotation } from "../../../packages/protocol/src";
+import type { Annotation, Note } from "../../../packages/protocol/src";
 import { createHash } from "node:crypto";
 import { WorkspaceCommandV2Schema, commandPayload, type WorkspaceReceipt } from "../../../packages/protocol/src/workspace-commands";
 import { applyWorkspaceChanges, workspaceDifference } from "../../../packages/workspace-engine/src/commands";
@@ -127,7 +127,14 @@ export class Workspaces {
       new Set(value.links.map((link) => link.id)).size !== value.links.length
     )
       throw new Error("卡片或连接标识重复");
+    const placedNotes = new Set<string>();
     for (const card of value.cards) {
+      if (card.noteId) {
+        const note = this.library.store.get<Note>("note", card.noteId);
+        if (!note || note.bookId !== bookId || note.deletedAt) throw new Error("笔记不存在或不属于此书籍");
+        if (placedNotes.has(card.noteId)) throw new Error("此笔记已经放到画布，请定位已有卡片");
+        placedNotes.add(card.noteId);
+      }
       // Deleted region provenance is Core-owned, not supplied by the undo request.
       const previous = current.cards.find((old) => old.id === card.id) ??
         this.library.store.get<Pick<WorkspaceCard, "kind" | "text" | "source" | "region">>("workspace-region-origin", `${bookId}:${card.id}`);
@@ -156,6 +163,7 @@ export class Workspaces {
       if (
         previous &&
         (previous.kind !== card.kind ||
+          ("noteId" in previous && previous.noteId !== card.noteId) ||
           JSON.stringify(previous.source) !== JSON.stringify(card.source) ||
           JSON.stringify(previous.region) !== JSON.stringify(card.region) ||
           (card.kind !== "note" && previous.text !== card.text))

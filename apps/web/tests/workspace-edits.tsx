@@ -13,6 +13,7 @@ function Editor({ bookId }: { bookId: string }) {
         { id: "draft-card", kind: "note", title: "Draft", text: event.target.value, comment: "", x: 20, y: 40, width: 300, height: 240 },
       ] }))} />}
     <button onClick={() => void state.flush()}>重试保存</button>
+    <button onClick={() => void state.reload(true)}>刷新工作区</button>
   </main>;
 }
 function Harness() {

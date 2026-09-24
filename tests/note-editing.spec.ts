@@ -73,6 +73,50 @@ test("annotation comments are explicit and deleting either entity preserves the 
   await page.getByRole("button", { name: "删除批注", exact: true }).click();
 });
 
+test("card, sidebar and expanded editor share one note; removal preserves content", async ({ page }) => {
+  const dialogs: string[] = [];
+  page.on("dialog", async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); });
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  await expect(page.locator(".reader-body")).toBeVisible();
+  if (!(await page.locator(".notes-panel").isVisible())) await page.getByLabel("笔记", { exact: true }).click();
+  await page.locator(".notes-list button").first().click();
+  await page.getByRole("button", { name: "放到画布", exact: true }).click();
+  const card = page.locator(".workspace-card.note");
+  const panel = page.locator(".notes-panel");
+  await expect(card).toHaveCount(1);
+  await card.getByRole("textbox", { name: "笔记正文" }).fill("画布写入的同一份正文");
+  await card.getByRole("textbox", { name: "笔记正文" }).click({ modifiers: ["Shift"] });
+  await expect(card.getByRole("textbox", { name: "笔记正文" })).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "笔记正文" })).toHaveText("画布写入的同一份正文");
+  await panel.getByLabel("笔记标题", { exact: true }).fill("三处共享笔记");
+  await expect(card.getByLabel("笔记标题", { exact: true })).toHaveValue("三处共享笔记");
+  await panel.getByRole("button", { name: "放到画布", exact: true }).click();
+  await expect.poll(async () => ({ cards: await card.count(), dialogs })).toEqual({ cards: 1, dialogs: [] });
+  await card.getByRole("button", { name: "展开卡片笔记" }).click();
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("从展开层继续写作");
+  await expect(panel.getByRole("textbox", { name: "笔记正文" })).toHaveText("从展开层继续写作");
+  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.screenshot({ path: "test-results/shared-note-card.png" });
+  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
+  await expect(card).toHaveCount(0);
+  await expect(panel.getByRole("textbox", { name: "笔记正文" })).toHaveText("从展开层继续写作");
+  await panel.getByRole("button", { name: "放到画布", exact: true }).click();
+  await expect.poll(async () => ({ cards: await card.count(), dialogs })).toEqual({ cards: 1, dialogs: [] });
+  await panel.getByRole("button", { name: "删除笔记", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await panel.getByRole("button", { name: "撤销批注操作" }).click();
+  await expect(card).toHaveCount(1);
+  await page.reload();
+  await page.locator(".book-card").first().click();
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("从展开层继续写作");
+  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
+  await page.getByRole("button", { name: "返回书库" }).click();
+  await expect(page.locator(".book-card").first()).toBeVisible();
+});
+
 test("two views edit one live note draft and reopening reads its saved content", async ({ page }) => {
   await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
   const first = page.getByRole("region", { name: "列表编辑器" });
@@ -253,7 +297,7 @@ test("workspace retry uses its original receipt and preserves newer drafts on re
     const saved = await (await page.request.get(url, { headers })).json();
     expect((await page.request.post(url + "/commands", { headers, data: {
       bookId, commandId: "remote-update", expectedVersion: saved.revision,
-      changes: [{ type: "upsert-card", card: { ...saved.cards[0], text: "另一个窗口的新内容" } }],
+      changes: [{ type: "upsert-card", card: { ...saved.cards.find((card: { id: string }) => card.id === "draft-card"), text: "另一个窗口的新内容" } }],
     } })).status()).toBe(200);
     await input.fill("尚未保存的后来输入");
     release();
@@ -261,6 +305,28 @@ test("workspace retry uses its original receipt and preserves newer drafts on re
     await page.getByRole("button", { name: "重试保存" }).click();
     await expect(page.getByRole("alert")).toContainText("版本冲突");
     await expect(input).toHaveValue("尚未保存的后来输入");
-    expect((await (await page.request.get(url, { headers })).json()).cards[0].text).toBe("另一个窗口的新内容");
+    expect((await (await page.request.get(url, { headers })).json()).cards.find((card: { id: string }) => card.id === "draft-card").text).toBe("另一个窗口的新内容");
+  } finally { release(); }
+});
+
+test("workspace refresh cannot overwrite edits made while its response is pending", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+  const input = page.getByLabel("卡片正文");
+  await input.fill("刷新前的已保存内容");
+  await expect(page.getByRole("status")).toHaveText("已保存");
+  let release!: () => void, fetched!: () => void;
+  const released = new Promise<void>((done) => { release = done; });
+  const read = new Promise<void>((done) => { fetched = done; });
+  await page.route("**/api/books/*/workspace", async (route) => {
+    const response = await route.fetch(); fetched(); await released;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole("button", { name: "刷新工作区" }).click();
+    await read;
+    await input.fill("刷新过程中继续写入的内容");
+    release();
+    await expect(page.getByRole("alert")).toContainText("刷新期间");
+    await expect(input).toHaveValue("刷新过程中继续写入的内容");
   } finally { release(); }
 });

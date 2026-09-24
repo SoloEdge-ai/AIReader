@@ -127,6 +127,7 @@ export class QuestionMaterials {
       return id;
     };
     const requiredVisuals = new Set<string>();
+    const linkedNotes = new Map<string, number>();
     for (const target of input.targets) {
       if (target.kind === "relation") {
         if (!links.has(target.id)) throw new Error("关系不存在或不属于本书");
@@ -135,7 +136,12 @@ export class QuestionMaterials {
       if (target.kind === "card") {
         const card = cards.get(target.id);
         if (!card) throw new Error("卡片不存在或不属于本书");
-        if (card.kind === "excerpt") sections.push({ kind: "book-excerpt", targetId: card.id, title: card.title,
+        if (card.noteId) {
+          const note = notes.get(card.noteId);
+          if (!note || target.revision !== note.revision) throw new Error("卡片笔记已变化，请重新加入材料");
+          linkedNotes.set(note.id, note.revision);
+          sections.push({ kind: "user-note", targetId: card.id, title: note.title, text: plainText(note.document) });
+        } else if (card.kind === "excerpt") sections.push({ kind: "book-excerpt", targetId: card.id, title: card.title,
           text: card.text, anchors: card.source?.anchors });
         else if (card.kind === "region" && card.region) {
           const bytes = Buffer.from(await this.workspaceAssets.read(bookId, card.region.assetId));
@@ -231,6 +237,11 @@ export class QuestionMaterials {
           const current = this.library.store.get<Annotation | Note>(target.kind, target.id);
           if (!current || current.bookId !== bookId || current.deletedAt || current.revision !== target.revision)
             throw new Error("笔记或批注已变化，请重新加入材料");
+        }
+        for (const [id, revision] of linkedNotes) {
+          const current = this.library.store.get<Note>("note", id);
+          if (!current || current.bookId !== bookId || current.deletedAt || current.revision !== revision)
+            throw new Error("卡片笔记已变化，请重新加入材料");
         }
         this.library.store.put("question-material", materialId, bookId, snapshot);
         this.library.store.put("question-material-request", key, bookId,

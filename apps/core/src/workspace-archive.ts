@@ -343,7 +343,14 @@ export class WorkspaceArchives {
         data.workspace.links.length
     )
       throw new Error("卡片或关系标识重复");
+    const placedNotes = new Set<string>();
     for (const card of data.workspace.cards) {
+      if (card.noteId) {
+        const content = data.notes.find((note) => note.id === card.noteId);
+        if (!content || content.deletedAt || placedNotes.has(card.noteId))
+          throw new Error("笔记位置引用缺失、已删除或重复的笔记");
+        placedNotes.add(card.noteId);
+      }
       if (card.source) {
         if (card.source.fingerprint !== data.fingerprint)
           throw new Error("摘录不属于此文档");
@@ -512,6 +519,7 @@ export class WorkspaceArchives {
           revision: 0,
           cards: data.workspace.cards.map((card) => ({
             ...card, id: mapped(card.id),
+            noteId: card.noteId ? mapped(card.noteId) : undefined,
             region: card.region ? { ...card.region, assetId: mapped(card.region.assetId) } : undefined,
           })),
           objects: data.workspace.objects.map((object) => ({ ...object, id: mapped(object.id) })),

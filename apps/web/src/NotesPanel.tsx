@@ -19,6 +19,8 @@ export function NotesPanel({
   onAddToQuestion,
   onAddAnnotation,
   onExpand,
+  onPlace,
+  beforeWorkspaceChange,
 }: {
   bookId: string;
   state: BookNotes;
@@ -26,6 +28,8 @@ export function NotesPanel({
   onAddToQuestion?: (note: Note) => Promise<void>;
   onAddAnnotation?: (annotation: Annotation) => Promise<void>;
   onExpand?: (note: Note) => void;
+  onPlace?: (note: Note) => Promise<void>;
+  beforeWorkspaceChange?: () => Promise<boolean>;
 }) {
   const [query, setQuery] = useState(""),
     [kind, setKind] = useState(""),
@@ -47,6 +51,10 @@ export function NotesPanel({
   const questionImages = selected?.origin?.images?.filter((image) => !materialImageIds.has(image.id)) ?? [];
   const run = (fn: () => Promise<unknown>) =>
     void fn().catch((e) => window.alert(String(e)));
+  const workspaceChange = async (fn: () => Promise<unknown>) => {
+    if (beforeWorkspaceChange && !(await beforeWorkspaceChange())) throw new Error("画板草稿尚未保存，请先重试");
+    return fn();
+  };
   async function exportNote(note: Note) {
     if (exporting) return;
     const controller = new AbortController();
@@ -84,7 +92,7 @@ export function NotesPanel({
       <div className="notes-actions">
         <button onClick={() => run(state.create)}>新建笔记</button>
         <button
-          onClick={() => run(state.undoLast)}
+          onClick={() => run(() => workspaceChange(state.undoLast))}
           disabled={!state.canUndo}
         >
           撤销批注操作
@@ -274,6 +282,7 @@ export function NotesPanel({
           <footer>
             <span role="status">{state.status}</span>
             {onExpand && <button onClick={() => onExpand(selected)}>展开编辑笔记</button>}
+            {onPlace && <button onClick={() => run(() => onPlace(selected))}>放到画布</button>}
             {onAddToQuestion && <button onClick={() => run(async () => {
               if (!(await state.flush())) throw new Error("笔记尚未保存，请先重试");
               const latest = state.notes.find((note) => note.id === selected.id) ?? selected;
@@ -299,7 +308,7 @@ export function NotesPanel({
                 </button>
               </>
             )}
-            <button onClick={() => run(() => state.remove(selected))}>
+            <button onClick={() => run(() => workspaceChange(() => state.remove(selected)))}>
               删除笔记
             </button>
             {annotation && !annotation.deletedAt && <button onClick={() => run(() => state.removeAnnotation(annotation))}>删除批注</button>}

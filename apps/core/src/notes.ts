@@ -14,6 +14,7 @@ import { Library } from "./library";
 import { answerDocument } from "./note-markdown";
 import { exportNoteArchive } from "./note-export";
 import { ChatImages } from "./chat-images";
+import { changeNotePlacement } from "./note-placements";
 import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
 export function richDocument(input: unknown): RichNode {
   if (JSON.stringify(input)?.length > 100000) throw new Error("笔记内容过长");
@@ -403,6 +404,7 @@ export class Notes {
     restore = false,
   ) {
     const value = this.get<Annotation | Note>(kind, bookId, id);
+    const wasDeleted = Boolean(value.deletedAt);
     const timestamp = new Date().toISOString();
     let workspaceChanged = false;
     this.library.store.transaction(() => {
@@ -438,6 +440,8 @@ export class Notes {
       value.updatedAt = timestamp;
       value.revision++;
       this.save(value, kind);
+      if (kind === "note" && wasDeleted === restore)
+        workspaceChanged = changeNotePlacement(this.library, bookId, id, restore);
       if (kind === "note" && (value as Note).annotationId) {
         const annotation = this.get<Annotation>("annotation", bookId, (value as Note).annotationId!);
         if ((!restore && annotation.noteId === id) || (restore && !annotation.noteId && !annotation.deletedAt)) {

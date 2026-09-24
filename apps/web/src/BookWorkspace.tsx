@@ -14,6 +14,7 @@ import type {
   QuestionMaterialInput,
   ReadingSelection,
   PdfAnchor,
+  Note,
 } from "../../../packages/protocol/src";
 import type { WorkspaceCard, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import { WORKSPACE_DOCUMENT_X } from "../../../packages/protocol/src/workspace";
@@ -37,6 +38,8 @@ import { dockBesideDocument } from "./WorkspaceLayout";
 import { Icon } from "./ui/Icon";
 import { base, post } from "./api";
 import "./workspace.css";
+import type { BookNotes } from "./features/notes/useBookNotes";
+import { NoteCardContent } from "./features/notes/NoteCardContent";
 
 export interface BookWorkspaceHandle {
   flush(): Promise<boolean>;
@@ -44,6 +47,7 @@ export interface BookWorkspaceHandle {
   escape(): void;
   addToQuestion(ids: string[]): Promise<boolean>;
   locate(anchors: PdfAnchor[]): void;
+  placeNote(note: Note): Promise<void>;
 }
 export const BookWorkspace = forwardRef<
   BookWorkspaceHandle,
@@ -59,9 +63,13 @@ export const BookWorkspace = forwardRef<
     onQuestionMaterials?: (selection: Pick<QuestionMaterialInput,
       "workspaceRevision" | "targets" | "previews">) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
+    notes: BookNotes;
+    onExpandNote: (note: Note) => void;
   }
 >(function BookWorkspace(props, ref) {
   const state = useWorkspace(props.book.id, props.annotations?.map((annotation) => annotation.id));
+  const mounted = useRef(true), placing = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const lastWorkspaceEvent = useRef(props.workspaceEvent ?? 0);
   useEffect(() => {
     if (lastWorkspaceEvent.current !== (props.workspaceEvent ?? 0)) {
@@ -248,6 +256,7 @@ export const BookWorkspace = forwardRef<
     }
   }
   function add(selection?: ReadingSelection) {
+    if (!selection) { void placeNote().catch((error) => setInkError(String(error))); return; }
     if (!state.value) return;
     const page = pages.current.find(
       (item) => item.page === (selection?.page ?? props.page),
@@ -295,6 +304,30 @@ export const BookWorkspace = forwardRef<
       }),
     );
   }
+  async function placeNote(existing?: Note, point?: InkPoint) {
+    if (!state.value) throw new Error("工作区尚未加载，请稍后重试");
+    if (placing.current) throw new Error("正在放置笔记，请稍候");
+    if (existing && existing.bookId !== props.book.id) throw new Error("笔记不属于当前书籍");
+    placing.current = true;
+    try {
+      if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存草稿后再放置笔记");
+      const original = existing && state.value?.cards.find((card) => card.noteId === existing.id);
+      if (original) { navigate(original.x - 40, original.y - 40, 1); selectTarget(original.id); return; }
+      const note = existing ?? await props.notes.create();
+      if (!note || !mounted.current) return;
+      const card: WorkspaceCard = dockBesideDocument({ id: crypto.randomUUID(), kind: "note", noteId: note.id,
+        title: "", text: "", comment: "", x: point ? Math.max(0, point[0] + 20) : WORKSPACE_DOCUMENT_X + documentWidth + 40,
+        y: point ? Math.max(0, point[1]) : Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60),
+        width: 340, height: 300 }, documentWidth);
+      state.change((current) => {
+        while (current.cards.some((old) => Math.abs(old.x - card.x) < 20 && Math.abs(old.y - card.y) < 40)) card.y += 50;
+        return { ...current, cards: [...current.cards, card] };
+      });
+      setSelectedIds([card.id]); setSelected(card.id);
+      navigate(card.x - 40, card.y - 40, 1);
+      if (!(await state.flush())) throw new Error("卡片放置未保存；笔记已保留在列表，画板草稿可重试");
+    } finally { placing.current = false; }
+  }
   async function regionAction(region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) {
     if (action === "question") {
       await props.onRegionAction?.(region, action, includePersonalMarks);
@@ -326,7 +359,8 @@ export const BookWorkspace = forwardRef<
     setSelected(result.cardId);
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
-  useImperativeHandle(ref, () => ({ flush: state.flush, excerpt: add,
+  useImperativeHandle(ref, () => ({ flush: async () => await props.notes.flush() && await state.flush(), excerpt: add,
+    placeNote,
     addToQuestion: addSelectedToQuestion,
     locate: locateAnchors,
     escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
@@ -470,12 +504,15 @@ export const BookWorkspace = forwardRef<
     if (!ids.length || !props.onQuestionMaterials || materialBusy) return false;
     setMaterialBusy(true); setInkError("");
     try {
+      if (!(await props.notes.flush())) throw new Error("笔记尚未保存，请重试加入材料");
       if (!(await state.flush())) throw new Error("工作区尚未保存，请重试加入材料");
       const snapshot = state.value;
       const revision = state.revision();
       if (!snapshot || revision === undefined) throw new Error("工作区尚未加载");
       const targets = ids.map((id) => {
-        if (snapshot.cards.some((card) => card.id === id)) return { kind: "card" as const, id };
+        const card = snapshot.cards.find((card) => card.id === id);
+        if (card) return { kind: "card" as const, id, revision: card.noteId
+          ? props.notes.getSnapshot().notes.find((note) => note.id === card.noteId)?.revision : undefined };
         if (snapshot.objects.some((object) => object.id === id)) return { kind: "object" as const, id };
         if (snapshot.links.some((link) => link.id === id)) return { kind: "relation" as const, id };
         const annotation = props.annotations?.find((item) => item.id === id);
@@ -631,11 +668,7 @@ export const BookWorkspace = forwardRef<
       state.change((current) => ({ ...current, objects: [...current.objects, object] }));
       setSelectedIds([object.id]); setEditingText(object.id);
     } else if (props.mode === "note-card") {
-      const card: WorkspaceCard = dockBesideDocument({ id: crypto.randomUUID(), kind: "note", title: "新笔记",
-        text: "", comment: "", x: Math.max(0, gesture.start[0] + 20), y: Math.max(0, gesture.start[1]),
-        width: 250, height: 170 }, documentWidth);
-      state.change((current) => ({ ...current, cards: [...current.cards, card] }));
-      setSelectedIds([card.id]); setSelected(card.id);
+      void placeNote(undefined, gesture.start).catch((error) => setInkError(String(error)));
     }
   }
   function cancelCanvas() { setCanvasGesture(undefined); }
@@ -852,6 +885,7 @@ export const BookWorkspace = forwardRef<
               height: card.height,
             }}
             onPointerDown={(event) => {
+              if ((event.target as HTMLElement).closest("input, textarea, [contenteditable=true]")) return;
               if (event.button === 0) select(card, event.shiftKey);
             }}
           >
@@ -923,7 +957,8 @@ export const BookWorkspace = forwardRef<
               </span>
             </header>
             <div className="workspace-card-body">
-              <input
+              {card.noteId ? <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
+                state={props.notes} editing={selectedIds.length === 1 && selectedIds[0] === card.id} /> : <><input
                 aria-label="卡片标题"
                 value={card.title}
                 maxLength={200}
@@ -954,6 +989,7 @@ export const BookWorkspace = forwardRef<
                   onChange={(e) => update(card.id, { comment: e.target.value })}
                 />
               )}
+              </>}
             </div>
             <footer>
               {card.source || card.region ? (
@@ -971,6 +1007,10 @@ export const BookWorkspace = forwardRef<
                 <span className="workspace-personal">个人理解</span>
               )}
               <div className="workspace-card-actions">
+                {card.noteId && <button aria-label="展开卡片笔记" title="展开编辑笔记" onClick={() => {
+                  const note = props.notes.notes.find((note) => note.id === card.noteId);
+                  if (note) props.onExpandNote(note);
+                }}><Icon name="outward" /></button>}
                 <button
                   aria-label="连接卡片"
                   title="连接卡片"
@@ -982,8 +1022,8 @@ export const BookWorkspace = forwardRef<
                   <Icon name="link" />
                 </button>
                 <button
-                  aria-label="删除卡片"
-                  title="删除卡片"
+                  aria-label={card.noteId ? "移除卡片，保留笔记" : "删除卡片"}
+                  title={card.noteId ? "移除卡片，保留笔记" : "删除卡片"}
                   onClick={() => {
                     state.change({
                       ...state.value!,
@@ -1403,7 +1443,7 @@ export const BookWorkspace = forwardRef<
             >
               <Icon name={card.kind === "note" ? "note" : "book"} />
               <span>
-                {card.title || "未命名笔记"}
+                {(card.noteId ? props.notes.notes.find((note) => note.id === card.noteId)?.title : card.title) || "未命名笔记"}
                 <small>
                   {card.source || card.region
                     ? `第 ${props.book.labels[(card.region?.page ?? card.source!.anchors[0].page) - 1] ?? (card.region?.page ?? card.source!.anchors[0].page)} 页摘录`

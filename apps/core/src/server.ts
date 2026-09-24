@@ -136,7 +136,7 @@ export function createCore(
           "Access-Control-Allow-Headers",
           "Content-Type, X-Filename",
         );
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE");
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
         res.writeHead(204).end();
         return;
       }

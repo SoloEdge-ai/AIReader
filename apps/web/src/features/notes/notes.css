@@ -30,6 +30,12 @@
 .expanded-note-content { padding: 20px; overflow: auto; flex: 1; min-height: 0; }
 .expanded-note-content .tiptap { min-height: 240px; }
 .expanded-note-content .tiptap:focus-visible { outline-width: 1px; outline-offset: 4px; }
+.workspace-note-content { min-height: 0; overflow: auto; flex: 1; }
+.workspace-note-content .editor-toolbar { flex-wrap: wrap; gap: 2px; }
+.workspace-note-content .editor-toolbar button { min-width: 28px; min-height: 28px; padding: 3px 5px; }
+.workspace-note-content .tiptap { min-height: 90px; font-size: 13px; line-height: 1.65; }
+.workspace-note-content .note-title { margin: 0 0 6px; padding: 0; font-size: 14px; }
+.workspace-note-preview { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 @media (max-width: 1180px) {
   .expanded-note { inset: 8px; }
   .expanded-note-content { padding: 12px; }

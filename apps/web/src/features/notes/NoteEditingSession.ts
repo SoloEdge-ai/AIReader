@@ -135,6 +135,7 @@ export class NoteEditingSession {
     const note = await this.client.create();
     await this.refresh();
     this.setSelected(note.id);
+    return note;
   };
   recordUndo = (action: () => Promise<unknown>) => {
     this.undo = [...this.undo.slice(-99), action];

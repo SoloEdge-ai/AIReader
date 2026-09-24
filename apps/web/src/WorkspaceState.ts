@@ -25,6 +25,7 @@ export function useWorkspace(bookId: string, externalEndpointIds: string[] = [])
   const historyQueue = useRef<Promise<void>>(Promise.resolve());
   const live = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const reloadRequest = useRef(0);
   const externalIds = useRef(new Set(externalEndpointIds));
   externalIds.current = new Set(externalEndpointIds);
 
@@ -35,13 +36,23 @@ export function useWorkspace(bookId: string, externalEndpointIds: string[] = [])
       setError("工作区草稿尚未保存，请先重试或导出草稿，避免覆盖修改");
       return;
     }
+    const request = ++reloadRequest.current;
+    const startedGeneration = generation.current;
+    const startedView = viewGeneration.current;
+    const startedCommitted = committed.current;
     try {
       const initial = await api<BookWorkspace>(`books/${bookId}/workspace`);
-      if (!live.current) return;
+      if (!live.current || request !== reloadRequest.current) return;
+      if (generation.current !== startedGeneration || committed.current !== startedCommitted) {
+        clearTimeout(timer.current);
+        setError("刷新期间工作区已发生编辑，草稿已保留，请保存或处理冲突后重试刷新");
+        return;
+      }
+      // View changes are independent of content; a delayed snapshot must not move the reader back.
+      if (draft.current && (viewGeneration.current !== startedView || viewGeneration.current !== viewSaved.current))
+        initial.camera = draft.current.camera;
       draft.current = initial;
       committed.current = initial;
-      generation.current = saved.current = 0;
-      viewGeneration.current = viewSaved.current = 0;
       inFlight.current = undefined;
       if (!preserveHistory) {
         history.current = [];
@@ -50,7 +61,7 @@ export function useWorkspace(bookId: string, externalEndpointIds: string[] = [])
       historyChanged();
       setValue(initial);
       setError("");
-      setStatus("已保存");
+      setStatus(viewGeneration.current === viewSaved.current ? "已保存" : "待保存");
     } catch (e) {
       if (live.current) setError(String(e));
     }

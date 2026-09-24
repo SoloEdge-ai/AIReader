@@ -857,6 +857,8 @@ export function App() {
             >
               <BookWorkspace
                 ref={workspace}
+                notes={notes}
+                onExpandNote={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
                 beforeExport={notes.flush}
                 book={book}
                 page={page}
@@ -1001,6 +1003,8 @@ export function App() {
                   </header>
                   {layout.panel === "notes" ? (
                     <NotesPanel bookId={book.id} state={notes} onJump={jump}
+                      beforeWorkspaceChange={async () => (await workspace.current?.flush()) ?? false}
+                      onPlace={(note) => workspace.current!.placeNote(note)}
                       onExpand={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
                       onAddAnnotation={async (annotation) => {
                         const added = await workspace.current?.addToQuestion([annotation.id]);
