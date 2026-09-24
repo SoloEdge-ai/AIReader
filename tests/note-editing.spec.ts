@@ -52,6 +52,28 @@ test("material navigation and chat remain visible beside the same PDF", async ({
   await expect(page.locator(".side-panel .chat")).toBeVisible();
 });
 
+test("material navigation lists canvas cards and locates the selected placement", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  const notesButton = page.getByRole("button", { name: "笔记", exact: true }).first();
+  if ((await notesButton.getAttribute("aria-pressed")) !== "true") await notesButton.click();
+  await page.locator(".notes-list button").first().click();
+  await page.getByRole("button", { name: "放到画布" }).click();
+  await expect(page.locator(".workspace-card")).toHaveCount(1);
+  const catalog = page.getByRole("region", { name: "画布卡片" });
+  await expect(catalog.getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
+  await catalog.getByRole("button", { name: /定位.*卡片/ }).click();
+  await expect(page.locator(".workspace-card.selected")).toHaveCount(1);
+  await catalog.getByRole("button", { name: /加入提问/ }).click();
+  await expect(page.locator(".side-panel .question-material-list .question-material-item"))
+    .toHaveCount(1);
+  await page.reload();
+  await page.locator(".book-card").first().click();
+  await page.locator(".nav-tabs").getByRole("button", { name: "材料" }).click();
+  await expect(page.getByRole("region", { name: "画布卡片" })
+    .getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
+});
+
 test("narrow reader opens materials and chat as alternating drawers", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 720 });
   await page.goto("http://127.0.0.1:5173/");

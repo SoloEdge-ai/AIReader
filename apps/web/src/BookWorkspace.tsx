@@ -48,6 +48,7 @@ export interface BookWorkspaceHandle {
   addToQuestion(ids: string[]): Promise<boolean>;
   locate(anchors: PdfAnchor[]): void;
   placeNote(note: Note): Promise<void>;
+  locateItem(id: string): void;
 }
 export const BookWorkspace = forwardRef<
   BookWorkspaceHandle,
@@ -65,9 +66,17 @@ export const BookWorkspace = forwardRef<
     beforeExport?: () => Promise<boolean>;
     notes: BookNotes;
     onExpandNote: (note: Note) => void;
+    onCatalogChange?: (bookId: string, catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">) => void;
   }
 >(function BookWorkspace(props, ref) {
   const state = useWorkspace(props.book.id, props.annotations?.map((annotation) => annotation.id));
+  const onCatalogChange = useRef(props.onCatalogChange);
+  onCatalogChange.current = props.onCatalogChange;
+  useEffect(() => {
+    onCatalogChange.current?.(props.book.id, {
+      cards: state.value?.cards ?? [], objects: state.value?.objects ?? [], links: state.value?.links ?? [],
+    });
+  }, [props.book.id, state.value?.cards, state.value?.objects, state.value?.links]);
   const mounted = useRef(true), placing = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const lastWorkspaceEvent = useRef(props.workspaceEvent ?? 0);
@@ -363,6 +372,40 @@ export const BookWorkspace = forwardRef<
     placeNote,
     addToQuestion: addSelectedToQuestion,
     locate: locateAnchors,
+    locateItem: (id) => {
+      const card = state.value?.cards.find((entry) => entry.id === id);
+      if (card) {
+        navigate(card.x - 40, card.y - 40, 1);
+        setSelected(card.id);
+        setSelectedIds([card.id]);
+        setSelectedLink(undefined);
+      } else {
+        const object = state.value?.objects.find((entry) => entry.id === id);
+        const link = state.value?.links.find((entry) => entry.id === id);
+        const itemPosition = (targetId: string): { x: number; y: number } | undefined => {
+          const targetCard = state.value?.cards.find((entry) => entry.id === targetId);
+          if (targetCard) return targetCard;
+          const target = state.value?.objects.find((entry) => entry.id === targetId);
+          if (target?.kind === "ink") {
+            const paths = projectStroke(target, pages.current).paths;
+            if (!paths.length) return undefined;
+            return { x: Math.min(...paths.map((path) => path.bounds[0])),
+              y: Math.min(...paths.map((path) => path.bounds[1])) };
+          }
+          if (target) return objectRect(target, pages.current);
+          const anchor = props.annotations?.find((entry) => entry.id === targetId)?.anchors[0];
+          const page = pages.current.find((entry) => entry.page === anchor?.page);
+          return page && anchor ? page.locate(anchor.rects[0]) : undefined;
+        };
+        const rect = itemPosition(object?.id ?? link?.from ?? id) ??
+          (link ? itemPosition(link.to) : undefined);
+        if (rect) navigate(rect.x - 40, rect.y - 40, 1);
+        setSelected(undefined);
+        setSelectedIds(object ? [object.id] : []);
+        setSelectedLink(link?.id);
+      }
+      setFocus(false);
+    },
     escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
       setSelectedLink(undefined); setStyleOpen(false); setLinkFrom(undefined); setEditingText(undefined); },
   }));

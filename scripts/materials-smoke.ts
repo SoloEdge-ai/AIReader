@@ -39,7 +39,13 @@ try {
     image.naturalWidth)).toBeGreaterThan(0);
   await expect(page.locator(".question-material-item")).toContainText("个人形状");
   await page.screenshot({ path: ".local/screenshots/question-materials.png" });
-  await page.locator(".side-panel").getByRole("button", { name: "笔记", exact: true }).click();
+  await page.getByRole("button", { name: "笔记", exact: true }).first().click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  await expect(page.getByRole("region", { name: "画布对象" }).getByRole("button", { name: /定位.*矩形/ }))
+    .toHaveCount(1);
+  await page.getByRole("region", { name: "画布对象" }).getByRole("button", { name: /定位.*矩形/ }).click();
+  await expect(page.locator(".workspace-object.selected")).toHaveCount(1);
+  await page.screenshot({ path: ".local/screenshots/material-catalog.png" });
   await page.getByRole("button", { name: "新建笔记" }).click();
   await page.getByLabel("笔记标题", { exact: true }).fill("待验证的个人想法");
   await page.locator(".tiptap").fill("这条笔记属于用户，不是原书观点。");

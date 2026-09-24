@@ -33,6 +33,7 @@ import { AccountControls } from "./AiState";
 import { IndexPanel } from "./IndexPanel";
 import { ToolPanel } from "./ToolPanel";
 import { BookWorkspace, type BookWorkspaceHandle } from "./BookWorkspace";
+import type { BookWorkspace as WorkspaceSnapshot } from "../../../packages/protocol/src/workspace";
 import { WorkspaceRestore } from "./WorkspaceRestore";
 import { ReaderToolPalette } from "./ReaderToolPalette";
 import { SelectionToolbar } from "./SelectionToolbar";
@@ -100,6 +101,9 @@ export function App() {
   const [annotationColor, setAnnotationColor] =
     useState<Annotation["color"]>("yellow");
   const [workspaceEvents, setWorkspaceEvents] = useState<Record<string, number>>({});
+  const [canvasCatalog, setCanvasCatalog] = useState<{
+    bookId: string; catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">;
+  }>();
   const [turnEvents, setTurnEvents] = useState<ObservedTurn[]>([]);
   const [streamRevision, setStreamRevision] = useState(0);
   const openSequence = useRef(0);
@@ -526,6 +530,12 @@ export function App() {
       ),
     );
   const materialPanel = book ? <NotesPanel bookId={book.id} state={notes} onJump={jump}
+    catalog={canvasCatalog?.bookId === book.id ? canvasCatalog.catalog : undefined}
+    onLocateItem={(id) => workspace.current?.locateItem(id)}
+    onAddItemToQuestion={async (id) => {
+      if (!(await workspace.current?.addToQuestion([id])))
+        throw new Error("画布材料尚未准备好，请重试");
+    }}
     beforeWorkspaceChange={async () => (await workspace.current?.flush()) ?? false}
     onPlace={(note) => workspace.current!.placeNote(note)}
     onExpand={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
@@ -923,6 +933,7 @@ export function App() {
             >
               <BookWorkspace
                 ref={workspace}
+                onCatalogChange={(bookId, catalog) => setCanvasCatalog({ bookId, catalog })}
                 notes={notes}
                 onExpandNote={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
                 beforeExport={notes.flush}

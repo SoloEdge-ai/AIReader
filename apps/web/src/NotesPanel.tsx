@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Annotation, Note, SourceAnchor } from "../../../packages/protocol/src";
+import type { BookWorkspace as WorkspaceSnapshot, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import { base } from "./api";
 import { ChatImageList } from "./ChatImageList";
 import { NoteEditor } from "./features/notes/NoteEditor";
@@ -20,6 +21,9 @@ export function NotesPanel({
   onAddAnnotation,
   onExpand,
   onPlace,
+  catalog,
+  onLocateItem,
+  onAddItemToQuestion,
   beforeWorkspaceChange,
 }: {
   bookId: string;
@@ -29,19 +33,24 @@ export function NotesPanel({
   onAddAnnotation?: (annotation: Annotation) => Promise<void>;
   onExpand?: (note: Note) => void;
   onPlace?: (note: Note) => Promise<void>;
+  catalog?: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">;
+  onLocateItem?: (id: string) => void;
+  onAddItemToQuestion?: (id: string) => Promise<void>;
   beforeWorkspaceChange?: () => Promise<boolean>;
 }) {
   const [query, setQuery] = useState(""),
     [kind, setKind] = useState(""),
     [color, setColor] = useState(""),
     [exporting, setExporting] = useState(false),
-    [exportMessage, setExportMessage] = useState("");
+    [exportMessage, setExportMessage] = useState(""),
+    [objectLimit, setObjectLimit] = useState(100);
   const exportController = useRef<AbortController | undefined>(undefined);
   useEffect(() => {
     setExporting(false);
     setExportMessage("");
     return () => exportController.current?.abort();
   }, [bookId]);
+  useEffect(() => setObjectLimit(100), [bookId, query]);
   const selected = state.notes.find((n) => n.id === state.selected),
     annotation = state.annotations.find((a) => a.id === selected?.annotationId) ?? selected?.annotationSource;
   const unlinked = state.annotations.filter((a) => !state.notes.some((n) => n.id === a.noteId));
@@ -49,6 +58,15 @@ export function NotesPanel({
   const materialImageIds = new Set(selected?.origin?.materials?.flatMap((material) =>
     material.images.map((image) => image.id)) ?? []);
   const questionImages = selected?.origin?.images?.filter((image) => !materialImageIds.has(image.id)) ?? [];
+  const cards = catalog?.cards ?? [];
+  const objectName = (object: WorkspaceObject) => object.kind === "ink"
+    ? object.brush === "pen" ? "画笔笔迹" : "荧光笔笔迹"
+    : object.kind === "text" ? object.text.trim().slice(0, 40) || "文字"
+      : ({ rectangle: "矩形", ellipse: "椭圆", line: "直线", arrow: "箭头" }[object.shape]);
+  const visibleObjects = (catalog?.objects ?? []).filter((object) =>
+    objectName(object).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const visibleLinks = (catalog?.links ?? []).filter((link) =>
+    (link.label || "关系连线").toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const run = (fn: () => Promise<unknown>) =>
     void fn().catch((e) => window.alert(String(e)));
   const workspaceChange = async (fn: () => Promise<unknown>) => {
@@ -132,6 +150,48 @@ export function NotesPanel({
           ))}
         </select>
       </div>
+      <section className="material-card-list" aria-label="画布卡片">
+        <h3>画布卡片 <small>{cards.length}</small></h3>
+        {cards.filter((card) => {
+          const title = card.noteId ? state.notes.find((note) => note.id === card.noteId)?.title ?? "未命名笔记" : card.title;
+          return `${title} ${card.text}`.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+        }).map((card) => {
+          const title = card.noteId ? state.notes.find((note) => note.id === card.noteId)?.title ?? "未命名笔记" : card.title;
+          const page = card.region?.page ?? card.source?.anchors[0]?.page;
+          return <div className="material-card-row" key={card.id}>
+            <button aria-label={`定位${title}卡片`} onClick={() => onLocateItem?.(card.id)}>
+              <span>{title || "未命名卡片"}</span>
+              <small>{page ? `第 ${page} 页 · ` : ""}{card.kind === "note" ? "个人笔记" : card.kind === "region" ? "图片摘录" : "原文摘录"}</small>
+            </button>
+            {onAddItemToQuestion && <button className="material-card-add" aria-label={`将${title}加入提问`}
+              title="加入提问" onClick={() => run(() => onAddItemToQuestion(card.id))}>＋</button>}
+          </div>;
+        })}
+        {!cards.length && <p>画布上还没有卡片</p>}
+      </section>
+      <section className="material-card-list" aria-label="画布对象">
+        <h3>画布对象 <small>{(catalog?.objects.length ?? 0) + (catalog?.links.length ?? 0)}</small></h3>
+        {visibleObjects.slice(0, objectLimit).map((object) => <div className="material-card-row" key={object.id}>
+          <button aria-label={`定位${objectName(object)}`} onClick={() => onLocateItem?.(object.id)}>
+            <span>{objectName(object)}</span>
+            <small>{object.kind === "ink" ? "个人笔迹" : object.surface.kind === "pdf" ? `第 ${object.surface.page} 页` : "白板"}</small>
+          </button>
+          {onAddItemToQuestion && <button className="material-card-add" aria-label={`将${objectName(object)}加入提问`}
+            title="加入提问" onClick={() => run(() => onAddItemToQuestion(object.id))}>＋</button>}
+        </div>)}
+        {visibleLinks.slice(0, Math.max(0, objectLimit - visibleObjects.length)).map((link) =>
+          <div className="material-card-row" key={link.id}>
+            <button aria-label={`定位${link.label || "关系连线"}`} onClick={() => onLocateItem?.(link.id)}>
+              <span>{link.label || "关系连线"}</span><small>对象关系</small>
+            </button>
+            {onAddItemToQuestion && <button className="material-card-add" aria-label={`将${link.label || "关系连线"}加入提问`}
+              title="加入提问" onClick={() => run(() => onAddItemToQuestion(link.id))}>＋</button>}
+          </div>)}
+        {visibleObjects.length + visibleLinks.length > objectLimit && <button
+          onClick={() => setObjectLimit((limit) => limit + 100)}>显示更多对象</button>}
+        {!catalog?.objects.length && !catalog?.links.length && <p>尚无笔迹、文字、形状或连线</p>}
+      </section>
+      <h3 className="material-notes-heading">批注与笔记</h3>
       <div className="notes-list">
         {unlinked.filter((a) => (!kind || a.kind === kind) && (!color || a.color === color) &&
           a.quote.toLowerCase().includes(query.toLowerCase())).sort((a, b) => a.anchors[0].page - b.anchors[0].page)
