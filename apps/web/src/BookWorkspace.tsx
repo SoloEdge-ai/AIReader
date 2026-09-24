@@ -35,6 +35,7 @@ import { captureMaterialPreviews } from "./WorkspaceMaterialPreview";
 import { lassoHitsPath, lassoHitsRect, newShape, objectRect, resizeObject,
   translateObject, worldToSurface } from "../../../packages/workspace-engine/src/objects";
 import { dockBesideDocument } from "./WorkspaceLayout";
+import { locateWorkspaceItem } from "../../../packages/workspace-engine/src/catalog";
 import { Icon } from "./ui/Icon";
 import { base, post } from "./api";
 import "./workspace.css";
@@ -382,23 +383,7 @@ export const BookWorkspace = forwardRef<
       } else {
         const object = state.value?.objects.find((entry) => entry.id === id);
         const link = state.value?.links.find((entry) => entry.id === id);
-        const itemPosition = (targetId: string): { x: number; y: number } | undefined => {
-          const targetCard = state.value?.cards.find((entry) => entry.id === targetId);
-          if (targetCard) return targetCard;
-          const target = state.value?.objects.find((entry) => entry.id === targetId);
-          if (target?.kind === "ink") {
-            const paths = projectStroke(target, pages.current).paths;
-            if (!paths.length) return undefined;
-            return { x: Math.min(...paths.map((path) => path.bounds[0])),
-              y: Math.min(...paths.map((path) => path.bounds[1])) };
-          }
-          if (target) return objectRect(target, pages.current);
-          const anchor = props.annotations?.find((entry) => entry.id === targetId)?.anchors[0];
-          const page = pages.current.find((entry) => entry.page === anchor?.page);
-          return page && anchor ? page.locate(anchor.rects[0]) : undefined;
-        };
-        const rect = itemPosition(object?.id ?? link?.from ?? id) ??
-          (link ? itemPosition(link.to) : undefined);
+        const rect = state.value && locateWorkspaceItem(id, state.value, pages.current, props.annotations ?? []);
         if (rect) navigate(rect.x - 40, rect.y - 40, 1);
         setSelected(undefined);
         setSelectedIds(object ? [object.id] : []);

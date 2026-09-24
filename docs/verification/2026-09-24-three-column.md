@@ -8,5 +8,6 @@
 - 浏览器定向验证：1280 px 同时显示左材料／中央 PDF／右问答、900 px 交替抽屉、左栏鼠标拖动及键盘 Home/End 后重开保持、旧 `panel: notes` 偏好映射；生成 PDF 的截图在本地 `test-results/materials-and-chat.png`，未提交用户书籍内容。
 - 切换材料标签时的保存失败用例确认：保持原标签和未保存草稿；重试保存后才可切换。
 - 材料列表由工作区当前实体派生，不复制 250,000 点的原始数据到 App 状态。浏览器验证卡片放置、左侧定位、加入问答、重开恢复；生成 PDF 的形状验收验证左侧对象定位，截图保存在本地 `.local/screenshots/material-catalog.png`。对象每批只呈现 100 项；尚未测试极限对象数与关系回跳。
+- 将卡片／笔迹／页面对象／关系的定位投影下沉到纯 `workspace-engine`，用固定页面适配器测试世界坐标和失效关系端点回退，不让导航保存屏幕像素坐标。
 - 原三栏提交的 PR CI 在材料 UI 验收处失败：脚本仍在右侧问答面板内查找旧“笔记”入口。已改为打开左材料导航，本机脚本通过，待新提交 CI 复核。
 - 本切片 `pnpm typecheck`、`pnpm test`（29 文件／47 项）、`pnpm test:reader-ui`（26 项）、生产构建、bundled Core smoke、材料 UI 验收与 Windows Setup／Portable 本地构建均通过；PR CI 待新提交。
