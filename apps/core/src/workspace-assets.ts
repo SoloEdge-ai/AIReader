@@ -7,6 +7,7 @@ import { PDFDocument } from "pdf-lib";
 import { decodeImage } from "./chat-images";
 import { Library } from "./library";
 import { Workspaces } from "./workspace";
+import { WorkspaceCommandV2Schema } from "../../../packages/protocol/src/workspace-commands";
 
 interface AssetRecord {
   id: string;
@@ -49,10 +50,9 @@ export class WorkspaceAssets {
     this.library.store.put("pdf-page-bounds", key, bookId, bounds);
     return bounds;
   }
-  async validateCommandObjects(bookId: string, raw: unknown) {
-    const batch = WorkspaceCommandBatchSchema.parse(raw);
+  async validateCommandObjects(bookId: string, raw: unknown, version: 1 | 2 = 1) {
+    const batch = version === 2 ? WorkspaceCommandV2Schema.parse(raw) : WorkspaceCommandBatchSchema.parse(raw);
     if (batch.bookId !== bookId) throw new Error("工作区命令与书籍不匹配");
-    if (this.library.store.get("workspace-command", `${bookId}:${batch.commandId}`)) return batch;
     const book = this.library.book(bookId);
     const bounds = new Map<number, [number, number, number, number]>();
     for (const change of batch.changes) {

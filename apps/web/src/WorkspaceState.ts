@@ -1,49 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { BookWorkspace, WorkspaceCommand, WorkspaceCommandBatch } from "../../../packages/protocol/src/workspace";
-import { api, post } from "./api";
-
-/** Only changed objects cross the HTTP boundary or enter the undo stack. */
-function difference(before: BookWorkspace, after: BookWorkspace): WorkspaceCommand[] {
-  const changes: WorkspaceCommand[] = [];
-  const compare = <T extends { id: string }>(
-    previous: T[], next: T[],
-    upsert: (value: T) => WorkspaceCommand,
-    remove: (id: string) => WorkspaceCommand,
-  ) => {
-    const old = new Map(previous.map((value) => [value.id, value]));
-    const fresh = new Map(next.map((value) => [value.id, value]));
-    for (const id of old.keys()) if (!fresh.has(id)) changes.push(remove(id));
-    for (const value of next) {
-      const previousValue = old.get(value.id);
-      if (previousValue !== value && JSON.stringify(previousValue) !== JSON.stringify(value))
-        changes.push(upsert(value));
-    }
-  };
-  if (before.cards !== after.cards)
-    compare(before.cards, after.cards, (card) => ({ type: "upsert-card", card }), (id) => ({ type: "delete-card", id }));
-  if (before.objects !== after.objects)
-    compare(before.objects, after.objects, (object) => ({ type: "upsert-object", object }), (id) => ({ type: "delete-object", id }));
-  if (before.links !== after.links)
-    compare(before.links, after.links, (link) => ({ type: "upsert-link", link }), (id) => ({ type: "delete-link", id }));
-  return changes;
-}
-
-function apply(snapshot: BookWorkspace, changes: WorkspaceCommand[]): BookWorkspace {
-  const cards = new Map(snapshot.cards.map((card) => [card.id, card]));
-  const objects = new Map(snapshot.objects.map((object) => [object.id, object]));
-  const links = new Map(snapshot.links.map((link) => [link.id, link]));
-  for (const change of changes) {
-    switch (change.type) {
-      case "upsert-card": cards.set(change.card.id, change.card); break;
-      case "delete-card": cards.delete(change.id); break;
-      case "upsert-object": objects.set(change.object.id, change.object); break;
-      case "delete-object": objects.delete(change.id); break;
-      case "upsert-link": links.set(change.link.id, change.link); break;
-      case "delete-link": links.delete(change.id); break;
-    }
-  }
-  return { ...snapshot, cards: [...cards.values()], objects: [...objects.values()], links: [...links.values()] };
-}
+import { api } from "./api";
+import { submitWorkspaceCommand } from "./client/workspace";
+import { applyWorkspaceChanges as apply, workspaceDifference as difference } from "../../../packages/workspace-engine/src/commands";
 
 type ExternalHistory = { kind: "external"; undo: () => Promise<void>; redo: () => Promise<void> };
 type HistoryEntry = WorkspaceCommand[] | ExternalHistory;
@@ -144,8 +103,8 @@ export function useWorkspace(bookId: string, externalEndpointIds: string[] = [])
             };
           }
           if (live.current) { setStatus("保存中…"); setError(""); }
-          const response = await post<BookWorkspace>(`books/${bookId}/workspace/commands`, inFlight.current.batch);
-          committed.current = response;
+          const receipt = await submitWorkspaceCommand(inFlight.current.batch);
+          committed.current = { ...apply(committed.current!, receipt.changes), revision: receipt.contentVersion };
           saved.current = inFlight.current.generation;
           inFlight.current = undefined;
         }

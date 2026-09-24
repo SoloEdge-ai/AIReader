@@ -181,3 +181,38 @@ test("creating a note still refreshes the list when another note saves during th
     await expect(page.getByLabel("笔记数量")).toHaveText(String(count + 1));
   } finally { release(); }
 });
+
+test("workspace retry uses its original receipt and preserves newer drafts on remote conflict", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+  const input = page.getByLabel("卡片正文");
+  await expect(input).toBeVisible();
+  let release!: () => void, committed!: () => void;
+  const released = new Promise<void>((done) => { release = done; });
+  const submitted = new Promise<void>((done) => { committed = done; });
+  let dropped = false;
+  await page.route("**/api/v2/books/*/workspace/commands", async (route) => {
+    if (dropped) { await route.continue(); return; }
+    dropped = true;
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    committed(); await released; await route.abort("failed");
+  });
+  try {
+    await input.fill("首个请求已提交");
+    await submitted;
+    const origin = "http://127.0.0.1:43120", headers = { Origin: origin };
+    const url = `${origin}/api/books/${bookId}/workspace`;
+    const saved = await (await page.request.get(url, { headers })).json();
+    expect((await page.request.post(url + "/commands", { headers, data: {
+      bookId, commandId: "remote-update", expectedVersion: saved.revision,
+      changes: [{ type: "upsert-card", card: { ...saved.cards[0], text: "另一个窗口的新内容" } }],
+    } })).status()).toBe(200);
+    await input.fill("尚未保存的后来输入");
+    release();
+    await expect(page.getByRole("status")).toContainText("保存失败");
+    await page.getByRole("button", { name: "重试保存" }).click();
+    await expect(page.getByRole("alert")).toContainText("版本冲突");
+    await expect(input).toHaveValue("尚未保存的后来输入");
+    expect((await (await page.request.get(url, { headers })).json()).cards[0].text).toBe("另一个窗口的新内容");
+  } finally { release(); }
+});

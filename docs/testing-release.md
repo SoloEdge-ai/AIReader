@@ -8,7 +8,7 @@
 
 codex/architecture-refactor，一个Draft PR。PR更新自动检查/构建，不发Release。阶段完成后手动运行既有Windows desktop packages选择该分支，仅此手动分支允许预发布。main合入从合并提交重建正式版。
 
-数字版本 `0.2.<run_number>`，同一安装身份；preview 设置 prerelease=true/latest=false。关于和包内 `dist/build-info.json` 显示 channel/SHA/实际数据和协议版本。产物为 Setup、Portable、SHA256SUMS.txt、build-info.json。当前仍为数据库 v4／归档 v2／API v1；新格式完成后才更新。标签绑定实际构建 SHA，不能覆盖其他提交的同版本。普通检查 contents:read，发布 job 单独 contents:write。
+数字版本 `0.2.<run_number>`，同一安装身份；preview 设置 prerelease=true/latest=false。关于和包内 `dist/build-info.json` 显示 channel/SHA/实际数据和协议版本。产物为 Setup、Portable、SHA256SUMS.txt、build-info.json。当前数据库 v4／归档 v2；API 最高支持版本为 v2（工作区增量命令，其余仍为 v1），不代表所有接口迁移完成。标签绑定实际构建 SHA，不能覆盖其他提交的同版本。普通检查 contents:read，发布 job 单独 contents:write。
 
 阶段验收后执行 `gh workflow run windows-release.yml --ref codex/architecture-refactor`。检查生成的 Release 为预览、Latest 未改变、SHA 与阶段提交一致，之后再决定本机安装。工作流接入和本地测试不等于远端发版已验证。
 

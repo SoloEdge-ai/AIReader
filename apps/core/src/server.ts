@@ -22,7 +22,8 @@ import {
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
-import { Workspaces, WorkspaceConflict } from "./workspace";
+import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
+import { WorkspaceCommandV2Schema } from "../../../packages/protocol/src/workspace-commands";
 import { WorkspaceAssets } from "./workspace-assets";
 import { QuestionMaterials } from "./question-materials";
 import {
@@ -163,6 +164,12 @@ export function createCore(
         }
         if (parts[1] === "health") {
           send(res, { ok: true });
+          return;
+        }
+        if (parts[1] === "v2" && parts[2] === "books" && parts[3] && parts[4] === "workspace" && parts[5] === "commands" && parts.length === 6 && req.method === "POST") {
+          const batch = WorkspaceCommandV2Schema.parse(await jsonBody(req, 8 * 1024 * 1024));
+          await workspaceAssets.validateCommandObjects(parts[3], batch, 2);
+          send(res, workspaces.commandV2(parts[3], batch));
           return;
         }
         if (parts[1] === "tool-preferences" && parts.length === 2) {
@@ -786,7 +793,8 @@ export function createCore(
       if (!res.headersSent)
         send(
           res,
-          { error: error instanceof Error ? error.message : String(error) },
+          { error: error instanceof Error ? error.message : String(error),
+            ...(error instanceof WorkspaceConflict || error instanceof WorkspacePayloadError ? { code: error.code } : {}) },
           error instanceof WorkspaceConflict ? 409 : 400,
         );
       else res.destroy();

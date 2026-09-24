@@ -5,11 +5,20 @@ import {
   WORKSPACE_DOCUMENT_X,
   type BookWorkspace,
   type WorkspaceCamera,
+  type WorkspaceCard,
 } from "../../../packages/protocol/src/workspace";
 import { Library } from "./library";
 import type { Annotation } from "../../../packages/protocol/src";
+import { createHash } from "node:crypto";
+import { WorkspaceCommandV2Schema, commandPayload, type WorkspaceReceipt } from "../../../packages/protocol/src/workspace-commands";
+import { applyWorkspaceChanges, workspaceDifference } from "../../../packages/workspace-engine/src/commands";
 
-export class WorkspaceConflict extends Error {}
+export class WorkspaceConflict extends Error {
+  constructor(message: string, readonly code = "CONTENT_VERSION_CONFLICT") { super(message); }
+}
+export class WorkspacePayloadError extends Error {
+  readonly code = "PAYLOAD_HASH_MISMATCH";
+}
 
 /** Spatial state is book-scoped and independent of rebuildable search indexes. */
 export class Workspaces {
@@ -45,6 +54,43 @@ export class Workspaces {
     this.library.store.put("workspace-camera", bookId, bookId, camera);
     return camera;
   }
+  commandV2(bookId: string, input: unknown): WorkspaceReceipt {
+    const batch = WorkspaceCommandV2Schema.parse(input);
+    this.library.book(bookId);
+    if (batch.bookId !== bookId) throw new Error("工作区命令与书籍不匹配");
+    const hash = createHash("sha256").update(commandPayload(batch)).digest("hex");
+    if (hash !== batch.payloadHash) throw new WorkspacePayloadError("命令内容与校验摘要不匹配");
+    let receipt!: WorkspaceReceipt;
+    this.library.store.transaction(() => {
+      const key = `${bookId}:${batch.commandId}`;
+      const previous = this.library.store.get<WorkspaceReceipt>("workspace-receipt-v2", key);
+      if (previous) {
+        if (previous.payloadHash !== hash) throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
+        receipt = previous;
+        return;
+      }
+      const current = this.get(bookId);
+      if (current.revision !== batch.expectedContentVersion)
+        throw new WorkspaceConflict("工作区版本冲突；草稿已保留，请重新加载后重试");
+      const next = WorkspaceSchema.parse({ ...applyWorkspaceChanges(current, batch.changes), revision: current.revision + 1 });
+      for (const card of current.cards) {
+        if (card.region && !next.cards.some((entry) => entry.id === card.id))
+          this.library.store.put("workspace-region-origin", `${bookId}:${card.id}`, bookId, {
+            kind: card.kind, text: card.text, region: card.region,
+          });
+      }
+      this.validate(bookId, next, current);
+      receipt = { bookId, commandId: batch.commandId, payloadHash: hash,
+        previousVersion: current.revision, contentVersion: next.revision,
+        changes: workspaceDifference(current, next), inverse: workspaceDifference(next, current) };
+      // Reserve room for command identity/hash/version when the inverse is submitted.
+      if (Buffer.byteLength(JSON.stringify(receipt.inverse), "utf8") > 8 * 1024 * 1024 - 1024)
+        throw new Error("本次操作的撤销内容超过 8 MiB，请分批操作；内容未修改");
+      this.library.store.put("workspace", bookId, bookId, next);
+      this.library.store.put("workspace-receipt-v2", key, bookId, receipt);
+    });
+    return receipt;
+  }
   command(bookId: string, input: unknown, prepare?: () => void): BookWorkspace {
     const batch = WorkspaceCommandBatchSchema.parse(input);
     if (batch.bookId !== bookId) throw new Error("工作区命令与书籍不匹配");
@@ -60,33 +106,9 @@ export class Workspaces {
       if (current.revision !== batch.expectedVersion)
         throw new WorkspaceConflict("工作区版本冲突；草稿已保留，请重新加载后重试");
       prepare?.();
-      const cards = new Map(current.cards.map((card) => [card.id, card]));
-      const objects = new Map(current.objects.map((object) => [object.id, object]));
-      const links = new Map(current.links.map((link) => [link.id, link]));
-      for (const change of batch.changes) {
-        switch (change.type) {
-          case "upsert-card": cards.set(change.card.id, change.card); break;
-          case "delete-card":
-            cards.delete(change.id);
-            for (const [id, link] of links)
-              if (link.from === change.id || link.to === change.id) links.delete(id);
-            break;
-          case "upsert-link": links.set(change.link.id, change.link); break;
-          case "delete-link": links.delete(change.id); break;
-          case "upsert-object": objects.set(change.object.id, change.object); break;
-          case "delete-object":
-            objects.delete(change.id);
-            for (const [id, link] of links)
-              if (link.from === change.id || link.to === change.id) links.delete(id);
-            break;
-        }
-      }
       const next = WorkspaceSchema.parse({
-        ...current,
+        ...applyWorkspaceChanges(current, batch.changes),
         revision: current.revision + 1,
-        cards: [...cards.values()],
-        objects: [...objects.values()],
-        links: [...links.values()],
       });
       this.validate(bookId, next, current, Boolean(prepare));
       this.library.store.put("workspace", bookId, bookId, next);
@@ -120,6 +142,9 @@ export class Workspaces {
     )
       throw new Error("卡片或连接标识重复");
     for (const card of value.cards) {
+      // Deleted region provenance is Core-owned, not supplied by the undo request.
+      const previous = current.cards.find((old) => old.id === card.id) ??
+        this.library.store.get<Pick<WorkspaceCard, "kind" | "text" | "source" | "region">>("workspace-region-origin", `${bookId}:${card.id}`);
       if (card.source) {
         if (card.source.fingerprint !== book.fingerprint)
           throw new Error("摘录不属于此 PDF");
@@ -134,7 +159,6 @@ export class Workspaces {
         }
       }
       if (card.region) {
-        const previous = current.cards.find((old) => old.id === card.id);
         if (!previous && !prepareRegionAsset)
           throw new Error("图片摘录只能通过受控区域接口创建");
         if (card.region.fingerprint !== book.fingerprint || card.region.page > book.pages ||
@@ -143,7 +167,6 @@ export class Workspaces {
         const asset = this.library.store.get<{ bookId: string }>("workspace-asset", card.region.assetId);
         if (asset?.bookId !== bookId) throw new Error("图片摘录资源不属于本书");
       }
-      const previous = current.cards.find((old) => old.id === card.id);
       if (
         previous &&
         (previous.kind !== card.kind ||
