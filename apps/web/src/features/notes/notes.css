@@ -1,0 +1,36 @@
+.expanded-note {
+  position: absolute;
+  inset: 20px;
+  z-index: 40;
+  max-width: 760px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 12px 40px #0002;
+}
+.expanded-note > header,
+.expanded-note > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  color: var(--muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.expanded-note > header { border-bottom: 1px solid var(--line); }
+.expanded-note > header button { width: 36px; height: 36px; }
+.expanded-note > footer { border-top: 1px solid var(--line); min-height: 40px; }
+.expanded-note-content { padding: 20px; overflow: auto; flex: 1; min-height: 0; }
+.expanded-note-content .tiptap { min-height: 240px; }
+.expanded-note-content .tiptap:focus-visible { outline-width: 1px; outline-offset: 4px; }
+@media (max-width: 1180px) {
+  .expanded-note { inset: 8px; }
+  .expanded-note-content { padding: 12px; }
+}

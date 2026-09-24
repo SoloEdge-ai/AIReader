@@ -19,7 +19,9 @@ import {
 import type { z } from "zod";
 import { api, post, base } from "./api";
 import { type QuestionRegion } from "./PdfReader";
-import { NotesPanel, useBookNotes } from "./NotesPanel";
+import { NotesPanel } from "./NotesPanel";
+import { useBookNotes } from "./features/notes/useBookNotes";
+import { ExpandedNote } from "./features/notes/ExpandedNote";
 import { ChatPanel, type SelectionAction } from "./ChatPanel";
 import { QuestionDraftStore } from "./QuestionDrafts";
 import { PanelResizer } from "./PanelResizer";
@@ -92,6 +94,8 @@ export function App() {
   current.current = active;
   const book = books.find((b) => b.id === active);
   const notes = useBookNotes(active);
+  const [expandedNote, setExpandedNote] = useState<{ bookId: string; id: string }>();
+  const expanded = expandedNote && expandedNote.bookId === active ? notes.notes.find((note) => note.id === expandedNote.id) : undefined;
   const [annotationColor, setAnnotationColor] =
     useState<Annotation["color"]>("yellow");
   const [workspaceEvents, setWorkspaceEvents] = useState<Record<string, number>>({});
@@ -248,7 +252,7 @@ export function App() {
         color: annotationColor,
       });
       if (current.current !== id) return false;
-      notes.undo.current.push(() =>
+      notes.recordUndo(() =>
         api(`books/${id}/annotations/${a.id}`, { method: "DELETE" }),
       );
       await notes.refresh();
@@ -338,6 +342,7 @@ export function App() {
   }, [active, book?.status]);
   useEffect(() => {
     let live = true;
+    setExpandedNote(undefined);
     setSelection(undefined);
     setAction(undefined);
     setMarks([]);
@@ -953,6 +958,9 @@ export function App() {
                   onDismiss={() => { selectionPinned.current = false; clearSelection(); }}
                 />
               )}
+              {expanded && <ExpandedNote note={expanded} state={notes} onClose={() => {
+                setExpandedNote(undefined); readerTools.finish();
+              }} />}
             </section>
             {layout.panel !== "none" && (
               <>
@@ -992,6 +1000,7 @@ export function App() {
                   </header>
                   {layout.panel === "notes" ? (
                     <NotesPanel bookId={book.id} state={notes} onJump={jump}
+                      onExpand={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
                       onAddAnnotation={async (annotation) => {
                         const added = await workspace.current?.addToQuestion([annotation.id]);
                         if (!added) throw new Error("批注预览尚未准备好；请在正文定位并重试");
