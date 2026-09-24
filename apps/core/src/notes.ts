@@ -155,7 +155,9 @@ export class Notes {
     this.library.book(bookId);
     return this.library.store
       .list<Note>("note", bookId)
-      .filter((n) => !n.deletedAt);
+      .filter((n) => !n.deletedAt)
+      .map((n) => ({ ...n, annotationSource: n.annotationId
+        ? this.get<Annotation>("annotation", bookId, n.annotationId) : undefined }));
   }
   private get<T extends { bookId: string }>(
     kind: string,
@@ -190,6 +192,25 @@ export class Notes {
     };
     this.save(note, "note");
     return note;
+  }
+  comment(bookId: string, annotationId: string) {
+    let result: Note;
+    this.library.store.transaction(() => {
+      const annotation = this.get<Annotation>("annotation", bookId, annotationId);
+      if (annotation.deletedAt) throw new Error("批注已删除，不能添加评论");
+      if (annotation.noteId) {
+        const existing = this.get<Note>("note", bookId, annotation.noteId);
+        if (!existing.deletedAt) { result = existing; return; }
+      }
+      const note = this.createNote(bookId,
+        annotation.quote.slice(0, 50) || `第 ${annotation.anchors[0].page} 页批注`, annotationId);
+      annotation.noteId = note.id;
+      annotation.revision++;
+      annotation.updatedAt = new Date().toISOString();
+      this.save(annotation, "annotation");
+      result = note;
+    });
+    return result!;
   }
   fromAnswer(bookId: string, turnId: string) {
     const book = this.library.book(bookId);
@@ -277,7 +298,6 @@ export class Notes {
         bookId,
         note.annotationId,
       );
-      if (annotation.noteId !== note.id) throw new Error("批注与笔记不匹配");
       if (annotation.assetId)
         assets.push({
           name: "assets/region.png",
@@ -328,17 +348,11 @@ export class Notes {
     const now = new Date().toISOString();
     let annotation: Annotation;
     this.library.store.transaction(() => {
-      const note = this.createNote(
-        bookId,
-        value.quote.slice(0, 50) || `第 ${value.anchors[0].page} 页批注`,
-        id,
-      );
       annotation = {
         ...data,
         id,
         bookId,
         fingerprint: book.fingerprint,
-        noteId: note.id,
         assetId,
         createdAt: now,
         updatedAt: now,
@@ -389,7 +403,6 @@ export class Notes {
     restore = false,
   ) {
     const value = this.get<Annotation | Note>(kind, bookId, id);
-    const previous = value.deletedAt;
     const timestamp = new Date().toISOString();
     let workspaceChanged = false;
     this.library.store.transaction(() => {
@@ -425,20 +438,13 @@ export class Notes {
       value.updatedAt = timestamp;
       value.revision++;
       this.save(value, kind);
-      if (kind === "annotation") {
-        const note = this.get<Note>(
-          "note",
-          bookId,
-          (value as Annotation).noteId,
-        );
-        if (
-          (restore && note.deletedAt === previous) ||
-          (!restore && !note.deletedAt)
-        ) {
-          note.deletedAt = restore ? undefined : timestamp;
-          note.revision++;
-          note.updatedAt = timestamp;
-          this.save(note, "note");
+      if (kind === "note" && (value as Note).annotationId) {
+        const annotation = this.get<Annotation>("annotation", bookId, (value as Note).annotationId!);
+        if ((!restore && annotation.noteId === id) || (restore && !annotation.noteId && !annotation.deletedAt)) {
+          annotation.noteId = restore ? id : undefined;
+          annotation.revision++;
+          annotation.updatedAt = timestamp;
+          this.save(annotation, "annotation");
         }
       }
     });
@@ -446,8 +452,10 @@ export class Notes {
     return value;
   }
   asset(bookId: string, assetId: string) {
-    const annotation = this.annotations(bookId).find(
-      (a) => a.assetId === assetId,
+    this.library.book(bookId);
+    const notes = this.list(bookId);
+    const annotation = this.library.store.list<Annotation>("annotation", bookId).find(
+      (a) => a.assetId === assetId && (!a.deletedAt || notes.some((n) => n.annotationId === a.id)),
     );
     if (!annotation) throw new Error("图片不存在");
     return join(

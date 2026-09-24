@@ -256,7 +256,8 @@ export function App() {
         api(`books/${id}/annotations/${a.id}`, { method: "DELETE" }),
       );
       await notes.refresh();
-      notes.setSelected(a.noteId);
+      notes.selectAnnotation(a.id);
+      if (value.kind === "sticky") await notes.comment(a.id);
       readerTools.finish(value.kind === "sticky" || value.kind === "region" ? "pointer" : "text");
       updateLayout({ ...layout, panel: "notes" });
       return true;
@@ -911,7 +912,7 @@ export function App() {
                 onAnnotation={(id) => {
                   void notes.flush().then((ok) => {
                     if (ok) {
-                      notes.setSelected(id);
+                      notes.selectAnnotation(id);
                       updateLayout({ ...layout, panel: "notes" });
                     }
                   });

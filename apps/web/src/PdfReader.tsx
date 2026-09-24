@@ -365,7 +365,7 @@ function Page({
                     } as React.CSSProperties
                   }
                   onClick={() => mode === "link" && onAnnotationTarget ?
-                    onAnnotationTarget(a.id) : onAnnotation(a.noteId)}
+                    onAnnotationTarget(a.id) : onAnnotation(a.id)}
                 >
                   {a.kind === "sticky" ? "▤" : null}
                   {(a.kind === "underline" || a.kind === "strike") && (

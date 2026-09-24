@@ -25,7 +25,7 @@ export interface Annotation
   id: string;
   bookId: string;
   fingerprint: string;
-  noteId: string;
+  noteId?: string;
   assetId?: string;
   createdAt: string;
   updatedAt: string;
@@ -36,6 +36,8 @@ export interface Note {
   id: string;
   bookId: string;
   annotationId?: string;
+  /** Read-only source projection, including a deleted annotation's provenance. */
+  annotationSource?: Annotation;
   /** Frozen, Core-owned provenance; user edits never rewrite this metadata. */
   origin?: {
     kind: "chat";

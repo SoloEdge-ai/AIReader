@@ -130,6 +130,7 @@ export function exportNoteArchive(
     }
   }
   if (annotation) {
+    if (annotation.deletedAt) lines.push("> 源标注已删除；以下为保留的原文位置与摘录，不表示标注仍存在。");
     lines.push(
       "## 关联批注",
       `物理页：${annotation.anchors.map((a) => a.page).join("、")}；文档指纹：\`${annotation.fingerprint}\``,

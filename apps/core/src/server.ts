@@ -390,7 +390,9 @@ export function createCore(
                     "X-Content-Type-Options": "nosniff",
                   })
                   .end(exported.buffer);
-              } else if (req.method === "DELETE")
+              } else if (req.method === "POST" && kind === "annotation" && parts[5] === "note")
+                send(res, notes.comment(id, parts[4]));
+              else if (req.method === "DELETE")
                 send(res, notes.remove(id, parts[4], kind));
               else if (req.method === "POST" && parts[5] === "restore")
                 send(res, notes.remove(id, parts[4], kind, true));

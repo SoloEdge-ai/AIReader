@@ -66,7 +66,7 @@ const annotation = AnnotationInputSchema.omit({ image: true })
     id,
     bookId: id,
     fingerprint: digest,
-    noteId: id,
+    noteId: id.optional(),
     assetId: id.optional(),
     revision: z.number().int().nonnegative(),
     createdAt: z.string().max(100),
@@ -284,8 +284,8 @@ export class WorkspaceArchives {
       if (
         a.bookId !== data.bookId ||
         a.fingerprint !== data.fingerprint ||
-        !noteIds.has(a.noteId) ||
-        data.notes.find((n) => n.id === a.noteId)?.annotationId !== a.id ||
+        (a.noteId && (!noteIds.has(a.noteId) ||
+        data.notes.find((n) => n.id === a.noteId)?.annotationId !== a.id)) ||
         (a.kind === "region") !== !!a.assetId
       )
         throw new Error("批注与笔记或原文不匹配");
@@ -296,9 +296,7 @@ export class WorkspaceArchives {
       if (
         n.bookId !== data.bookId ||
         (n.annotationId &&
-          (!annotationIds.has(n.annotationId) ||
-            data.annotations.find((a) => a.id === n.annotationId)?.noteId !==
-              n.id))
+          !annotationIds.has(n.annotationId))
       )
         throw new Error("笔记所属书籍或批注不匹配");
       for (const s of n.origin?.sources ?? []) {
@@ -446,7 +444,7 @@ export class WorkspaceArchives {
         ...a,
         id: mapped(a.id),
         bookId,
-        noteId: mapped(a.noteId),
+        noteId: a.noteId ? mapped(a.noteId) : undefined,
         assetId: a.assetId ? mapped(a.assetId) : undefined,
         revision: 1,
       }));

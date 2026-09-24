@@ -15,6 +15,8 @@ export function useBookNotes(bookId?: string) {
   return {
     ...snapshot,
     setSelected: session.setSelected, edit: session.edit, flush: session.flush,
+    selectAnnotation: session.selectAnnotation, comment: session.comment,
+    removeAnnotation: session.removeAnnotation,
     retryWithLatest: session.retryWithLatest, refresh: session.refresh,
     create: session.create, remove: session.remove, color: session.color,
     undoLast: session.undoLast, recordUndo: session.recordUndo,

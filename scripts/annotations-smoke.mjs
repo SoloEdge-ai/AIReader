@@ -65,6 +65,8 @@ try {
   await page.getByRole("button", { name: "标注方式" }).click();
   await page.getByRole("button", { name: "高亮", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
+  await expect(page.getByLabel("笔记标题", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "写评论", exact: true }).click();
   await page.getByLabel("笔记标题", { exact: true }).fill("Reading experiment");
   await page.locator(".tiptap").fill("A saved observation.");
   await expect(
@@ -120,6 +122,8 @@ try {
   await page.getByLabel("批注颜色", { exact: true }).selectOption("green");
   await page.getByRole("button", { name: "删除批注", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(0);
+  await expect(page.locator(".tiptap")).toContainText("Committed despite a lost response.");
+  await expect(page.getByText("源标注已删除，以下保留原文位置与摘录。")).toBeVisible();
   await page.getByRole("button", { name: "撤销批注操作" }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   await page.screenshot({ path: ".local/screenshots/notes.png" });

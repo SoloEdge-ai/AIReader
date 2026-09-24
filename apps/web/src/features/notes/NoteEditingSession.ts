@@ -6,6 +6,7 @@ type Snapshot = {
   notes: Note[];
   annotations: Annotation[];
   selected?: string;
+  selectedAnnotation?: string;
   status: string;
   dirty: boolean;
   canUndo: boolean;
@@ -43,7 +44,17 @@ export class NoteEditingSession {
     };
     for (const listener of this.listeners) listener();
   }
-  setSelected = (id?: string) => { this.publish({ selected: id }); };
+  setSelected = (id?: string) => { this.publish({ selected: id, selectedAnnotation: undefined }); };
+  selectAnnotation = (id: string) => {
+    const annotation = this.annotations.find((item) => item.id === id);
+    this.publish({ selected: annotation?.noteId, selectedAnnotation: id });
+  };
+  comment = async (id: string) => {
+    if (!this.client || !(await this.flush())) return;
+    const note = await this.client.comment(id);
+    await this.refresh();
+    this.setSelected(note.id);
+  };
   pause = () => { clearTimeout(this.timer); };
   refresh = async (adoptDraftBase = false): Promise<void> => {
     if (!this.client) return;
@@ -58,7 +69,8 @@ export class NoteEditingSession {
       const present = new Set(notes.map((note) => note.id));
       this.records = [
         ...notes.map((note) => !adoptDraftBase && this.drafts.has(note.id)
-          ? this.records.find((original) => original.id === note.id) ?? note : note),
+          ? { ...(this.records.find((original) => original.id === note.id) ?? note),
+            annotationSource: note.annotationSource } : note),
         ...this.records.filter((note) => this.drafts.has(note.id) && !present.has(note.id)),
       ];
       this.annotations = annotations;
@@ -76,7 +88,8 @@ export class NoteEditingSession {
     this.timer = setTimeout(() => void this.flush(), 650);
   };
   private accept(saved: Note, sent: Draft) {
-    this.records = this.records.map((note) => note.id === saved.id ? saved : note);
+    this.records = this.records.map((note) => note.id === saved.id
+      ? { ...saved, annotationSource: saved.annotationSource ?? note.annotationSource } : note);
     this.committedGeneration++;
     if (this.drafts.get(saved.id) === sent) this.drafts.delete(saved.id);
     this.publish();
@@ -130,11 +143,8 @@ export class NoteEditingSession {
   remove = async (note: Note) => {
     if (!this.client || !(await this.flush())) return;
     if (note.bookId !== this.bookId) throw new Error("笔记不属于此编辑会话");
-    // Existing deletion semantics remain until the v5 entity/transaction slice.
-    const annotation = this.annotations.find((item) => item.id === note.annotationId);
-    const kind = annotation ? "annotations" : "notes", id = annotation?.id ?? note.id;
-    await this.client.remove(kind, id);
-    this.recordUndo(() => this.client!.restore(kind, id));
+    await this.client.remove("notes", note.id);
+    this.recordUndo(() => this.client!.restore("notes", note.id));
     this.setSelected(undefined);
     await this.refresh();
   };
@@ -146,6 +156,13 @@ export class NoteEditingSession {
       if (!current) throw new Error("批注不存在");
       return this.client!.color(current.id, current.revision, annotation.color);
     });
+    await this.refresh();
+  };
+  removeAnnotation = async (annotation: Annotation) => {
+    if (!this.client || annotation.bookId !== this.bookId) throw new Error("批注不属于此编辑会话");
+    if (!(await this.flush())) return;
+    await this.client.remove("annotations", annotation.id);
+    this.recordUndo(() => this.client!.restore("annotations", annotation.id));
     await this.refresh();
   };
   undoLast = async () => {

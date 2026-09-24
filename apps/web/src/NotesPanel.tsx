@@ -39,7 +39,9 @@ export function NotesPanel({
     return () => exportController.current?.abort();
   }, [bookId]);
   const selected = state.notes.find((n) => n.id === state.selected),
-    annotation = state.annotations.find((a) => a.id === selected?.annotationId);
+    annotation = state.annotations.find((a) => a.id === selected?.annotationId) ?? selected?.annotationSource;
+  const unlinked = state.annotations.filter((a) => !state.notes.some((n) => n.id === a.noteId));
+  const selectedAnnotation = unlinked.find((a) => a.id === state.selectedAnnotation);
   const materialImageIds = new Set(selected?.origin?.materials?.flatMap((material) =>
     material.images.map((image) => image.id)) ?? []);
   const questionImages = selected?.origin?.images?.filter((image) => !materialImageIds.has(image.id)) ?? [];
@@ -123,6 +125,12 @@ export function NotesPanel({
         </select>
       </div>
       <div className="notes-list">
+        {unlinked.filter((a) => (!kind || a.kind === kind) && (!color || a.color === color) &&
+          a.quote.toLowerCase().includes(query.toLowerCase())).sort((a, b) => a.anchors[0].page - b.anchors[0].page)
+          .map((a) => <button key={a.id} className={a.id === selectedAnnotation?.id ? "chosen" : ""}
+            onClick={() => run(async () => { if (await state.flush()) { state.selectAnnotation(a.id); onJump(a.anchors[0].page); } })}>
+            <span>{a.quote || kindNames[a.kind]}</span><small>{kindNames[a.kind]} · 第 {a.anchors[0].page} 页 · 无评论</small>
+          </button>)}
         {[...state.notes]
           .sort(
             (a, b) =>
@@ -168,6 +176,13 @@ export function NotesPanel({
             );
           })}
       </div>
+      {selectedAnnotation && <div className="note-source">
+        <button onClick={() => onJump(selectedAnnotation.anchors[0].page)}>第 {selectedAnnotation.anchors[0].page} 页原文 ↗</button>
+        <blockquote>{selectedAnnotation.quote}</blockquote>
+        {selectedAnnotation.assetId && <img alt="区域摘录" src={`${base}/api/books/${bookId}/annotation-assets/${selectedAnnotation.assetId}`} />}
+        <button onClick={() => run(() => state.comment(selectedAnnotation.id))}>写评论</button>
+        <button onClick={() => run(() => state.removeAnnotation(selectedAnnotation))}>删除批注</button>
+      </div>}
       {selected ? (
         <div className="note-detail">
           {selected.origin && (
@@ -220,6 +235,7 @@ export function NotesPanel({
           )}
           {annotation && (
             <div className="note-source">
+              {annotation.deletedAt && <p>源标注已删除，以下保留原文位置与摘录。</p>}
               <button onClick={() => onJump(annotation.anchors[0].page)}>
                 第 {annotation.anchors[0].page} 页原文 ↗
               </button>
@@ -234,6 +250,7 @@ export function NotesPanel({
                 颜色{" "}
                 <select
                   aria-label="批注颜色"
+                  disabled={Boolean(annotation.deletedAt)}
                   value={annotation.color}
                   onChange={(e) =>
                     run(() =>
@@ -262,7 +279,7 @@ export function NotesPanel({
               const latest = state.notes.find((note) => note.id === selected.id) ?? selected;
               await onAddToQuestion(latest);
             })}>加入提问</button>}
-            {annotation && onAddAnnotation && <button onClick={() => run(() => onAddAnnotation(annotation))}>
+            {annotation && !annotation.deletedAt && onAddAnnotation && <button onClick={() => run(() => onAddAnnotation(annotation))}>
               加入批注到提问
             </button>}
             <button
@@ -283,8 +300,9 @@ export function NotesPanel({
               </>
             )}
             <button onClick={() => run(() => state.remove(selected))}>
-              删除{annotation ? "批注" : "笔记"}
+              删除笔记
             </button>
+            {annotation && !annotation.deletedAt && <button onClick={() => run(() => state.removeAnnotation(annotation))}>删除批注</button>}
           </footer>
           {exportMessage && (
             <p className="export-status" role="status">

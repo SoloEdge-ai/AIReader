@@ -74,7 +74,8 @@ test("workspace package restores PDF, notes, region image, links and camera as a
         image: `data:image/png;base64,${image.toString("base64")}`,
       })
     ).json();
-    await request(`books/${book.id}/notes/${annotation.noteId}`, {
+    const comment = await (await request(`books/${book.id}/annotations/${annotation.id}/note`, {})).json();
+    await request(`books/${book.id}/notes/${comment.id}`, {
       revision: 1,
       title: "Figure note",
       document: {
@@ -217,6 +218,25 @@ test("workspace package restores PDF, notes, region image, links and camera as a
       400,
     );
     expect(await (await request("books")).json()).toHaveLength(3);
+    // Independent annotations and deleted-source comments both survive an archive copy.
+    await request(`books/${book.id}/annotations/${annotation.id}`, undefined, "DELETE");
+    const standalone = await (await request(`books/${book.id}/annotations`, {
+      kind: "highlight", quote: "No comment", anchors: [{ page: 1, rects: [[10, 20, 50, 40]] }],
+    })).json();
+    expect(standalone.noteId).toBeUndefined();
+    const detachedDownload = await request(`books/${book.id}/workspace/archive`);
+    const detachedResponse = await request("workspace-archives", new Uint8Array(await detachedDownload.arrayBuffer()));
+    expect(detachedResponse.status).toBe(201);
+    const detachedBook = await detachedResponse.json();
+    const detachedAnnotations = await (await request(`books/${detachedBook.id}/annotations`)).json();
+    expect(detachedAnnotations).toHaveLength(1);
+    expect(detachedAnnotations[0]).toMatchObject({ quote: "No comment" });
+    expect(detachedAnnotations[0].noteId).toBeUndefined();
+    const detachedNotes = await (await request(`books/${detachedBook.id}/notes`)).json();
+    expect(detachedNotes[0].annotationSource.deletedAt).toBeTruthy();
+    expect(detachedNotes[0].annotationId).not.toBe(annotation.id);
+    expect((await request(`books/${detachedBook.id}/annotation-assets/${detachedNotes[0].annotationSource.assetId}`)).status).toBe(200);
+    expect((await request(`books/${book.id}/annotation-assets/${detachedNotes[0].annotationSource.assetId}`)).status).toBe(400);
   } finally {
     core.close();
     await rm(directory, {

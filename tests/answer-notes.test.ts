@@ -337,8 +337,9 @@ test("region-linked notes export their own PDF coordinate provenance and image w
     await f.ask(book.id, "Explain memory", [
       { name: "unrelated.png", dataUrl },
     ]);
+    const comment = await (await f.api(`books/${book.id}/annotations/${annotation.id}/note`, {})).json();
     const response = await f.api(
-      `books/${book.id}/notes/${annotation.noteId}/export`,
+      `books/${book.id}/notes/${comment.id}/export`,
     );
     expect(response.status).toBe(200);
     const files = unzipSync(new Uint8Array(await response.arrayBuffer()));

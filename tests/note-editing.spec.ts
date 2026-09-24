@@ -26,6 +26,53 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
+test("annotation comments are explicit and deleting either entity preserves the other", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/");
+  await expect(page.locator(".book-card").first()).toBeVisible();
+  const annotation = await page.evaluate(async (id) => {
+    const response = await fetch(`http://127.0.0.1:43120/api/books/${id}/annotations`, { method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "highlight",
+        quote: "独立标注测试", anchors: [{ page: 1, rects: [[40, 50, 120, 70]] }] }) });
+    return response.json();
+  }, bookId);
+  expect(annotation.noteId).toBeUndefined();
+  await page.locator(".book-card").first().click();
+  await page.getByLabel("笔记", { exact: true }).click();
+  await page.locator(".notes-list button").filter({ hasText: "独立标注测试" }).click();
+  await expect(page.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
+  await page.getByRole("button", { name: "写评论", exact: true }).click();
+  await page.getByRole("textbox", { name: "笔记正文" }).fill("删除高亮也要保留的评论");
+  await expect(page.locator(".notes-panel").getByRole("status")).toHaveText("已保存");
+  let removed!: () => void, release!: () => void;
+  const removedOnServer = new Promise<void>((resolve) => { removed = resolve; });
+  const releaseResponse = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/books/*/annotations/*", async (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    const response = await route.fetch(); removed(); await releaseResponse;
+    await route.fulfill({ response });
+  });
+  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 503, json: { error: "保留并发草稿" } }) : route.continue());
+  await page.getByRole("button", { name: "删除批注", exact: true }).click();
+  await removedOnServer;
+  await page.getByRole("textbox", { name: "笔记正文" }).fill("删除高亮也要保留的评论，并继续编辑");
+  release();
+  await expect(page.getByText("源标注已删除，以下保留原文位置与摘录。")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "笔记正文" })).toHaveText("删除高亮也要保留的评论，并继续编辑");
+  await page.unroute("**/api/books/*/annotations/*");
+  await expect(page.locator(".notes-panel").getByRole("status")).toContainText("保存失败");
+  await page.unroute("**/api/books/*/notes/*");
+  await page.locator(".notes-panel").getByRole("button", { name: "重试保存", exact: true }).click();
+  await expect(page.locator(".notes-panel").getByRole("status")).toHaveText("已保存");
+  await page.screenshot({ path: "test-results/annotation-comment-source.png" });
+  await page.getByRole("button", { name: "撤销批注操作" }).click();
+  await page.getByRole("button", { name: "删除笔记", exact: true }).click();
+  await expect(page.locator(".annotation-highlight")).toHaveCount(1);
+  await page.locator(".notes-list button").filter({ hasText: "独立标注测试" }).click();
+  await expect(page.getByRole("button", { name: "写评论", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "删除批注", exact: true }).click();
+});
+
 test("two views edit one live note draft and reopening reads its saved content", async ({ page }) => {
   await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
   const first = page.getByRole("region", { name: "列表编辑器" });
@@ -45,7 +92,8 @@ test("two views edit one live note draft and reopening reads its saved content",
 test("expanded note stays editable beside chat and keeps the sidebar draft synchronized", async ({ page }) => {
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
-  await page.getByLabel("笔记", { exact: true }).click();
+  await expect(page.locator(".reader-body")).toBeVisible();
+  if (!(await page.locator(".notes-panel").isVisible())) await page.getByLabel("笔记", { exact: true }).click();
   await page.locator(".notes-list button").first().click();
   await page.getByRole("button", { name: "展开编辑笔记" }).click();
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
