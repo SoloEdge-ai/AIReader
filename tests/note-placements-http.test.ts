@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { createCore } from "../apps/core/src/server";
+import WebSocket from "ws";
+import { once } from "node:events";
+import type { CoreEvent } from "../packages/protocol/src/events";
 
 test("a note placement shares content and removing the card preserves its note", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aireader-placement-"));
@@ -76,9 +79,24 @@ test("a note placement shares content and removing the card preserves its note",
     await request(`${path}/notes/${note.id}`, undefined, "DELETE");
     await command([{ type: "delete-card", id: "other" }]);
     const beforeFailedUndo = await snapshot();
-    expect((await request(`${path}/notes/${note.id}/restore`, {})).status).toBe(400);
-    expect(await snapshot()).toEqual(beforeFailedUndo);
-    expect(await (await request(`${path}/notes`)).json()).toEqual([]);
+    const socket = new WebSocket(origin.replace("http:", "ws:") + "/events", { headers });
+    const events: CoreEvent[] = [];
+    socket.on("message", (data) => events.push(JSON.parse(data.toString())));
+    try {
+      await once(socket, "open");
+      expect((await request(`${path}/notes/${note.id}/restore`, {})).status).toBe(400);
+      // Pong is an ordered transport barrier, not an arbitrary delay for absent events.
+      const pong = once(socket, "pong"); socket.ping(); await pong;
+      expect(events.filter((event) => event.type === "note" || event.type === "workspace")).toEqual([]);
+      expect(await snapshot()).toEqual(beforeFailedUndo);
+      expect(await (await request(`${path}/notes`)).json()).toEqual([]);
+      expect((await command([{ type: "upsert-card", card: { ...placement, id: "other", noteId: undefined, title: "Other" } }])).status).toBe(200);
+      events.length = 0;
+      expect((await request(`${path}/notes/${note.id}/restore`, {})).status).toBe(200);
+      const restoredPong = once(socket, "pong"); socket.ping(); await restoredPong;
+      expect(events.map((event) => event.type)).toEqual(["note", "workspace"]);
+      expect((await snapshot()).cards.map((card: { id: string }) => card.id)).toContain("placement");
+    } finally { socket.terminate(); }
   } finally {
     core.close();
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

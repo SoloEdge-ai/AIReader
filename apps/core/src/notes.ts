@@ -15,6 +15,7 @@ import { answerDocument } from "./note-markdown";
 import { exportNoteArchive } from "./note-export";
 import { ChatImages } from "./chat-images";
 import { changeNotePlacement } from "./note-placements";
+import { NoteTransactions } from "./note-transactions";
 import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
 export function richDocument(input: unknown): RichNode {
   if (JSON.stringify(input)?.length > 100000) throw new Error("笔记内容过长");
@@ -145,7 +146,10 @@ export function richDocument(input: unknown): RichNode {
   return result;
 }
 export class Notes {
-  constructor(readonly library: Library) {}
+  private readonly changes: NoteTransactions;
+  constructor(readonly library: Library) {
+    this.changes = new NoteTransactions(library.store, (event) => library.emit(event));
+  }
   annotations(bookId: string) {
     this.library.book(bookId);
     return this.library.store
@@ -171,13 +175,6 @@ export class Notes {
       throw new Error("记录不存在或不属于此书籍");
     return value;
   }
-  private save(value: Annotation | Note, kind: "annotation" | "note") {
-    this.library.store.put(kind, value.id, value.bookId, value);
-    if ("document" in value)
-      this.library.emit({ type: "note", bookId: value.bookId, taskId: value.id, data: value });
-    else
-      this.library.emit({ type: "annotation", bookId: value.bookId, taskId: value.id, data: value });
-  }
   createNote(bookId: string, title = "新笔记", annotationId?: string) {
     this.library.book(bookId);
     const now = new Date().toISOString();
@@ -191,12 +188,12 @@ export class Notes {
       createdAt: now,
       updatedAt: now,
     };
-    this.save(note, "note");
+    this.changes.save(note);
     return note;
   }
   comment(bookId: string, annotationId: string) {
     let result: Note;
-    this.library.store.transaction(() => {
+    this.changes.run(() => {
       const annotation = this.get<Annotation>("annotation", bookId, annotationId);
       if (annotation.deletedAt) throw new Error("批注已删除，不能添加评论");
       if (annotation.noteId) {
@@ -208,7 +205,7 @@ export class Notes {
       annotation.noteId = note.id;
       annotation.revision++;
       annotation.updatedAt = new Date().toISOString();
-      this.save(annotation, "annotation");
+      this.changes.save(annotation);
       result = note;
     });
     return result!;
@@ -277,7 +274,7 @@ export class Notes {
         materials,
       },
     };
-    try { this.save(note, "note"); }
+    try { this.changes.save(note); }
     catch (error) { new ChatImages(this.library).discard(bookId, copiedImages); throw error; }
     return { note, created: true };
   }
@@ -348,7 +345,7 @@ export class Notes {
     const { image, ...data } = value;
     const now = new Date().toISOString();
     let annotation: Annotation;
-    this.library.store.transaction(() => {
+    this.changes.run(() => {
       annotation = {
         ...data,
         id,
@@ -359,7 +356,7 @@ export class Notes {
         updatedAt: now,
         revision: 1,
       };
-      this.save(annotation, "annotation");
+      this.changes.save(annotation);
     });
     return annotation!;
   }
@@ -378,7 +375,7 @@ export class Notes {
     note.title = value.title;
     note.revision++;
     note.updatedAt = new Date().toISOString();
-    this.save(note, "note");
+    this.changes.save(note);
     return note;
   }
   updateAnnotation(bookId: string, id: string, input: unknown) {
@@ -394,7 +391,7 @@ export class Notes {
     annotation.color = value.color;
     annotation.revision++;
     annotation.updatedAt = new Date().toISOString();
-    this.save(annotation, "annotation");
+    this.changes.save(annotation);
     return annotation;
   }
   remove(
@@ -407,7 +404,7 @@ export class Notes {
     const wasDeleted = Boolean(value.deletedAt);
     const timestamp = new Date().toISOString();
     let workspaceChanged = false;
-    this.library.store.transaction(() => {
+    this.changes.run(() => {
       if (kind === "annotation") {
         const workspace = this.library.store.workspaces.get(bookId);
         const key = `annotation:${id}`;
@@ -439,7 +436,7 @@ export class Notes {
       value.deletedAt = restore ? undefined : timestamp;
       value.updatedAt = timestamp;
       value.revision++;
-      this.save(value, kind);
+      this.changes.save(value);
       if (kind === "note" && wasDeleted === restore)
         workspaceChanged = changeNotePlacement(this.library, bookId, id, restore);
       if (kind === "note" && (value as Note).annotationId) {
@@ -448,7 +445,7 @@ export class Notes {
           annotation.noteId = restore ? id : undefined;
           annotation.revision++;
           annotation.updatedAt = timestamp;
-          this.save(annotation, "annotation");
+          this.changes.save(annotation);
         }
       }
     });

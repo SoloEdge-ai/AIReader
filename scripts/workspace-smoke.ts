@@ -63,15 +63,13 @@ try {
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: /工作区操作/ }).click();
   await page.getByRole("menuitem", { name: "＋ 笔记卡片" }).click();
-  await page
-    .getByRole("textbox", { name: "个人笔记内容", exact: true })
-    .fill("A durable personal interpretation.");
-  await page.getByRole("textbox", { name: "个人笔记内容", exact: true }).press("Escape");
+  const card = page.locator(".workspace-card.note").first();
+  await card.getByRole("textbox", { name: "笔记正文" }).fill("A durable personal interpretation.");
+  await card.getByRole("textbox", { name: "笔记正文" }).press("Escape");
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "工作区操作，已保存" })).toBeVisible();
 
   // Cards dock beside the document even when keyboard movement aims into its column.
-  const card = page.locator(".workspace-card").first();
   await card.locator("header").focus();
   for (let step = 0; step < 8; step++)
     await page.keyboard.press("Shift+ArrowLeft");
@@ -197,9 +195,8 @@ try {
   expect(positioned.ok()).toBe(true);
   await page.reload();
   await page.getByRole("button", { name: /Workspace acceptance/ }).click();
-  await page
-    .getByRole("textbox", { name: "个人笔记内容", exact: true })
-    .click();
+  await card.locator("header").click();
+  await card.getByRole("textbox", { name: "笔记正文" }).click();
   const outside = await measure();
   expect(outside.top / outside.scale).toBeGreaterThan(500);
   await page.getByRole("button", { name: "放大", exact: true }).click();
@@ -226,9 +223,7 @@ try {
   await expect(page.getByRole("heading", { name: "书库" })).toBeVisible();
   await page.unroute("**/api/books/*/progress");
   await page.getByRole("button", { name: /Workspace acceptance/ }).click();
-  await expect(
-    page.getByRole("textbox", { name: "个人笔记内容", exact: true }),
-  ).toHaveValue("A durable personal interpretation.");
+  await expect(card.locator(".workspace-note-preview")).toHaveText("A durable personal interpretation.");
   await card.locator("header").scrollIntoViewIfNeeded();
   const geometry = (await (await context.request.get(endpoint)).json()).cards;
   const header = (await card.locator("header").boundingBox())!;
@@ -259,9 +254,7 @@ try {
     .getByLabel("选择工作区包", { exact: true })
     .setInputFiles(archiveFile);
   await expect(page.locator(".reader")).toBeVisible();
-  await expect(
-    page.getByRole("textbox", { name: "个人笔记内容", exact: true }),
-  ).toHaveValue("A durable personal interpretation.");
+  await expect(card.locator(".workspace-note-preview")).toHaveText("A durable personal interpretation.");
   expect(
     await (await context.request.get(origin + "/api/books")).json(),
   ).toHaveLength(2);
