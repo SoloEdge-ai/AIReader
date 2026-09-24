@@ -2,9 +2,7 @@ import {
   WorkspaceSchema,
   WorkspaceCommandBatchSchema,
   WorkspaceCameraSchema,
-  WORKSPACE_DOCUMENT_X,
   type BookWorkspace,
-  type WorkspaceCamera,
   type WorkspaceCard,
 } from "../../../packages/protocol/src/workspace";
 import { Library } from "./library";
@@ -25,17 +23,7 @@ export class Workspaces {
   constructor(private readonly library: Library) {}
   get(bookId: string): BookWorkspace {
     this.library.book(bookId);
-    const saved = this.library.store.get<BookWorkspace>("workspace", bookId);
-    if (saved && !saved.layoutVersion) {
-      return WorkspaceSchema.parse({
-        ...saved,
-        layoutVersion: 2,
-        cards: saved.cards.map((card) => ({
-          ...card,
-          x: Math.min(1000000, card.x + WORKSPACE_DOCUMENT_X - 40),
-        })),
-      });
-    }
+    const saved = this.library.store.workspaces.get(bookId);
     const value = WorkspaceSchema.parse(
       saved ?? {
         bookId,
@@ -45,13 +33,12 @@ export class Workspaces {
         links: [],
       },
     );
-    const camera = this.library.store.get<WorkspaceCamera>("workspace-camera", bookId);
-    return camera ? { ...value, camera: WorkspaceCameraSchema.parse(camera) } : value;
+    return value;
   }
   camera(bookId: string, input: unknown) {
     this.library.book(bookId);
     const camera = WorkspaceCameraSchema.parse(input);
-    this.library.store.put("workspace-camera", bookId, bookId, camera);
+    this.library.store.workspaces.saveCamera(bookId, camera);
     return camera;
   }
   commandV2(bookId: string, input: unknown): WorkspaceReceipt {
@@ -62,8 +49,7 @@ export class Workspaces {
     if (hash !== batch.payloadHash) throw new WorkspacePayloadError("命令内容与校验摘要不匹配");
     let receipt!: WorkspaceReceipt;
     this.library.store.transaction(() => {
-      const key = `${bookId}:${batch.commandId}`;
-      const previous = this.library.store.get<WorkspaceReceipt>("workspace-receipt-v2", key);
+      const previous = this.library.store.workspaces.receipt(bookId, batch.commandId);
       if (previous) {
         if (previous.payloadHash !== hash) throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
         receipt = previous;
@@ -86,8 +72,8 @@ export class Workspaces {
       // Reserve room for command identity/hash/version when the inverse is submitted.
       if (Buffer.byteLength(JSON.stringify(receipt.inverse), "utf8") > 8 * 1024 * 1024 - 1024)
         throw new Error("本次操作的撤销内容超过 8 MiB，请分批操作；内容未修改");
-      this.library.store.put("workspace", bookId, bookId, next);
-      this.library.store.put("workspace-receipt-v2", key, bookId, receipt);
+      this.library.store.workspaces.save(next);
+      this.library.store.workspaces.saveReceipt(receipt);
     });
     return receipt;
   }
@@ -111,7 +97,7 @@ export class Workspaces {
         revision: current.revision + 1,
       });
       this.validate(bookId, next, current, Boolean(prepare));
-      this.library.store.put("workspace", bookId, bookId, next);
+      this.library.store.workspaces.save(next);
       this.library.store.put("workspace-command", commandKey, bookId, {
         version: next.revision,
       });
@@ -129,7 +115,7 @@ export class Workspaces {
       );
     this.validate(bookId, value, current, true);
     const saved = { ...value, revision: current.revision + 1 };
-    this.library.store.put("workspace", bookId, bookId, saved);
+    this.library.store.workspaces.save(saved);
     if (value.camera) this.camera(bookId, value.camera);
     return saved;
   }

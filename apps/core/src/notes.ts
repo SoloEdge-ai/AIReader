@@ -394,13 +394,13 @@ export class Notes {
     let workspaceChanged = false;
     this.library.store.transaction(() => {
       if (kind === "annotation") {
-        const workspace = this.library.store.get<BookWorkspace>("workspace", bookId);
+        const workspace = this.library.store.workspaces.get(bookId);
         const key = `annotation:${id}`;
         if (workspace && !restore) {
           const removed = workspace.links.filter((link) => link.from === id || link.to === id);
           if (removed.length) {
             this.library.store.put("annotation-removed-links", key, bookId, removed);
-            this.library.store.put("workspace", bookId, bookId, { ...workspace,
+            this.library.store.workspaces.save({ ...workspace,
               revision: workspace.revision + 1,
               links: workspace.links.filter((link) => link.from !== id && link.to !== id) });
             workspaceChanged = true;
@@ -413,7 +413,7 @@ export class Notes {
               ...this.annotations(bookId).map((annotation) => annotation.id)]);
             if (removed.some((link) => !endpoints.has(link.from) || !endpoints.has(link.to)))
               throw new Error("关联对象已删除，无法恢复批注关系；请先恢复关联对象");
-            this.library.store.put("workspace", bookId, bookId, { ...workspace,
+            this.library.store.workspaces.save({ ...workspace,
               revision: workspace.revision + 1,
               links: [...workspace.links, ...removed.filter((link) =>
                 !workspace.links.some((current) => current.id === link.id))] });

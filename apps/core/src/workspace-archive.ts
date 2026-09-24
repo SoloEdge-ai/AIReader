@@ -531,6 +531,7 @@ export class WorkspaceArchives {
       if (book) {
         const copyId = book.id;
         this.library.store.transaction(() => {
+          this.library.store.workspaces.remove(copyId);
           this.library.store.db
             .prepare("DELETE FROM records WHERE book_id=?")
             .run(copyId);

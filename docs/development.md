@@ -15,6 +15,8 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 
 开发默认数据位置与桌面相同；隔离时显式设置AIREADER_DATA为临时目录。测试不得使用用户数据库。工作前读索引/规范、检查分支/用户改动；按可观察流程实现、验证、同步文档，再提交。
 
+当前分支使用 DB v5，不会打开旧 v4 目录。开发／预览必须配置独立 AIREADER_DATA，不要为了启动而删除默认用户目录。`node --import tsx scripts/measure-workspace-writes.ts` 用生成样本和临时目录测量 HTTP 耗时及 SQLite 实际变更行数；它不是绘画帧率或 516 页性能验收。
+
 ## 扩展约束
 
 新增工具：声明状态/快捷键/取消、UI设置、几何与命令；验证IME和临时平移。

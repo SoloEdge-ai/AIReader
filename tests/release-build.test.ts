@@ -17,7 +17,7 @@ test("branch packages record their exact source and cannot masquerade as stable"
     run("workflow_dispatch", "refs/heads/codex/architecture-refactor");
     expect(JSON.parse(await readFile(join(directory, "package.json"), "utf8")).version).toBe("0.2.93");
     expect(JSON.parse(await readFile(join(directory, "release/build-info.json"), "utf8"))).toMatchObject({
-      version: "0.2.93", channel: "preview", commit: sha, databaseVersion: 4, archiveVersion: 2, apiVersion: 2,
+      version: "0.2.93", channel: "preview", commit: sha, databaseVersion: 5, archiveVersion: 2, apiVersion: 2,
     });
     run("pull_request", "refs/pull/24/merge");
     expect(JSON.parse(await readFile(join(directory, "release/build-info.json"), "utf8")).channel).toBe("check");

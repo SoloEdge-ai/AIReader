@@ -10,7 +10,9 @@ Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node�
 
 已拆出的 `packages/workspace-engine/src` 包含跨页笔迹、形状／套索／移动和视野缩放的纯计算。PDF 组件提供 `WorkspacePage` 坐标变换；引擎不再回引 PDF React 组件。创建形状的 ID 由调用者提供，渲染预览不生成随机实体。
 
-引擎中的 commands 模块共享实体差量和级联关系删除投影；Core 验证并事务提交，renderer 不重复维护投影分支。`client/workspace` 组装 v2 摘要并校验回执，WorkspaceState 仍负责现有画板草稿和队列；这不是最终 BookEditingSession 或 v5 实体存储。增量回执不保存每一步的完整工作区快照。
+引擎中的 commands 模块共享实体差量和级联关系删除投影；Core 验证并事务提交，renderer 不重复维护投影分支。`client/workspace` 组装 v2 摘要并校验回执，WorkspaceState 仍负责现有画板草稿和队列；这不是最终 BookEditingSession。增量回执不保存每一步的完整工作区快照。
+
+`workspace-repository.ts` 拥有 v5 工作区实体／关系／视野／回执 SQL，Workspaces、Notes 的关系删除及归档恢复统一调用它。Storage 负责数据库生命周期和外层事务，拒绝旧 records 工作区键读写。仓储从分行数据组装协议快照，但只写发生变化的实体；关系端点的跨书和存在性校验继续属于 Core 业务规则。其他领域仍使用 records 和 Library.store，尚未完成全部后端职责收拢。
 
 若列表读取期间发生成功保存，最新刷新会重新读取，不能简单丢弃新建／删除的结果。同步到另一编辑器的正文事务不进入该编辑器的本地撤销历史；原生编辑撤销与未来全工作区命令历史仍是不同层次。
 
