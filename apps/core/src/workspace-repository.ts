@@ -68,7 +68,11 @@ export class WorkspaceRepository {
   }
 
   save(input: BookWorkspace) {
-    const value = WorkspaceSchema.parse(input);
+    this.saveValidated(WorkspaceSchema.parse(input));
+  }
+
+  /** Only for Core paths that parsed the complete snapshot before the same transaction. */
+  saveValidated(value: BookWorkspace) {
     // SAVEPOINT also composes with a surrounding Core command/archive transaction.
     this.db.exec("SAVEPOINT workspace_write");
     try {

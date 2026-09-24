@@ -24,16 +24,16 @@ export class Workspaces {
   get(bookId: string): BookWorkspace {
     this.library.book(bookId);
     const saved = this.library.store.workspaces.get(bookId);
-    const value = WorkspaceSchema.parse(
-      saved ?? {
+    // The repository already validates stored rows when constructing its projection.
+    // A second deep parse would clone every point in a maximal ink workspace.
+    if (saved) return saved;
+    return WorkspaceSchema.parse({
         bookId,
         revision: 0,
         layoutVersion: 2,
         cards: [],
         links: [],
-      },
-    );
-    return value;
+      });
   }
   camera(bookId: string, input: unknown) {
     this.library.book(bookId);
@@ -72,7 +72,7 @@ export class Workspaces {
       // Reserve room for command identity/hash/version when the inverse is submitted.
       if (Buffer.byteLength(JSON.stringify(receipt.inverse), "utf8") > 8 * 1024 * 1024 - 1024)
         throw new Error("本次操作的撤销内容超过 8 MiB，请分批操作；内容未修改");
-      this.library.store.workspaces.save(next);
+      this.library.store.workspaces.saveValidated(next);
       this.library.store.workspaces.saveReceipt(receipt);
     });
     return receipt;
@@ -97,7 +97,7 @@ export class Workspaces {
         revision: current.revision + 1,
       });
       this.validate(bookId, next, current, Boolean(prepare));
-      this.library.store.workspaces.save(next);
+      this.library.store.workspaces.saveValidated(next);
       this.library.store.put("workspace-command", commandKey, bookId, {
         version: next.revision,
       });
@@ -115,7 +115,7 @@ export class Workspaces {
       );
     this.validate(bookId, value, current, true, allowNoteBinding);
     const saved = { ...value, revision: current.revision + 1 };
-    this.library.store.workspaces.save(saved);
+    this.library.store.workspaces.saveValidated(saved);
     if (value.camera) this.camera(bookId, value.camera);
     return saved;
   }

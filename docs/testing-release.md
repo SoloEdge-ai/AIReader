@@ -20,6 +20,8 @@ codex/architecture-refactor，一个Draft PR。PR更新自动检查/构建，不
 
 浅深主题、1280×720/1440×900/1920×1080、100/150/200%DPI。516页/500卡片/1000关系/5000对象/250000点压力样本，记录机器/帧/长任务/内存/保存时间。
 
+满载合成样本可先执行 `node --expose-gc --import tsx scripts/workspace-performance.ts`，再将机器、样本构成、时间和局限记录到 verification。此脚本是手动压力测量，不代替真实复杂 PDF 或 Windows 11 安装验收；[初次记录](verification/2026-09-24-workspace-performance.md) 已明确留有内存和连续编辑问题。
+
 公开截图只用生成样本。安装验证覆盖preview→preview→stable，分支不改变Latest。
 
 本次旧测试库仅在实际切换新格式时清理一次，不备份/迁移。核实绝对目标并停机；限AIReader测试内容，不含账号/runtime或Downloads原始PDF。安装器不通用清空数据。

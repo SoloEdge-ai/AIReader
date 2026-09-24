@@ -143,7 +143,7 @@ try {
   await page.getByRole("button", { name: "撤销批注操作" }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   await page.screenshot({ path: ".local/screenshots/notes.png" });
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByLabel("页码", { exact: true }).fill("6");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("6");
@@ -166,7 +166,7 @@ try {
   await page.getByRole("toolbar", { name: "区域摘录操作" }).getByRole("button", { name: "批注" }).click();
   await expect(page.locator(".annotation-region")).toHaveCount(1);
   await expect(page.getByAltText("区域摘录")).toBeVisible();
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByRole("button", { name: "区域摘录（R）" }).click();
   const excerptBox = await page.locator("#page-3").boundingBox();
   await page.mouse.move(excerptBox.x + 85, excerptBox.y + 85);
@@ -183,7 +183,7 @@ try {
   const rotated = await page.locator("#page-3").boundingBox();
   await page.mouse.click(rotated.x + 200, Math.max(80, rotated.y + 150));
   await expect(page.locator(".annotation-sticky")).toHaveCount(1);
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByLabel("主题", { exact: true }).selectOption("dark");
   await page.getByRole("button", { name: "关闭设置" }).click();
@@ -192,9 +192,9 @@ try {
     BrowserWindow.getAllWindows()[0].setSize(960, 720),
   );
   await page.getByLabel("笔记", { exact: true }).click();
-  await expect(page.locator(".side-panel")).toBeVisible();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
   await page.screenshot({ path: ".local/screenshots/notes-narrow.png" });
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   for (let i = 0; i < 3; i++)
     await page.getByRole("button", { name: "旋转页面" }).click();
   for (let i = 0; i < 8; i++)
@@ -234,7 +234,7 @@ try {
       elements.map((e) => e.getBoundingClientRect().height),
     );
   expect(sizes.every((h) => h < 20)).toBeTruthy();
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByLabel("页码", { exact: true }).fill("4");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await page.locator("#page-4 .textLayer span").first().waitFor();
