@@ -21,6 +21,10 @@ export class WorkspacePayloadError extends Error {
 /** Spatial state is book-scoped and independent of rebuildable search indexes. */
 export class Workspaces {
   constructor(private readonly library: Library) {}
+  commandReceipt(bookId: string, commandId: string): { version: number; payloadHash?: string } | undefined {
+    this.library.book(bookId);
+    return this.library.store.getForBook("workspace-command", `${bookId}:${commandId}`, bookId);
+  }
   get(bookId: string): BookWorkspace {
     this.library.book(bookId);
     const saved = this.library.store.workspaces.get(bookId);
@@ -77,14 +81,16 @@ export class Workspaces {
     });
     return receipt;
   }
-  command(bookId: string, input: unknown, prepare?: () => void): BookWorkspace {
+  command(bookId: string, input: unknown, prepare?: () => void, receiptHash?: string): BookWorkspace {
     const batch = WorkspaceCommandBatchSchema.parse(input);
     if (batch.bookId !== bookId) throw new Error("工作区命令与书籍不匹配");
+    const hash = receiptHash ?? createHash("sha256").update(JSON.stringify(batch)).digest("hex");
     let result: BookWorkspace | undefined;
     this.library.store.transaction(() => {
-      const commandKey = `${bookId}:${batch.commandId}`;
-      const previous = this.library.store.get<{ version: number }>("workspace-command", commandKey);
+      const previous = this.commandReceipt(bookId, batch.commandId);
       if (previous) {
+        if (previous.payloadHash && previous.payloadHash !== hash)
+          throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
         result = this.get(bookId);
         return;
       }
@@ -98,8 +104,8 @@ export class Workspaces {
       });
       this.validate(bookId, next, current, Boolean(prepare));
       this.library.store.workspaces.saveValidated(next);
-      this.library.store.put("workspace-command", commandKey, bookId, {
-        version: next.revision,
+      this.library.store.put("workspace-command", `${bookId}:${batch.commandId}`, bookId, {
+        version: next.revision, payloadHash: hash,
       });
       result = next;
     });

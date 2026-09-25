@@ -12,6 +12,7 @@
 [提问材料并发重试验证](verification/2026-09-25-question-material-retry.md) 记录冻结材料的书籍隔离和原子回执回归。
 [书籍编辑会话验证](verification/2026-09-25-book-editing-session.md) 记录 Note 与画布保存生命周期收拢及未完成的跨实体命令。
 [聊天与工具写入交错验证](verification/2026-09-25-chat-tool-write.md) 记录流式回答不会覆盖工具运行结果的存储回归。
+[区域摘录重试验证](verification/2026-09-25-region-command-retry.md) 记录旧入口 commandId 的摘要校验及兼容限制。
 
 | 工作 | 必读 |
 |---|---|

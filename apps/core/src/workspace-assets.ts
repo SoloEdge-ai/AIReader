@@ -6,7 +6,7 @@ import { RegionExcerptInputSchema, WorkspaceCommandBatchSchema,
 import { PDFDocument } from "pdf-lib";
 import { decodeImage } from "./chat-images";
 import { Library } from "./library";
-import { Workspaces } from "./workspace";
+import { Workspaces, WorkspaceConflict } from "./workspace";
 import { WorkspaceCommandV2Schema } from "../../../packages/protocol/src/workspace-commands";
 
 interface AssetRecord {
@@ -89,9 +89,13 @@ export class WorkspaceAssets {
     if (input.rect[0] < bounds[0] - 1 || input.rect[1] < bounds[1] - 1 ||
         input.rect[2] > bounds[2] + 1 || input.rect[3] > bounds[3] + 1)
       throw new Error("图片摘录超出 PDF 页面范围");
-    const commandKey = `${bookId}:${input.commandId}`;
-    if (this.library.store.get("workspace-command", commandKey))
+    const hash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const previous = this.workspaces.commandReceipt(bookId, input.commandId);
+    if (previous) {
+      if (previous.payloadHash && previous.payloadHash !== hash)
+        throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
       return { workspace: this.workspaces.get(bookId), cardId: input.commandId };
+    }
     const image = decodeImage({ name: input.title || "图片摘录", dataUrl: input.image });
     const assetId = randomUUID();
     const card: WorkspaceCard = {
@@ -126,7 +130,7 @@ export class WorkspaceAssets {
       const workspace = this.workspaces.command(bookId, {
         bookId, commandId: input.commandId, expectedVersion: input.expectedVersion,
         changes: [{ type: "upsert-card", card }],
-      }, () => this.library.store.put("workspace-asset", assetId, bookId, record));
+      }, () => this.library.store.put("workspace-asset", assetId, bookId, record), hash);
       if (workspace.cards.find((entry) => entry.id === card.id)?.region?.assetId !== assetId)
         await rm(path, { force: true });
       return { workspace, cardId: card.id };

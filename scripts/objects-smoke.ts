@@ -21,7 +21,16 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];
+  const commandResponses: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("response", (response) => {
+    if (response.url().includes("/workspace/commands"))
+      commandResponses.push(`${response.status()} ${response.request().method()}`);
+  });
+  page.on("requestfailed", (request) => {
+    if (request.url().includes("/workspace/commands"))
+      commandResponses.push(`failed ${request.failure()?.errorText ?? "unknown"}`);
+  });
   await page.goto(origin);
   await page.getByRole("button", { name: /Object acceptance/ }).click();
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
@@ -33,7 +42,18 @@ try {
   await expect(page.getByLabel("编辑画布文本")).toBeVisible();
   await page.getByLabel("编辑画布文本").fill("中文想法：比较两个概念");
   await page.getByLabel("编辑画布文本").press("Tab");
-  await expect.poll(async () => (await workspace()).objects.length).toBe(1);
+  try {
+    await expect.poll(async () => (await workspace()).objects.length, { timeout: 10_000 }).toBe(1);
+  } catch (cause) {
+    const snapshot = await workspace();
+    const editor = page.getByLabel("编辑画布文本");
+    throw new Error(`First canvas object was not saved: ${JSON.stringify({
+      revision: snapshot.revision, objects: snapshot.objects.length,
+      editorVisible: await editor.isVisible(), editorText: await editor.isVisible() ? await editor.inputValue() : null,
+      feedback: await page.locator(".workspace-feedback").allTextContents(),
+      commandResponses, pageErrors: errors,
+    })}`, { cause });
+  }
   await expect.poll(async () => (await workspace()).objects[0]?.text).toBe("中文想法：比较两个概念");
   const text = (await workspace()).objects[0];
   expect(text).toMatchObject({ kind: "text", text: "中文想法：比较两个概念", surface: { kind: "pdf", page: 1 } });
