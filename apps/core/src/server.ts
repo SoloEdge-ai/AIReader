@@ -25,13 +25,10 @@ import { Notes } from "./notes";
 import { body, jsonBody, send } from "./http";
 import { handleNoteRoutes } from "./note-routes";
 import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
-import { WorkspaceCommandV2Schema } from "../../../packages/protocol/src/workspace-commands";
 import { WorkspaceAssets } from "./workspace-assets";
 import { QuestionMaterials } from "./question-materials";
-import {
-  WorkspaceArchives,
-  MAX_WORKSPACE_ARCHIVE_BYTES,
-} from "./workspace-archive";
+import { WorkspaceArchives } from "./workspace-archive";
+import { handleBookWorkspaceRoutes, handleGlobalWorkspaceRoutes } from "./workspace-routes";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export function createCore(
@@ -52,6 +49,8 @@ export function createCore(
   const workspaceAssets = new WorkspaceAssets(library, workspaces);
   const questionMaterials = new QuestionMaterials(library, workspaces, notes, workspaceAssets);
   const workspaceArchives = new WorkspaceArchives(library);
+  const workspaceRoutes = { workspaces, assets: workspaceAssets, materials: questionMaterials,
+    archives: workspaceArchives, notes };
   library.resume();
   const runtime = new RuntimeManager(directory, (data) =>
     emit({ type: "runtime", data }),
@@ -147,12 +146,7 @@ export function createCore(
           send(res, { ok: true });
           return;
         }
-        if (parts[1] === "v2" && parts[2] === "books" && parts[3] && parts[4] === "workspace" && parts[5] === "commands" && parts.length === 6 && req.method === "POST") {
-          const batch = WorkspaceCommandV2Schema.parse(await jsonBody(req, 8 * 1024 * 1024));
-          await workspaceAssets.validateCommandObjects(parts[3], batch, 2);
-          send(res, workspaces.commandV2(parts[3], batch));
-          return;
-        }
+        if (await handleGlobalWorkspaceRoutes(req, res, parts, workspaceRoutes)) return;
         if (parts[1] === "tool-preferences" && parts.length === 2) {
           if (req.method === "PUT")
             library.store.put(
@@ -251,20 +245,6 @@ export function createCore(
             return;
           }
         }
-        if (
-          parts[1] === "workspace-archives" &&
-          parts.length === 2 &&
-          req.method === "POST"
-        ) {
-          send(
-            res,
-            await workspaceArchives.restore(
-              await body(req, MAX_WORKSPACE_ARCHIVE_BYTES),
-            ),
-            201,
-          );
-          return;
-        }
         if (parts[1] === "books" && parts.length === 2) {
           if (req.method === "GET") {
             send(res, library.books());
@@ -287,78 +267,7 @@ export function createCore(
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];
           const book = library.book(id);
-          if (
-            parts[3] === "workspace" &&
-            parts[4] === "archive" &&
-            parts.length === 5 &&
-            req.method === "GET"
-          ) {
-            const bytes = await workspaceArchives.export(id);
-            res
-              .writeHead(200, {
-                "Content-Type": "application/zip",
-                "Content-Disposition": `attachment; filename="AIReader-${id}.aireader"`,
-                "Content-Length": bytes.length,
-                "Cache-Control": "no-store",
-                "X-Content-Type-Options": "nosniff",
-              })
-              .end(bytes);
-            return;
-          }
-          if (parts[3] === "workspace" && parts.length === 4) {
-            if (req.method === "GET") send(res, workspaces.get(id));
-            else if (req.method === "POST")
-              send(res, { error: "此版本不接受整份工作区写入，请更新 AIReader" }, 409);
-            else send(res, { error: "不支持的操作" }, 405);
-            return;
-          }
-          if (parts[3] === "workspace" && parts[4] === "commands" && parts.length === 5 && req.method === "POST") {
-            const batch = await workspaceAssets.validateCommandObjects(id, await jsonBody(req, 8 * 1024 * 1024));
-            send(res, workspaces.command(id, batch));
-            return;
-          }
-          if (parts[3] === "workspace" && parts[4] === "cards" && parts[5] &&
-            parts[6] === "note" && parts.length === 7 && req.method === "POST") {
-            z.object({}).strict().parse(await jsonBody(req));
-            const result = notes.promoteCard(id, parts[5]);
-            send(res, result.note, result.created ? 201 : 200);
-            return;
-          }
-          if (parts[3] === "workspace" && parts[4] === "camera" && parts.length === 5 && req.method === "PUT") {
-            send(res, workspaces.camera(id, await jsonBody(req)));
-            return;
-          }
-          if (parts[3] === "workspace" && parts[4] === "region-excerpts" && parts.length === 5 && req.method === "POST") {
-            send(res, await workspaceAssets.createRegion(id, await jsonBody(req, 12 * 1024 * 1024)), 201);
-            return;
-          }
-          if (parts[3] === "workspace-assets" && parts[4] && parts.length === 5 && req.method === "GET") {
-            const bytes = await workspaceAssets.read(id, parts[4]);
-            res.writeHead(200, {
-              "Content-Type": "image/png", "Content-Length": bytes.length,
-              "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff",
-            }).end(bytes);
-            return;
-          }
-          if (parts[3] === "question-materials") {
-            if (req.method === "POST" && parts.length === 4) {
-              send(res, await questionMaterials.create(id,
-                await jsonBody(req, 4 * 12 * 1024 * 1024 + 1024 * 1024)), 201);
-              return;
-            }
-            const sessionId = url.searchParams.get("session") ?? "";
-            if (req.method === "GET" && parts[4] && parts.length === 5) {
-              send(res, questionMaterials.get(id, sessionId, parts[4]));
-              return;
-            }
-            if (req.method === "GET" && parts[4] && parts[5] === "images" && parts[6] && parts.length === 7) {
-              const path = questionMaterials.image(id, sessionId, parts[4], parts[6]);
-              const bytes = await readFile(path);
-              res.writeHead(200, { "Content-Type": "image/png", "Content-Length": bytes.length,
-                "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" }).end(bytes);
-              return;
-            }
-          }
+          if (await handleBookWorkspaceRoutes(req, res, id, parts, url, workspaceRoutes)) return;
           if (await handleNoteRoutes(req, res, id, parts, notes)) return;
           if (parts[3] === "preferences") {
             if (req.method === "POST")
