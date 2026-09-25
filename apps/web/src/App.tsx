@@ -98,8 +98,11 @@ export function App() {
   current.current = active;
   const book = books.find((b) => b.id === active);
   const notes = useBookNotes(active);
+  // BookWorkspace.flush includes both editors; without a mounted canvas the
+  // note session remains the only draft owner (for example in the library).
+  const flushCurrentBook = () => workspace.current?.flush() ?? notes.flush();
   useDesktopCloseHandshake(
-    () => workspace.current ? workspace.current.flush() : notes.flush(),
+    flushCurrentBook,
     setError,
   );
   const [expandedNote, setExpandedNote] = useState<{ bookId: string; id: string }>();
@@ -131,8 +134,8 @@ export function App() {
       const editing = (event.target as HTMLElement)?.closest(".workspace-card input,.workspace-card textarea,.notes-panel input,.notes-panel textarea,.notes-panel [contenteditable]");
       if (editing) {
         (editing as HTMLElement).blur();
-        void Promise.all([workspace.current?.flush(), notes.flush()]).then((results) => {
-          if (results.some((ok) => ok === false)) setError("编辑内容保存失败，草稿仍保留；请重试保存。");
+        void flushCurrentBook().then((saved) => {
+          if (!saved) setError("编辑内容保存失败，草稿仍保留；请重试保存。");
         });
       } else if (!popover && !(event.target as HTMLElement)?.closest(".reader-popover") &&
                  (event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) return false;
@@ -461,8 +464,7 @@ export function App() {
     const request = ++openSequence.current;
     setNavigating(true);
     try {
-      if (!(await notes.flush())) return;
-      if (workspace.current && !(await workspace.current.flush())) return;
+      if (!(await flushCurrentBook())) return;
       const p = await api<ReaderPreferences>(`books/${b.id}/preferences`);
       if (request !== openSequence.current) return;
       if (p.panel === "notes") {
@@ -669,9 +671,7 @@ export function App() {
               onClick={() => {
                 setNavigating(true);
                 void (async () => {
-                  if (!(await notes.flush())) return;
-                  if (workspace.current && !(await workspace.current.flush()))
-                    return;
+                  if (!(await flushCurrentBook())) return;
                   await post(`books/${book.id}/progress`, { page });
                   setActive(undefined);
                   setBooks(await api<Book[]>("books"));

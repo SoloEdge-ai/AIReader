@@ -34,7 +34,7 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 
 笔记编辑视图：复用 `features/notes/NoteEditor`，传入当前书籍会话快照中的 Note 和 edit 操作。不要复制 document／title 到组件本地 state，不要在视图内另建 HTTP 保存定时器。外层只在 `flush()` 返回 true 后切书／关闭编辑；普通 refresh 不等于用户批准覆盖远端修改。新增保存路径必须覆盖较旧响应到达时已有新输入的情况。
 
-桌面退出：`features/desktop/useDesktopCloseHandshake` 负责 renderer 的保存入口、重复关窗合并、12 秒截止和界面锁定；App 只提供当前书籍的 `flush()` 与错误提示。修改关闭路径时运行 `node scripts/close-save-smoke.mjs` 和 `node scripts/desktop-smoke.mjs .`，覆盖真实 Core 冲突、SQLite 写锁、取消关闭、重试及 Core 回执。
+桌面退出：`features/desktop/useDesktopCloseHandshake` 负责 renderer 的保存入口、重复关窗合并、12 秒截止和界面锁定；App 使用同一 `flushCurrentBook()` 处理关闭、切书及返回书库，BookWorkspace 先提交 Note 再提交画布，未挂载时只提交 Note。不要另起与它并行的保存链。修改关闭路径时运行 `node scripts/close-save-smoke.mjs` 和 `node scripts/desktop-smoke.mjs .`，覆盖真实 Core 冲突、SQLite 写锁、取消关闭、重试及 Core 回执。
 
 Core 笔记／批注接口：`apps/core/src/note-routes.ts` 拥有这些路由的 HTTP 方法、请求大小、ZIP/PNG 响应；`Notes` 保持业务和事务规则，`server.ts` 负责鉴权及书籍路由入口。修改边界时优先运行 `tests/notes.test.ts`、`tests/answer-notes.test.ts`、`tests/note-placements-http.test.ts` 和 `tests/excerpt-comments-http.test.ts`，不要只 mock Notes 服务。
 

@@ -359,8 +359,9 @@ export const BookWorkspace = forwardRef<
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
   useImperativeHandle(ref, () => ({ flush: async () => {
-    const [notesSaved, workspaceSaved] = await Promise.all([props.notes.flush(), state.flush()]);
-    return notesSaved && workspaceSaved;
+    // A canvas placement may reference a Note: commit the content owner first.
+    if (!(await props.notes.flush())) return false;
+    return state.flush();
   }, excerpt: add,
     placeNote,
     addToQuestion: addSelectedToQuestion,
