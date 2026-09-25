@@ -202,12 +202,12 @@ export class ChatService {
   }
   private save(turn: ChatTurn) {
     if (this.closed) return;
-    this.library.chat.saveTurn(turn);
+    const saved = this.library.chat.saveTurn(turn);
     this.library.emit({
       type: "turn",
       bookId: turn.bookId,
       taskId: turn.id,
-      data: turn,
+      data: saved,
     });
   }
   cancel(bookId: string, id: string) {

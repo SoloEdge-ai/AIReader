@@ -18,7 +18,7 @@ Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node�
 
 引擎中的 commands 模块共享实体差量和级联关系删除投影；Core 验证并事务提交，renderer 不重复维护投影分支。`client/workspace` 组装 v2 摘要并校验回执，`WorkspaceEditingSession` 负责画板草稿、重试键、视野与命令历史；这不是最终 BookEditingSession，尚无跨 Note／画布的统一历史。增量回执不保存每一步的完整工作区快照。
 
-`workspace-repository.ts` 拥有 v5 工作区实体／关系／视野／回执 SQL，Workspaces、Notes 的关系删除及归档恢复统一调用它。Storage 负责数据库生命周期和外层事务，拒绝旧 records 工作区键读写；`getForBook` 对仍在 records 的领域提供带书籍条件的读取。工作区仓储从分行数据组装协议快照，但只写发生变化的实体；关系端点的跨书和存在性校验继续属于 Core 业务规则。`ChatRepository` 集中会话、轮次和学习记忆的按书籍存取，并保持创建轮次与提交本轮材料在同一事务内；`IndexRepository` 集中索引任务、目标章节、批次摘要及语义节点的按书籍存取，创建任务与目标章节同一事务。`QuestionMaterialRepository` 按书籍／会话读取冻结材料，拥有材料请求回执和记录的原子提交；并发的同请求重试只能得到首份快照，新尝试的图片由材料服务清理。图片文件写入及对象内容／来源验证仍归 `QuestionMaterials` 用例。其余领域仍有 `Library.store` 直接访问，后端职责尚未全部收拢。
+`workspace-repository.ts` 拥有 v5 工作区实体／关系／视野／回执 SQL，Workspaces、Notes 的关系删除及归档恢复统一调用它。Storage 负责数据库生命周期和外层事务，拒绝旧 records 工作区键读写；`getForBook` 对仍在 records 的领域提供带书籍条件的读取。工作区仓储从分行数据组装协议快照，但只写发生变化的实体；关系端点的跨书和存在性校验继续属于 Core 业务规则。`ChatRepository` 集中会话、轮次、工具运行和学习记忆的按书籍存取，保持创建轮次与提交本轮材料在同一事务内；流式回答保存及事件广播会保留仓储中较新的工具列表，工具完成会读取当前轮次后合并运行结果，避免两者用旧对象相互覆盖；`IndexRepository` 集中索引任务、目标章节、批次摘要及语义节点的按书籍存取，创建任务与目标章节同一事务。`QuestionMaterialRepository` 按书籍／会话读取冻结材料，拥有材料请求回执和记录的原子提交；并发的同请求重试只能得到首份快照，新尝试的图片由材料服务清理。图片文件写入及对象内容／来源验证仍归 `QuestionMaterials` 用例。其余领域仍有 `Library.store` 直接访问，后端职责尚未全部收拢。
 
 若列表读取期间发生成功保存，最新刷新会重新读取，不能简单丢弃新建／删除的结果。同步到另一编辑器的正文事务不进入该编辑器的本地撤销历史；原生编辑撤销与未来全工作区命令历史仍是不同层次。
 

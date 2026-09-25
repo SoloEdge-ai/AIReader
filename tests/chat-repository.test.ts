@@ -38,6 +38,28 @@ test("chat records are book scoped and a failed material commit rolls back the t
     expect(repository.turns("book-a").map((item) => item.id)).toEqual(["turn-a"]);
     expect(repository.turns("book-b")).toEqual([]);
     expect(store.get("material-commit", "material-a")).toEqual({ turnId: turn.id });
+
+    // The streamed assistant still holds its original turn object while a tool
+    // request persists a run on the same row. A later text event must not erase it.
+    const tool = { id: "tool-a", bookId: "book-a", turnId: turn.id,
+      command: "Write-Output ok", output: "", status: "running" as const };
+    repository.appendTool(turn.bookId, turn.id, tool);
+    const streamed = repository.saveTurn({ ...turn, answer: "streamed answer", tools: [] });
+    expect(streamed.tools).toEqual([tool]);
+    expect(repository.turns("book-a")[0]).toMatchObject({
+      answer: "streamed answer", tools: [tool],
+    });
+    repository.finishTool(turn.bookId, turn.id, { ...tool, output: "ok", status: "complete" });
+    repository.saveTurn({ ...turn, answer: "final answer", status: "complete", tools: [] });
+    expect(repository.turn("book-a", turn.id)).toMatchObject({
+      answer: "final answer", tools: [{ ...tool, output: "ok", status: "complete" }],
+    });
+    expect(repository.turn("book-b", turn.id)).toBeUndefined();
+    expect(() => repository.appendTool("book-b", turn.id, { ...tool, bookId: "book-b" }))
+      .toThrow("会话与书籍不匹配");
+    expect(() => repository.saveTurn({ ...turn, bookId: "book-b" }))
+      .toThrow("会话与书籍不匹配");
+    expect(repository.turn("book-a", turn.id)?.answer).toBe("final answer");
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

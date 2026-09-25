@@ -9,7 +9,7 @@ import {
 import { join, resolve, relative, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import type { ChatTurn, ToolRun } from "../../../packages/protocol/src";
+import type { ToolRun } from "../../../packages/protocol/src/chat";
 import { Library } from "./library";
 import { CodexAdapter } from "./codex";
 const quote = (s: string) => "'" + s.replaceAll("'", "''") + "'";
@@ -89,12 +89,11 @@ export class BookTools {
   }
   async run(bookId: string, turnId: string, script: string) {
     if (this.closed) throw new Error("Core 正在关闭");
-    const turn = this.library.store.get<ChatTurn>("turn", turnId);
-    if (!turn || turn.bookId !== bookId) throw new Error("会话与书籍不匹配");
+    const turn = this.library.chat.turn(bookId, turnId);
+    if (!turn) throw new Error("会话与书籍不匹配");
     if (!this.status(bookId).available)
       throw new Error(this.status(bookId).reason);
     if (this.active.has(turnId)) throw new Error("当前已有工具正在运行");
-    if (turn.tools.length >= 8) throw new Error("本轮已达到 8 次工具调用上限");
     const run: ToolRun = {
       id: randomUUID(),
       bookId,
@@ -103,8 +102,7 @@ export class BookTools {
       output: "",
       status: "running",
     };
-    turn.tools.push(run);
-    this.library.store.put("turn", turnId, bookId, turn);
+    this.library.chat.appendTool(bookId, turnId, run);
     this.active.set(turnId, run.id);
     try {
       const cwd = this.workspace(bookId);
@@ -131,8 +129,8 @@ export class BookTools {
     } finally {
       this.active.delete(turnId);
       if (!this.closed) {
-        this.library.store.put("turn", turnId, bookId, turn);
-        this.library.emit({ type: "turn", bookId, taskId: turnId, data: turn });
+        const updated = this.library.chat.finishTool(bookId, turnId, run);
+        this.library.emit({ type: "turn", bookId, taskId: turnId, data: updated });
       }
     }
     return run;
@@ -166,8 +164,8 @@ export class BookTools {
   }
   async cancelForBook(bookId: string, turnId: string) {
     this.library.book(bookId);
-    const turn = this.library.store.get<ChatTurn>("turn", turnId);
-    if (turn?.bookId !== bookId) throw new Error("会话与书籍不匹配");
+    const turn = this.library.chat.turn(bookId, turnId);
+    if (!turn) throw new Error("会话与书籍不匹配");
     await this.cancel(turnId);
   }
   async draft(bookId: string, task: string) {
