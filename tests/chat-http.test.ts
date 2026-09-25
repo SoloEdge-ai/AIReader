@@ -2,13 +2,16 @@ import { test, expect } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { once } from "node:events";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { WebSocket } from "ws";
 import { createCore } from "../apps/core/src/server";
-import type { ChatTurn } from "../packages/protocol/src";
+import type { ChatTurn, CoreEvent } from "../packages/protocol/src";
 
 test("public reasoning summaries stream, stay out of future prompts, and survive cancellation and restart", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aireader-chat-http-"));
   let core: ReturnType<typeof createCore> | undefined;
+  let socketOrigin = "", socketCookie = "";
   async function serve() {
     core = createCore(directory, "dist/web", {
       path: process.execPath,
@@ -30,6 +33,8 @@ test("public reasoning summaries stream, stay out of future prompts, and survive
       Cookie: session.headers.get("set-cookie")!.split(";")[0],
       Origin: base,
     };
+    socketOrigin = base;
+    socketCookie = headers.Cookie;
     return async (path: string, body?: unknown) => {
       const response = await fetch(base + "/api/" + path, {
         headers: { ...headers, "Content-Type": "application/json" },
@@ -55,6 +60,7 @@ test("public reasoning summaries stream, stay out of future prompts, and survive
       .poll(async () => (await api(`books/${book.id}`)).status)
       .toBe("ready");
     const session = await api(`books/${book.id}/sessions`, {});
+    await api(`books/${book.id}/memory`, { sessionId: session.id, goal: "理解缓存边界" });
     const path = `books/${book.id}/turns`;
     const readTurn = async (id: string): Promise<ChatTurn> =>
       (await api(path)).find((turn: ChatTurn) => turn.id === id);
@@ -76,6 +82,7 @@ test("public reasoning summaries stream, stay out of future prompts, and survive
       .poll(async () => (await readTurn(first.id)).status, { timeout: 5000 })
       .toBe("complete");
     const completed = await readTurn(first.id);
+    expect(JSON.stringify(completed.context)).toContain("理解缓存边界");
     expect(completed.reasoning).toBe(
       "已核对原文。\n\n补充说明与书中观点分开。\n\n保留可核验引用。",
     );
@@ -92,10 +99,25 @@ test("public reasoning summaries stream, stay out of future prompts, and survive
       .poll(async () => (await readTurn(pending.id)).reasoning, { timeout: 5000 })
       .toBe("核对原文。\n\n区分事实与解释。");
     expect((await readTurn(pending.id)).status).toBe("running");
-    await api(`${path}/${pending.id}/cancel`, {});
-    await expect
-      .poll(async () => (await readTurn(pending.id)).status, { timeout: 5000 })
-      .toBe("cancelled");
+    const socket = new WebSocket(socketOrigin.replace("http:", "ws:") + "/events", {
+      headers: { Origin: socketOrigin, Cookie: socketCookie },
+    });
+    const events: CoreEvent[] = [];
+    socket.on("message", (data) => events.push(JSON.parse(data.toString())));
+    try {
+      await once(socket, "open");
+      const tool = { id: "concurrent-tool", bookId: book.id, turnId: pending.id,
+        command: "Write-Output ok", output: "ok", status: "complete" as const };
+      core!.library.chat.appendTool(book.id, pending.id, tool);
+      await api(`${path}/${pending.id}/cancel`, {});
+      await expect
+        .poll(async () => (await readTurn(pending.id)).status, { timeout: 5000 })
+        .toBe("cancelled");
+      const pong = once(socket, "pong"); socket.ping(); await pong;
+      expect(events.filter((event) => event.type === "turn" && event.taskId === pending.id)
+        .at(-1)).toMatchObject({ data: { tools: [tool] } });
+      expect((await readTurn(pending.id)).tools).toEqual([tool]);
+    } finally { socket.terminate(); }
     core!.close();
     api = await serve();
     expect((await readTurn(first.id)).reasoning).toBe(completed.reasoning);

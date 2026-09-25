@@ -9,7 +9,7 @@ import {
 import { join, resolve, relative, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import type { ChatTurn, ToolRun } from "../../../packages/protocol/src";
+import type { ToolRun } from "../../../packages/protocol/src/chat";
 import { Library } from "./library";
 import { CodexAdapter } from "./codex";
 const quote = (s: string) => "'" + s.replaceAll("'", "''") + "'";
@@ -34,6 +34,7 @@ export class BookTools {
     );
   }
   async verify(bookId: string) {
+    if (this.closed) throw new Error("Core 正在关闭");
     const cwd = this.workspace(bookId);
     await mkdir(cwd, { recursive: true });
     const sentinel = join(
@@ -50,6 +51,7 @@ export class BookTools {
     try {
       const port = typeof address === "object" && address ? address.port : 0;
       const script = `$ErrorActionPreference='Stop'; Set-Content -LiteralPath './probe.txt' -Value 'ok'; if ((Get-Content -LiteralPath './probe.txt') -ne 'ok') { exit 11 }; try { Get-Content -LiteralPath ${quote(sentinel)} -ErrorAction Stop | Out-Null; exit 12 } catch {}; try { Set-Content -LiteralPath ${quote(sentinel)} -Value 'changed' -ErrorAction Stop; exit 13 } catch {}; try { $client=New-Object System.Net.Sockets.TcpClient; $task=$client.ConnectAsync('127.0.0.1',${port}); if ($task.Wait(2000) -and $client.Connected) { $client.Dispose(); exit 14 } } catch {}; Write-Output 'AIREADER_SANDBOX_OK'`;
+      if (this.closed) throw new Error("Core 正在关闭");
       const output = await this.codex.command(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         cwd,
@@ -86,12 +88,12 @@ export class BookTools {
     return result;
   }
   async run(bookId: string, turnId: string, script: string) {
+    if (this.closed) throw new Error("Core 正在关闭");
+    const turn = this.library.chat.turn(bookId, turnId);
+    if (!turn) throw new Error("会话与书籍不匹配");
     if (!this.status(bookId).available)
       throw new Error(this.status(bookId).reason);
     if (this.active.has(turnId)) throw new Error("当前已有工具正在运行");
-    const turn = this.library.store.get<ChatTurn>("turn", turnId);
-    if (!turn || turn.bookId !== bookId) throw new Error("会话与书籍不匹配");
-    if (turn.tools.length >= 8) throw new Error("本轮已达到 8 次工具调用上限");
     const run: ToolRun = {
       id: randomUUID(),
       bookId,
@@ -100,8 +102,7 @@ export class BookTools {
       output: "",
       status: "running",
     };
-    turn.tools.push(run);
-    this.library.store.put("turn", turnId, bookId, turn);
+    this.library.chat.appendTool(bookId, turnId, run);
     this.active.set(turnId, run.id);
     try {
       const cwd = this.workspace(bookId);
@@ -109,6 +110,7 @@ export class BookTools {
         join(cwd, "evidence.txt"),
         turn.context.evidence.map((p) => `[${p.id}]\n${p.text}`).join("\n"),
       );
+      if (this.closed) throw new Error("Core 正在关闭");
       const result = await this.codex.command(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         cwd,
@@ -127,8 +129,8 @@ export class BookTools {
     } finally {
       this.active.delete(turnId);
       if (!this.closed) {
-        this.library.store.put("turn", turnId, bookId, turn);
-        this.library.emit({ type: "turn", bookId, taskId: turnId, data: turn });
+        const updated = this.library.chat.finishTool(bookId, turnId, run);
+        this.library.emit({ type: "turn", bookId, taskId: turnId, data: updated });
       }
     }
     return run;
@@ -159,6 +161,25 @@ export class BookTools {
   async cancel(turnId: string) {
     const processId = this.active.get(turnId);
     if (processId) await this.codex.stopCommand(processId);
+  }
+  async cancelForBook(bookId: string, turnId: string) {
+    this.library.book(bookId);
+    const turn = this.library.chat.turn(bookId, turnId);
+    if (!turn) throw new Error("会话与书籍不匹配");
+    await this.cancel(turnId);
+  }
+  async draft(bookId: string, task: string) {
+    if (this.closed) throw new Error("Core 正在关闭");
+    this.library.book(bookId);
+    const result = await this.codex.answer(
+      "生成一段完成用户任务的 PowerShell 脚本，只返回代码，不执行。工作区仅有 evidence.txt，输出文件必须写在当前目录。禁止联网、读取工作区以外文件和安装依赖。用户任务：" +
+        task,
+    );
+    return {
+      script: result.text
+        .replace(/^```(?:powershell|ps1)?\s*/, "")
+        .replace(/\s*```$/, ""),
+    };
   }
   close() {
     this.closed = true;

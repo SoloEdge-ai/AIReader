@@ -1,8 +1,8 @@
 import type { Annotation, QuestionMaterialInput } from "../../../packages/protocol/src";
 import type { BookWorkspace, WorkspaceObject } from "../../../packages/protocol/src/workspace";
-import type { WorkspacePage } from "./PdfReader";
-import type { InkPoint } from "./InkGeometry";
-import { objectRect, shapeEndpoints } from "./WorkspaceGeometry";
+import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
+import type { InkPoint } from "../../../packages/workspace-engine/src/ink";
+import { objectRect, shapeEndpoints } from "../../../packages/workspace-engine/src/objects";
 
 type Surface = { kind: "board" } | { kind: "pdf"; page: number };
 type Rectangle = { x: number; y: number; width: number; height: number };

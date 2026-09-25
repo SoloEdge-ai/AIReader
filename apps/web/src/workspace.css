@@ -95,39 +95,24 @@
   z-index: 26;
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 4px 6px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 4px 16px #0002;
+  max-width: calc(100% - 16px);
+  overflow-x: auto;
   font-size: 11px;
 }
-.workspace-object-toolbar button { border: 0; background: transparent; border-radius: 6px; padding: 5px; color: inherit; }
-.workspace-object-toolbar button:hover { background: #66869a22; }
 .workspace-object-style {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 1;
-  display: grid;
+  display: none;
   gap: 8px;
   min-width: 158px;
   padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  box-shadow: 0 8px 24px #0002;
   font-size: 12px;
 }
+.workspace-object-style:popover-open { display: grid; }
+.workspace-object-style [role="group"] { display: grid; gap: 8px; }
 .workspace-object-style label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .workspace-object-style input[type="number"] { width: 58px; }
 .workspace-object-style select, .workspace-object-style input[type="number"] {
   color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px;
 }
-.workspace-object-toolbar input[type="color"] { width: 22px; height: 22px; border: 0; background: transparent; }
 .workspace-object-toolbar.link-editor input[type="text"],
 .workspace-object-toolbar.link-editor input:not([type]) { width: 105px; min-width: 0; border: 0; background: transparent; color: inherit; }
 .workspace-object-toolbar.link-editor label { display: flex; align-items: center; gap: 2px; }
@@ -254,6 +239,11 @@
   line-height: 1.85;
   scrollbar-width: thin;
 }
+.workspace-card.excerpt .workspace-card-body > blockquote {
+  flex: 0 1 auto;
+  min-height: 46px;
+  max-height: 34%;
+}
 .workspace-region-image {
   display: block;
   flex: 1;
@@ -265,14 +255,37 @@
   border: 1px solid var(--workspace-rule);
   border-radius: 3px;
 }
-.workspace-card.region .workspace-comment {
-  flex: 0 0 46px;
+.workspace-card.region .workspace-region-image {
+  flex: 0 1 auto;
+  min-height: 72px;
+  max-height: 45%;
 }
-.workspace-card textarea.workspace-comment {
+.workspace-card .workspace-comment {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   border-top: 1px solid var(--workspace-rule);
   padding-top: 7px;
   font-size: 11px;
   color: var(--workspace-accent);
+  overflow: auto;
+  min-height: 40px;
+}
+.workspace-card .workspace-comment > small {
+  display: block;
+  color: var(--muted);
+}
+.workspace-card .workspace-comment > p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+.workspace-card .workspace-comment > button {
+  padding: 4px 0;
+}
+.workspace-legacy-note p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 .workspace-card footer {
   display: flex;
@@ -376,11 +389,7 @@
 }
 .workspace-save-indicator.is-error { background: var(--danger, #c04040); }
 .workspace-menu-popover {
-  position: absolute;
-  z-index: 50;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 200px;
+  position: fixed;
   padding: 5px;
   display: grid;
   gap: 1px;
@@ -389,6 +398,7 @@
   background: var(--surface, white);
   box-shadow: 0 8px 24px #263c4120;
 }
+.workspace-menu-popover:not(:popover-open) { display: none; }
 .workspace-scroll.pointer-tool .pdf-page,
 .workspace-scroll.pointer-tool .pdf-page .textLayer,
 .workspace-scroll.pointer-tool .pdf-page .textLayer * {
@@ -419,20 +429,32 @@
   color: var(--muted);
   padding: 6px 10px 3px;
 }
-.workspace-notice,
-.workspace-error {
+.workspace-feedback {
   position: absolute;
-  top: 12px;
-  left: 20px;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, calc(100% - 40px));
+  max-height: calc(100% - 70px);
+  z-index: 12;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.workspace-feedback > :is(.workspace-notice, .workspace-error) {
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px 12px;
   background: var(--surface, white);
   border: 1px solid var(--line);
   border-radius: 8px;
-  max-width: calc(100% - 40px);
+  box-shadow: 0 8px 24px #0002;
   font-size: 12px;
 }
-.workspace-error {
-  top: 54px;
+.workspace-feedback > .workspace-error {
   color: var(--danger, #c04040);
 }
 .workspace-relations {

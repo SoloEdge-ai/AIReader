@@ -1,8 +1,14 @@
-# AIReader engineering rules
+# AIReader agent rules
 
-- All changes use codex/* branches, PR checks, and squash merge. Never push main.
-- Keep the renderer unprivileged. Core owns data, retrieval, and all Codex operations.
-- Scope all book operations by book ID; freeze reading state when sending a question.
-- Never commit user PDFs, credentials, generated book content, or local databases.
-- Test observable behavior at Core HTTP, context assembly, PDF extraction, and Codex protocol boundaries. Mock only the external Codex process.
-- Run typecheck and relevant tests before a PR. Portable EXE builds are required.
+- 开始前阅读 [文档索引](docs/README.md)，按任务阅读当前规范；archive 不作为现行规格。
+- 使用 codex/* 分支、PR 检查和 squash merge，禁止直接推送 main。
+- 行为、接口、数据、交互或开发命令变化时，在同一变更中同步相关文档。
+- 区分计划、已实现和已验证；不得将历史验收写成本次结果。
+- 重要设计决定记入 docs/decisions；根规则保持简短，详细说明放入 docs。
+- 遵守模块职责与依赖方向，通过公开接口协作；新增 UI 复用统一组件。
+- Renderer 无特权；文件、数据库、检索、凭证及 Codex 操作归 Core。
+- 所有书籍操作按 book ID 隔离；提问冻结阅读状态、模型与明确选中的材料。
+- 原文、个人内容和 AI 内容保留来源区分；保存失败保留草稿并遵守退出保护。
+- 不提交用户 PDF、凭证、本地数据库、生成书籍内容或私人验证材料。
+- 在 Core HTTP、上下文、PDF/渲染器和 Codex 协议处验证行为；只模拟外部 Codex 进程。
+- 交付前完成类型检查、相关验收和要求的 Windows 构建；如实记录结果与限制。

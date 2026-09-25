@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { WorkspaceObject } from "../../../packages/protocol/src/workspace";
-import type { WorkspacePage } from "./PdfReader";
-import { objectRect, shapeEndpoints } from "./WorkspaceGeometry";
+import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
+import { objectRect, shapeEndpoints } from "../../../packages/workspace-engine/src/objects";
 
 export function WorkspaceObjectView({ object, pages, zoom, selected, editing, onSelect, onEdit, onCommit, onResize }:
   { object: Exclude<WorkspaceObject, { kind: "ink" }>; pages: WorkspacePage[];

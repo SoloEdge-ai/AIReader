@@ -35,6 +35,22 @@ try {
     viewport: { width: 1440, height: 960 },
     permissions: ["clipboard-read", "clipboard-write"],
   });
+  // Fault-inject lost turn events in the browser, while keeping real Core HTTP
+  // and the actual event socket. The pending turn must still converge to Core.
+  await context.addInitScript(() => {
+    const native = window.WebSocket;
+    window.WebSocket = new Proxy(native, {
+      construct(target, args) {
+        const socket = Reflect.construct(target, args) as WebSocket;
+        socket.addEventListener("message", (event) => {
+          if (!(window as typeof window & { __dropTurnEvents?: boolean }).__dropTurnEvents) return;
+          if (typeof event.data === "string" && JSON.parse(event.data).type === "turn")
+            event.stopImmediatePropagation();
+        });
+        return socket;
+      },
+    });
+  });
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -109,6 +125,9 @@ try {
     page.getByRole("button", { name: "发送问题", exact: true }),
   ).toBeInViewport();
   await page.setViewportSize({ width: 1440, height: 960 });
+  await page.evaluate(() => {
+    (window as typeof window & { __dropTurnEvents?: boolean }).__dropTurnEvents = true;
+  });
   const selectedQuestion = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
@@ -121,10 +140,22 @@ try {
     selection:
       "Memory cache stores previous tokens and avoids repeated computation.",
   });
-  await expect(page.locator(".turn .answer")).toContainText(
-    "supported statement",
-  );
+  try {
+    await expect(page.locator(".turn .answer")).toContainText("supported statement");
+  } catch (cause) {
+    // Keep a UI/Core distinction when a slow Windows runner misses the first streamed answer.
+    const bookId = core.library.books()[0]?.id;
+    const response = bookId ? await context.request.get(`${base}/api/books/${bookId}/turns`,
+      { headers: { Origin: base } }) : undefined;
+    const turns = response?.ok() ? await response.json() as { status: string; answer: string }[] : [];
+    const last = turns.at(-1);
+    throw new Error(`First answer stayed pending in UI; Core HTTP ${response?.status() ?? "unavailable"}, ` +
+      `turn ${last?.status ?? "missing"}, answer chars ${last?.answer.length ?? 0}`, { cause });
+  }
   await expect(page.locator(".turn .answer")).toContainText("未验证引用");
+  await page.evaluate(() => {
+    (window as typeof window & { __dropTurnEvents?: boolean }).__dropTurnEvents = false;
+  });
   await expect(page.locator(".turn .citation")).toHaveCount(1);
   await page.getByRole("button", { name: "思考摘要", exact: true }).click();
   await expect(page.locator(".reasoning-summary")).toContainText(
@@ -147,12 +178,8 @@ try {
   const positionAfterExpansion = await page
     .locator(".messages")
     .evaluate((node) => node.scrollTop);
-  for (let poll = 0; poll < 2; poll++)
-    await page.waitForResponse(
-      (response) =>
-        response.url().includes("/turns?session=") &&
-        response.request().method() === "GET",
-    );
+  // Turns now stream over Core events; preserve scroll position without waiting for removed polling.
+  await page.waitForTimeout(1200);
   await page.evaluate(
     () =>
       new Promise((resolve) =>

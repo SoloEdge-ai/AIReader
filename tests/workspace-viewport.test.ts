@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { zoomWorkspaceAtPointer } from "../apps/web/src/WorkspaceViewport";
+import { zoomWorkspaceAtPointer } from "../packages/workspace-engine/src/viewport";
 test("Ctrl-wheel zoom preserves the document point under the cursor in both directions", () => {
   const input = {
     zoom: 1,

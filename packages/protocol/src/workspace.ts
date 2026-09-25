@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PdfAnchorSchema } from "./index";
+import { PdfAnchorSchema } from "./anchors";
 
 const identity = z
   .string()
@@ -72,6 +72,7 @@ export const WorkspaceCardSchema = z
   .object({
     id: identity,
     kind: z.enum(["note", "excerpt", "region"]),
+    noteId: identity.optional(),
     title: z.string().max(200),
     text: z.string().max(20000),
     comment: z.string().max(10000),
@@ -89,6 +90,8 @@ export const WorkspaceCardSchema = z
   })
   .strict()
   .superRefine((card, context) => {
+    if (card.noteId && (card.comment || (card.kind === "note" && (card.title || card.text))))
+      context.addIssue({ code: "custom", message: "笔记位置只保存 Note 引用，不保存另一份正文" });
     if ((card.kind === "excerpt") !== Boolean(card.source) ||
         (card.kind === "region") !== Boolean(card.region))
       context.addIssue({

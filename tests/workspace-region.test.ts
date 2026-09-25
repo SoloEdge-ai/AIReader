@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
@@ -57,21 +57,52 @@ test("region cards own immutable book-scoped PNG assets and retry without duplic
     const duplicate = await request(endpoint, input);
     expect(duplicate.status).toBe(201);
     expect((await duplicate.json()).workspace.cards).toHaveLength(1);
+    const changedRetry = await request(endpoint, { ...input, title: "Different figure" });
+    expect(changedRetry.status).toBe(409);
+    expect(await changedRetry.json()).toMatchObject({ code: "COMMAND_ID_REUSED" });
+    const concurrentInput = { ...input, commandId: "region-parallel", expectedVersion: 1, x: 2700 };
+    const parallel = await Promise.all([request(endpoint, concurrentInput), request(endpoint, concurrentInput)]);
+    expect(parallel.map((response) => response.status)).toEqual([201, 201]);
+    const parallelCards = await Promise.all(parallel.map(async (response) =>
+      (await response.json()).workspace.cards.find((item: { id: string }) => item.id === concurrentInput.commandId)));
+    expect(parallelCards[0].region.assetId).toBe(parallelCards[1].region.assetId);
     expect((await request(endpoint, { ...input, commandId: "wrong-book", bookId: second.id })).status).toBe(400);
     expect((await request(endpoint, { ...input, commandId: "wrong-page", expectedVersion: 1, page: 2 })).status).toBe(400);
     expect((await request(endpoint, { ...input, commandId: "outside-page", expectedVersion: 1,
       rect: [20, 30, 405, 100] })).status).toBe(400);
     expect((await request(`books/${first.id}/workspace/commands`, {
-      bookId: first.id, commandId: "forged-region", expectedVersion: 1,
+      bookId: first.id, commandId: "forged-region", expectedVersion: 2,
       changes: [{ type: "upsert-card", card: { ...card, id: "forged-card" } }],
     })).status).toBe(400);
     expect((await request(endpoint, { ...input, commandId: "stale", expectedVersion: 0 })).status).toBe(409);
-    expect(core.library.store.list("workspace-asset", first.id)).toHaveLength(1);
+    expect(core.library.store.list("workspace-asset", first.id)).toHaveLength(2);
+    expect((await readdir(join(directory, "workspace-assets", first.id))).sort()).toEqual(
+      [card.region.assetId, parallelCards[0].region.assetId].map((id: string) => `${id}.png`).sort());
     core.close();
     core = createCore(directory, "dist/web");
     await connect();
     expect((await (await request(`books/${first.id}/workspace`)).json()).cards[0]).toMatchObject(card);
     expect((await request(`books/${first.id}/workspace-assets/${card.region.assetId}`)).status).toBe(200);
+    const converted = await request(`books/${first.id}/workspace/cards/${card.id}/note`, {});
+    expect(converted.status).toBe(201);
+    const note = await converted.json();
+    expect(note.sourceCard.region.assetId).toBe(card.region.assetId);
+    const current = await (await request(`books/${first.id}/workspace`)).json();
+    expect((await request(`books/${first.id}/workspace/commands`, {
+      bookId: first.id, commandId: "remove-commented-region", expectedVersion: current.revision,
+      changes: [{ type: "delete-card", id: card.id }],
+    })).status).toBe(200);
+    const exported = await request(`books/${first.id}/workspace/archive`);
+    expect(exported.status).toBe(200);
+    const restored = await fetch(origin + "/api/workspace-archives", {
+      method: "POST", headers: { Origin: origin, Cookie: cookie, "Content-Type": "application/octet-stream" },
+      body: Buffer.from(await exported.arrayBuffer()),
+    });
+    expect(restored.status).toBe(201);
+    const copy = await restored.json();
+    const copyNote = (await (await request(`books/${copy.id}/notes`)).json())[0];
+    expect(copyNote.sourceCard.region.assetId).not.toBe(card.region.assetId);
+    expect((await request(`books/${copy.id}/workspace-assets/${copyNote.sourceCard.region.assetId}`)).status).toBe(200);
   } finally {
     core.close();
     await rm(directory, { recursive: true, force: true });

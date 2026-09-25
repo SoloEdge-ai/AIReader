@@ -14,7 +14,11 @@ import { Library } from "./library";
 import { answerDocument } from "./note-markdown";
 import { exportNoteArchive } from "./note-export";
 import { ChatImages } from "./chat-images";
+import { changeNotePlacement } from "./note-placements";
+import { NoteTransactions } from "./note-transactions";
 import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
+import { Workspaces } from "./workspace";
+import type { WorkspaceAssets } from "./workspace-assets";
 export function richDocument(input: unknown): RichNode {
   if (JSON.stringify(input)?.length > 100000) throw new Error("笔记内容过长");
   let count = 0;
@@ -144,7 +148,10 @@ export function richDocument(input: unknown): RichNode {
   return result;
 }
 export class Notes {
-  constructor(readonly library: Library) {}
+  private readonly changes: NoteTransactions;
+  constructor(readonly library: Library, private readonly workspaceAssets: WorkspaceAssets) {
+    this.changes = new NoteTransactions(library.store, (event) => library.emit(event));
+  }
   annotations(bookId: string) {
     this.library.book(bookId);
     return this.library.store
@@ -155,7 +162,9 @@ export class Notes {
     this.library.book(bookId);
     return this.library.store
       .list<Note>("note", bookId)
-      .filter((n) => !n.deletedAt);
+      .filter((n) => !n.deletedAt)
+      .map((n) => ({ ...n, annotationSource: n.annotationId
+        ? this.get<Annotation>("annotation", bookId, n.annotationId) : undefined }));
   }
   private get<T extends { bookId: string }>(
     kind: string,
@@ -168,30 +177,78 @@ export class Notes {
       throw new Error("记录不存在或不属于此书籍");
     return value;
   }
-  private save(value: Annotation | Note, kind: "annotation" | "note") {
-    this.library.store.put(kind, value.id, value.bookId, value);
-    this.library.emit({
-      type: kind,
-      bookId: value.bookId,
-      taskId: value.id,
-      data: value,
-    });
-  }
-  createNote(bookId: string, title = "新笔记", annotationId?: string) {
+  createNote(bookId: string, title = "新笔记", annotationId?: string,
+    sourceCard?: Note["sourceCard"], document?: RichNode) {
     this.library.book(bookId);
     const now = new Date().toISOString();
     const note: Note = {
       id: randomUUID(),
       bookId,
       annotationId,
+      sourceCard,
       title,
-      document: { type: "doc", content: [{ type: "paragraph" }] },
+      document: richDocument(document ?? { type: "doc", content: [{ type: "paragraph" }] }),
       revision: 1,
       createdAt: now,
       updatedAt: now,
     };
-    this.save(note, "note");
+    this.changes.save(note);
     return note;
+  }
+  promoteCard(bookId: string, cardId: string): { note: Note; created: boolean } {
+    let note!: Note, created = false;
+    this.changes.run(() => {
+      const workspace = new Workspaces(this.library);
+      const snapshot = workspace.get(bookId);
+      const card = snapshot.cards.find((item) => item.id === cardId);
+      if (!card) throw new Error("卡片不存在或不属于此书籍");
+      if (card.noteId) {
+        note = this.get<Note>("note", bookId, card.noteId);
+        if (note.deletedAt || (card.kind !== "note" && note.sourceCard?.cardId !== card.id))
+          throw new Error("卡片笔记与来源不匹配");
+        return;
+      }
+      const paragraphs = (card.kind === "note" ? [card.text, card.comment].filter(Boolean)
+        : [card.comment]).flatMap((value) => value.split(/\r?\n/));
+      let document: RichNode = { type: "doc", content: (paragraphs.length ? paragraphs : [""]).map((line) => ({
+        type: "paragraph", content: line ? [{ type: "text", text: line }] : [],
+      })) };
+      // Legacy cards allow many short lines. Keep the original text if rich block overhead
+      // would exceed Note's bounded document format; never clear the card before validation.
+      if (JSON.stringify(document).length > 90000)
+        document = { type: "doc", content: [{ type: "paragraph", content: [{
+          type: "text", text: paragraphs.join("\n"),
+        }] }] };
+      note = this.createNote(bookId, card.title || (card.kind === "note" ? "新笔记" : "摘录评论"), undefined,
+        card.kind === "note" ? undefined : { cardId: card.id, kind: card.kind, title: card.title,
+          text: card.text, source: card.source, region: card.region },
+        document);
+      workspace.save(bookId, { ...snapshot, cards: snapshot.cards.map((item) => item.id === card.id
+        ? { ...item, noteId: note.id, title: card.kind === "note" ? "" : item.title,
+          text: card.kind === "note" ? "" : item.text, comment: "" } : item) }, true);
+      created = true;
+    });
+    if (created) this.library.emit({ type: "workspace", bookId, taskId: cardId });
+    return { note, created };
+  }
+  comment(bookId: string, annotationId: string) {
+    let result: Note;
+    this.changes.run(() => {
+      const annotation = this.get<Annotation>("annotation", bookId, annotationId);
+      if (annotation.deletedAt) throw new Error("批注已删除，不能添加评论");
+      if (annotation.noteId) {
+        const existing = this.get<Note>("note", bookId, annotation.noteId);
+        if (!existing.deletedAt) { result = existing; return; }
+      }
+      const note = this.createNote(bookId,
+        annotation.quote.slice(0, 50) || `第 ${annotation.anchors[0].page} 页批注`, annotationId);
+      annotation.noteId = note.id;
+      annotation.revision++;
+      annotation.updatedAt = new Date().toISOString();
+      this.changes.save(annotation);
+      result = note;
+    });
+    return result!;
   }
   fromAnswer(bookId: string, turnId: string) {
     const book = this.library.book(bookId);
@@ -257,7 +314,7 @@ export class Notes {
         materials,
       },
     };
-    try { this.save(note, "note"); }
+    try { this.changes.save(note); }
     catch (error) { new ChatImages(this.library).discard(bookId, copiedImages); throw error; }
     return { note, created: true };
   }
@@ -279,13 +336,15 @@ export class Notes {
         bookId,
         note.annotationId,
       );
-      if (annotation.noteId !== note.id) throw new Error("批注与笔记不匹配");
       if (annotation.assetId)
         assets.push({
           name: "assets/region.png",
           bytes: await readFile(this.asset(bookId, annotation.assetId)),
         });
     }
+    if (note.sourceCard?.region)
+      assets.push({ name: "assets/excerpt-region.png",
+        bytes: await this.workspaceAssets.read(bookId, note.sourceCard.region.assetId) });
     return {
       buffer: exportNoteArchive(
         book,
@@ -329,24 +388,18 @@ export class Notes {
     const { image, ...data } = value;
     const now = new Date().toISOString();
     let annotation: Annotation;
-    this.library.store.transaction(() => {
-      const note = this.createNote(
-        bookId,
-        value.quote.slice(0, 50) || `第 ${value.anchors[0].page} 页批注`,
-        id,
-      );
+    this.changes.run(() => {
       annotation = {
         ...data,
         id,
         bookId,
         fingerprint: book.fingerprint,
-        noteId: note.id,
         assetId,
         createdAt: now,
         updatedAt: now,
         revision: 1,
       };
-      this.save(annotation, "annotation");
+      this.changes.save(annotation);
     });
     return annotation!;
   }
@@ -365,7 +418,7 @@ export class Notes {
     note.title = value.title;
     note.revision++;
     note.updatedAt = new Date().toISOString();
-    this.save(note, "note");
+    this.changes.save(note);
     return note;
   }
   updateAnnotation(bookId: string, id: string, input: unknown) {
@@ -381,7 +434,7 @@ export class Notes {
     annotation.color = value.color;
     annotation.revision++;
     annotation.updatedAt = new Date().toISOString();
-    this.save(annotation, "annotation");
+    this.changes.save(annotation);
     return annotation;
   }
   remove(
@@ -391,18 +444,18 @@ export class Notes {
     restore = false,
   ) {
     const value = this.get<Annotation | Note>(kind, bookId, id);
-    const previous = value.deletedAt;
+    const wasDeleted = Boolean(value.deletedAt);
     const timestamp = new Date().toISOString();
     let workspaceChanged = false;
-    this.library.store.transaction(() => {
+    this.changes.run(() => {
       if (kind === "annotation") {
-        const workspace = this.library.store.get<BookWorkspace>("workspace", bookId);
+        const workspace = this.library.store.workspaces.get(bookId);
         const key = `annotation:${id}`;
         if (workspace && !restore) {
           const removed = workspace.links.filter((link) => link.from === id || link.to === id);
           if (removed.length) {
             this.library.store.put("annotation-removed-links", key, bookId, removed);
-            this.library.store.put("workspace", bookId, bookId, { ...workspace,
+            this.library.store.workspaces.save({ ...workspace,
               revision: workspace.revision + 1,
               links: workspace.links.filter((link) => link.from !== id && link.to !== id) });
             workspaceChanged = true;
@@ -415,7 +468,7 @@ export class Notes {
               ...this.annotations(bookId).map((annotation) => annotation.id)]);
             if (removed.some((link) => !endpoints.has(link.from) || !endpoints.has(link.to)))
               throw new Error("关联对象已删除，无法恢复批注关系；请先恢复关联对象");
-            this.library.store.put("workspace", bookId, bookId, { ...workspace,
+            this.library.store.workspaces.save({ ...workspace,
               revision: workspace.revision + 1,
               links: [...workspace.links, ...removed.filter((link) =>
                 !workspace.links.some((current) => current.id === link.id))] });
@@ -426,21 +479,16 @@ export class Notes {
       value.deletedAt = restore ? undefined : timestamp;
       value.updatedAt = timestamp;
       value.revision++;
-      this.save(value, kind);
-      if (kind === "annotation") {
-        const note = this.get<Note>(
-          "note",
-          bookId,
-          (value as Annotation).noteId,
-        );
-        if (
-          (restore && note.deletedAt === previous) ||
-          (!restore && !note.deletedAt)
-        ) {
-          note.deletedAt = restore ? undefined : timestamp;
-          note.revision++;
-          note.updatedAt = timestamp;
-          this.save(note, "note");
+      this.changes.save(value);
+      if (kind === "note" && wasDeleted === restore)
+        workspaceChanged = changeNotePlacement(this.library, bookId, id, restore);
+      if (kind === "note" && (value as Note).annotationId) {
+        const annotation = this.get<Annotation>("annotation", bookId, (value as Note).annotationId!);
+        if ((!restore && annotation.noteId === id) || (restore && !annotation.noteId && !annotation.deletedAt)) {
+          annotation.noteId = restore ? id : undefined;
+          annotation.revision++;
+          annotation.updatedAt = timestamp;
+          this.changes.save(annotation);
         }
       }
     });
@@ -448,8 +496,10 @@ export class Notes {
     return value;
   }
   asset(bookId: string, assetId: string) {
-    const annotation = this.annotations(bookId).find(
-      (a) => a.assetId === assetId,
+    this.library.book(bookId);
+    const notes = this.list(bookId);
+    const annotation = this.library.store.list<Annotation>("annotation", bookId).find(
+      (a) => a.assetId === assetId && (!a.deletedAt || notes.some((n) => n.annotationId === a.id)),
     );
     if (!annotation) throw new Error("图片不存在");
     return join(

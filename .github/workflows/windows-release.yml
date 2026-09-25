@@ -13,7 +13,11 @@ concurrency:
 jobs:
   build:
     name: Build and verify
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/codex/architecture-refactor'
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      channel: ${{ steps.identity.outputs.channel }}
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
@@ -27,11 +31,8 @@ jobs:
       - name: Reader palette and workspace menu UI acceptance
         run: pnpm test:reader-ui
       - name: Set artifact version
-        shell: pwsh
-        run: |
-          $manifest = Get-Content package.json -Raw | ConvertFrom-Json
-          $manifest.version = '0.1.${{ github.run_number }}'
-          $manifest | ConvertTo-Json -Depth 30 | Set-Content package.json -Encoding utf8
+        id: identity
+        run: node --import tsx scripts/prepare-release.ts
       - run: pnpm desktop:windows
       - name: NSIS file-removal guard regression
         run: ./scripts/uninstall-file-check-smoke.ps1
@@ -81,13 +82,15 @@ jobs:
           node scripts/desktop-smoke.mjs $portable.FullName
         env:
           AIREADER_CI: "1"
+      - name: Desktop close and draft-save acceptance
+        run: node scripts/close-save-smoke.mjs
       - name: Installer, update, and uninstall acceptance
         timeout-minutes: 15
         shell: pwsh
         run: |
           $installer = @(Get-ChildItem release/AIReader-Setup-*-x64.exe)
           if ($installer.Count -ne 1) { throw 'Expected one installer' }
-          ./scripts/installer-smoke.ps1 -Installer $installer[0].FullName -ExpectedVersion '0.1.${{ github.run_number }}'
+          ./scripts/installer-smoke.ps1 -Installer $installer[0].FullName -ExpectedVersion '${{ steps.identity.outputs.version }}'
         env:
           AIREADER_CI: "1"
       - name: UI review screenshots
@@ -106,7 +109,7 @@ jobs:
           $portable = @(Get-ChildItem release/AIReader-Portable-*-x64.exe)
           $installer = @(Get-ChildItem release/AIReader-Setup-*-x64.exe)
           if ($portable.Count -ne 1 -or $installer.Count -ne 1) { throw 'Expected portable and installer executables' }
-          @($portable[0], $installer[0]) | Sort-Object Name | ForEach-Object {
+          @($portable[0], $installer[0], (Get-Item release/build-info.json)) | Sort-Object Name | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"
           } | Set-Content release/SHA256SUMS.txt -Encoding ascii
@@ -117,17 +120,21 @@ jobs:
             release/AIReader-Portable-*-x64.exe
             release/AIReader-Setup-*-x64.exe
             release/SHA256SUMS.txt
+            release/build-info.json
           retention-days: 30
           compression-level: 0
           if-no-files-found: error
   release:
     name: Publish release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/architecture-refactor')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           name: aireader-windows11-x64-${{ github.sha }}
@@ -136,10 +143,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: v0.1.${{ github.run_number }}
+          TAG: v${{ needs.build.outputs.version }}
+          CHANNEL: ${{ needs.build.outputs.channel }}
         run: |
+          set -euo pipefail
+          if git rev-parse --verify "refs/tags/$TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA" || { echo 'Tag belongs to a different commit'; exit 1; }
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
+          elif [ "$CHANNEL" = preview ]; then
+            gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "AIReader $TAG — Preview" --generate-notes --prerelease --latest=false
           else
             gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "AIReader $TAG" --generate-notes --latest
           fi

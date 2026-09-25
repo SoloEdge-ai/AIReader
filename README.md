@@ -49,4 +49,4 @@ pnpm desktop:windows
 
 所有实现经 PR，`main` 对管理员同样受保护，仅 squash merge。每次 PR 更新生成保留 30 天的安装包与免安装 EXE；合并后发布新版本。CI 使用生成的测试 PDF 和模拟 Codex，不保存账户凭证或用户书籍。
 
-[改版规格](docs/REDESIGN.md) · [验收与限制](docs/VERIFICATION.md) · [改版审查](docs/REVIEW-REDESIGN.md)
+[当前文档](docs/README.md) · [重构实施计划](docs/plans/architecture-refactor.md) · [测试与发布](docs/testing-release.md)

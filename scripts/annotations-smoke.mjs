@@ -65,6 +65,8 @@ try {
   await page.getByRole("button", { name: "标注方式" }).click();
   await page.getByRole("button", { name: "高亮", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
+  await expect(page.getByLabel("笔记标题", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "写评论", exact: true }).click();
   await page.getByLabel("笔记标题", { exact: true }).fill("Reading experiment");
   await page.locator(".tiptap").fill("A saved observation.");
   await expect(
@@ -95,12 +97,33 @@ try {
   await expect(page.locator(".tiptap")).toContainText(
     "Draft retained after failure.",
   );
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("关闭前保存失败");
+  await page.screenshot({ path: ".local/screenshots/save-failure-toast.png" });
   await page.getByRole("button", { name: "返回书库" }).click();
   await expect(page.locator(".tiptap")).toContainText(
     "Draft retained after failure.",
   );
   await page.unroute("**/api/books/*/notes/*");
   await page.getByRole("button", { name: "重试保存" }).click();
+  await expect(page.locator(".notes-panel").getByText("已保存", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "放到画布", exact: true }).click();
+  const noteCard = page.locator(".workspace-card.note");
+  await expect(noteCard).toHaveCount(1);
+  await noteCard.getByRole("textbox", { name: "笔记正文" }).click({ modifiers: ["Shift"] });
+  await expect(noteCard.getByRole("textbox", { name: "笔记正文" })).toBeVisible();
+  await noteCard.getByRole("textbox", { name: "笔记正文" }).fill("The same note from its card.");
+  await expect(noteCard.getByRole("textbox", { name: "笔记正文" })).toHaveText("The same note from its card.");
+  await expect(page.locator(".notes-panel .tiptap")).toHaveText("The same note from its card.");
+  await expect(page.locator(".notes-panel").getByText("已保存", { exact: true })).toBeVisible();
+  await noteCard.getByRole("button", { name: "展开卡片笔记" }).click();
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("Draft retained after failure.");
+  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.screenshot({ path: ".local/screenshots/shared-note-card-packaged.png" });
+  await noteCard.getByRole("button", { name: "移除卡片，保留笔记" }).click();
+  await expect(noteCard).toHaveCount(0);
+  await expect(page.locator(".notes-panel .tiptap")).toHaveText("Draft retained after failure.");
   await expect(
     page.locator(".notes-panel").getByText("已保存", { exact: true }),
   ).toBeVisible();
@@ -120,10 +143,12 @@ try {
   await page.getByLabel("批注颜色", { exact: true }).selectOption("green");
   await page.getByRole("button", { name: "删除批注", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(0);
+  await expect(page.locator(".tiptap")).toContainText("Committed despite a lost response.");
+  await expect(page.getByText("源标注已删除，以下保留原文位置与摘录。")).toBeVisible();
   await page.getByRole("button", { name: "撤销批注操作" }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   await page.screenshot({ path: ".local/screenshots/notes.png" });
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByLabel("页码", { exact: true }).fill("6");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("6");
@@ -133,7 +158,10 @@ try {
   await page.getByLabel("页码", { exact: true }).fill("3");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("3");
+  await expect(page.getByRole("alert")).toBeVisible();
   await page.getByRole("button", { name: "区域摘录（R）" }).click();
+  await page.getByRole("button", { name: "关闭提示" }).click();
+  await expect(page.getByRole("alert")).toBeHidden();
   await expect(page.locator("#page-3")).toHaveAttribute(
     "data-render-ready",
     "true",
@@ -146,7 +174,7 @@ try {
   await page.getByRole("toolbar", { name: "区域摘录操作" }).getByRole("button", { name: "批注" }).click();
   await expect(page.locator(".annotation-region")).toHaveCount(1);
   await expect(page.getByAltText("区域摘录")).toBeVisible();
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByRole("button", { name: "区域摘录（R）" }).click();
   const excerptBox = await page.locator("#page-3").boundingBox();
   await page.mouse.move(excerptBox.x + 85, excerptBox.y + 85);
@@ -163,7 +191,7 @@ try {
   const rotated = await page.locator("#page-3").boundingBox();
   await page.mouse.click(rotated.x + 200, Math.max(80, rotated.y + 150));
   await expect(page.locator(".annotation-sticky")).toHaveCount(1);
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByLabel("主题", { exact: true }).selectOption("dark");
   await page.getByRole("button", { name: "关闭设置" }).click();
@@ -172,9 +200,9 @@ try {
     BrowserWindow.getAllWindows()[0].setSize(960, 720),
   );
   await page.getByLabel("笔记", { exact: true }).click();
-  await expect(page.locator(".side-panel")).toBeVisible();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
   await page.screenshot({ path: ".local/screenshots/notes-narrow.png" });
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   for (let i = 0; i < 3; i++)
     await page.getByRole("button", { name: "旋转页面" }).click();
   for (let i = 0; i < 8; i++)
@@ -214,7 +242,7 @@ try {
       elements.map((e) => e.getBoundingClientRect().height),
     );
   expect(sizes.every((h) => h < 20)).toBeTruthy();
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByLabel("页码", { exact: true }).fill("4");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await page.locator("#page-4 .textLayer span").first().waitFor();

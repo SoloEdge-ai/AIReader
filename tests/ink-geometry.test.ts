@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPage } from "../apps/web/src/InkGeometry";
+import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPage } from "../packages/workspace-engine/src/ink";
 
 const pages: InkPage[] = [1, 2].map((page) => {
   const y = page === 1 ? 40 : 164;

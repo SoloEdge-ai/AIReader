@@ -1,9 +1,7 @@
 import type {
-  ChatTurn,
   ContextManifest,
   ReadingSnapshot,
   SourceAnchor,
-  SemanticNode,
   Passage,
   ChatImage,
   QuestionMaterialSnapshot,
@@ -47,13 +45,9 @@ export function buildContext(
   const chapter = [...book.chapters]
     .sort((a, b) => (b.depth ?? 0) - (a.depth ?? 0))
     .find((c) => c.page <= snapshot.page && c.endPage >= snapshot.page);
-  const turns = library.store
-    .list<ChatTurn>("turn", book.id)
-    .filter((t) => t.sessionId === sessionId && t.status === "complete")
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const nodes = library.store
-    .list<SemanticNode>("semantic", book.id)
-    .filter((n) => n.indexVersion === book.indexVersion);
+  const turns = library.chat.turns(book.id, sessionId)
+    .filter((t) => t.status === "complete");
+  const nodes = library.index.nodes(book.id, book.indexVersion);
   const global =
     snapshot.scope === "book" || /整本|全书|核心观点/.test(question);
   const candidates: Passage[] = [];
@@ -122,10 +116,7 @@ export function buildContext(
     coverage: `可检索文字覆盖 ${book.textPages} / ${book.pages} 页；解析进度 ${book.parsedPages} / ${book.pages} 页；语义索引 ${nodes.length} / ${book.chapters.length} 个节点。${global ? "部分总结：本轮证据受预算限制，未覆盖的章节不得推断或声称已验证。" : ""}${sourcePages.size ? `选定原文涉及 ${sourcePages.size} 页；只有下方实际列出的原文片段构成可引用证据，未列出的页不可视为已核验。` : ""}`,
     reading: snapshot,
     evidence: [],
-    memory: (
-      library.store.get<{ text: string }>("memory", book.id + ":" + sessionId)
-        ?.text ?? ""
-    ).slice(0, 1600),
+    memory: (library.chat.memory(book.id, sessionId)?.text ?? "").slice(0, 1600),
     recent: turns
       .slice(-3)
       .map(

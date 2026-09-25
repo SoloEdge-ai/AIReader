@@ -57,9 +57,12 @@ test("book annotations and rich notes persist, reject stale or unsafe edits, and
     });
     expect(annotationResponse.status).toBe(201);
     const annotation = await annotationResponse.json();
-    const notes = await (await request(`books/${book.id}/notes`)).json();
-    const note = notes.find((n: any) => n.id === annotation.noteId);
-    expect(note).toBeDefined();
+    expect(annotation.noteId).toBeUndefined();
+    expect(await (await request(`books/${book.id}/notes`)).json()).toEqual([]);
+    const comment = await request(`books/${book.id}/annotations/${annotation.id}/note`, {});
+    expect(comment.status).toBe(200);
+    const note = await comment.json();
+    expect((await (await request(`books/${book.id}/annotations/${annotation.id}/note`, {})).json()).id).toBe(note.id);
     const updated = await request(`books/${book.id}/notes/${note.id}`, {
       revision: note.revision,
       title: "Capacity notes",
@@ -94,6 +97,7 @@ test("book annotations and rich notes persist, reject stale or unsafe edits, and
       })
     ).json();
     await core.library.waitForBook(other.id);
+    expect((await request(`books/${other.id}/annotations/${annotation.id}/note`, {})).status).toBe(400);
     expect(
       (
         await request(`books/${other.id}/notes/${note.id}`, {
@@ -173,16 +177,30 @@ test("book annotations and rich notes persist, reject stale or unsafe edits, and
     expect(
       await (await request(`books/${book.id}/annotations`)).json(),
     ).toEqual([]);
+    expect((await (await request(`books/${book.id}/notes`)).json())[0].document).toEqual(current.document);
+    const detached = (await (await request(`books/${book.id}/notes`)).json())[0];
+    expect(detached.annotationSource.quote).toBe("A cross-page excerpt");
+    expect(detached.annotationSource.deletedAt).toBeTruthy();
+    expect((await request(`books/${book.id}/annotations/${annotation.id}/note`, {})).status).toBe(400);
     await request(`books/${book.id}/annotations/${annotation.id}/restore`, {});
     expect(
       (await (await request(`books/${book.id}/annotations`)).json()).length,
     ).toBe(1);
+    await request(`books/${book.id}/notes/${note.id}`, undefined, "DELETE");
+    const withoutComment = await (await request(`books/${book.id}/annotations`)).json();
+    expect(withoutComment).toHaveLength(1);
+    expect(withoutComment[0].noteId).toBeUndefined();
+    const replacement = await (await request(`books/${book.id}/annotations/${annotation.id}/note`, {})).json();
+    expect(replacement.id).not.toBe(note.id);
+    await request(`books/${book.id}/notes/${note.id}/restore`, {});
+    expect((await (await request(`books/${book.id}/annotations`)).json())[0].noteId).toBe(replacement.id);
     core.close();
     core = createCore(directory, "dist/web");
     connection = await connect();
     const restored = await (await request(`books/${book.id}/notes`)).json();
-    expect(restored[0].title).toBe("Capacity notes");
-    expect(restored[0].document.content[0].content[0].text).toBe(
+    const original = restored.find((n: any) => n.id === note.id);
+    expect(original.title).toBe("Capacity notes");
+    expect(original.document.content[0].content[0].text).toBe(
       "My observation",
     );
     expect(

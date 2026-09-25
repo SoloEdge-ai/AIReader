@@ -130,6 +130,7 @@ export function exportNoteArchive(
     }
   }
   if (annotation) {
+    if (annotation.deletedAt) lines.push("> 源标注已删除；以下为保留的原文位置与摘录，不表示标注仍存在。");
     lines.push(
       "## 关联批注",
       `物理页：${annotation.anchors.map((a) => a.page).join("、")}；文档指纹：\`${annotation.fingerprint}\``,
@@ -143,6 +144,20 @@ export function exportNoteArchive(
       );
     lines.push(`PDF 坐标：\`${JSON.stringify(annotation.anchors)}\``);
   }
+  if (note.sourceCard) {
+    const source = note.sourceCard;
+    lines.push("## 关联摘录", "以下是建立评论时冻结的来源；笔记正文是个人内容，不是书中原文。");
+    if (source.source) {
+      lines.push(`物理页：${source.source.anchors.map((anchor) => anchor.page).join("、")}；文档指纹：\`${source.source.fingerprint}\``,
+        `PDF 坐标：\`${JSON.stringify(source.source.anchors)}\``);
+      if (source.text) lines.push(escapeText(source.text));
+    }
+    if (source.region) {
+      lines.push(`物理页：${source.region.page}；文档指纹：\`${source.region.fingerprint}\`；PDF 坐标：\`${JSON.stringify(source.region.rect)}\``);
+      lines.push(`![摘录图片](assets/excerpt-region.png)`);
+      if (source.region.includePersonalMarks) lines.push("图片含个人标注，不代表未经修改的 PDF 原图。");
+    }
+  }
   if (assets.length) {
     lines.push(
       "## 关联图片",
@@ -150,7 +165,7 @@ export function exportNoteArchive(
         ? "以下为原问题附图及本轮选定材料图片，不自动视为已核验的书中原文。"
         : "以下为关联的页内区域摘录。",
     );
-    assets.forEach((asset, index) => {
+    assets.filter((asset) => asset.name !== "assets/excerpt-region.png").forEach((asset, index) => {
       lines.push(`![关联图片 ${index + 1}](${asset.name})`);
       const source = note.origin?.images?.[index]?.source;
       if (source)

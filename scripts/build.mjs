@@ -1,6 +1,7 @@
 import { build } from "esbuild";
 import { build as viteBuild } from "vite";
-import { mkdir, copyFile, readFile } from "node:fs/promises";
+import { mkdir, copyFile, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 // The Markdown plugins are ESM-only. Bundle this graph so the emitted CJS Core
 // does not receive namespace objects from require() in place of plugin functions.
 const bundledPackages = new Set([
@@ -12,7 +13,17 @@ const bundledPackages = new Set([
   "pdf-lib",
 ]);
 const manifest = JSON.parse(await readFile("package.json", "utf8"));
+const formats = JSON.parse(await readFile("build/format-versions.json", "utf8"));
+const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const buildInfo = process.env.GITHUB_ACTIONS === "true"
+  ? JSON.parse(await readFile("release/build-info.json", "utf8"))
+  : { version: manifest.version, channel: "development", commit,
+      workingTreeDirty: Boolean(execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim()),
+      ...formats };
+if (buildInfo.commit !== commit || buildInfo.version !== manifest.version)
+  throw new Error("Build metadata does not match the checked-out commit/version");
 await mkdir("dist/core", { recursive: true });
+await writeFile("dist/build-info.json", JSON.stringify(buildInfo, null, 2) + "\n");
 await build({
   entryPoints: ["apps/core/src/pdf-worker.ts"],
   outfile: "dist/core/pdf-worker.mjs",
@@ -44,6 +55,7 @@ await build({
 await copyFile("assets/app.ico", "dist/desktop/app.ico");
 await viteBuild({
   root: "apps/web",
+  define: { __AIREADER_BUILD__: JSON.stringify(buildInfo) },
   base: "./",
   build: { outDir: "../../dist/web", emptyOutDir: true },
 });

@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { ReaderTool, ToolPreferences } from "../../../packages/protocol/src";
-import { Icon } from "./Icon";
+import { Icon } from "./ui/Icon";
+import { Popover } from "./ui/Popover";
+import { positionPopover } from "./ui/positionPopover";
 
 const tools = [
   { id: "pointer", label: "指针（V）", icon: "pointer" },
@@ -42,32 +44,31 @@ export function ReaderToolPalette({
   const dragPointer = useRef<number | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const settings = useRef<HTMLDivElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const [menuType, setMenuType] = useState<"add" | "shape">("add");
   const [settingTool, setSettingTool] = useState<"pen" | "highlighter">("pen");
-  function place(panel: HTMLElement) {
-    if (!palette.current) return;
-    panel.showPopover();
-    const bar = palette.current.getBoundingClientRect(), box = panel.getBoundingClientRect();
-    const left = preferences.dock === "right" ? bar.left - box.width - 8
-      : preferences.dock === "left" ? bar.right + 8 : bar.left + bar.width / 2 - box.width / 2;
-    const top = preferences.dock === "bottom" ? bar.top - box.height - 8 : bar.top;
-    panel.style.left = `${Math.max(8, Math.min(window.innerWidth - box.width - 8, left))}px`;
-    panel.style.top = `${Math.max(8, Math.min(window.innerHeight - box.height - 8, top))}px`;
-  }
-  function openMenu(next: "add" | "shape") {
-    setMenuType(next);
-    if (settings.current?.matches(":popover-open")) settings.current.hidePopover();
-    requestAnimationFrame(() => { if (menu.current) place(menu.current); });
+  const [brushOpen, setBrushOpen] = useState(false);
+  const brushPlacement = preferences.dock === "bottom" ? "top"
+    : preferences.dock === "left" ? "right" : "left";
+  function placeBrush() {
+    if (!palette.current || !settings.current) return;
+    positionPopover(settings.current, palette.current, brushPlacement, 266, "center");
   }
   function updateBrush(patch: Partial<ToolPreferences["pen"]>) {
     onPreferences({ ...preferences, [settingTool]: { ...preferences[settingTool], ...patch } });
   }
   function openBrush(next: "pen" | "highlighter") {
     setSettingTool(next);
-    if (menu.current?.matches(":popover-open")) menu.current.hidePopover();
-    if (settings.current) place(settings.current);
+    settings.current?.showPopover();
+    placeBrush();
   }
+  useEffect(() => {
+    if (!brushOpen) return;
+    window.addEventListener("resize", placeBrush);
+    window.addEventListener("scroll", placeBrush, true);
+    return () => {
+      window.removeEventListener("resize", placeBrush);
+      window.removeEventListener("scroll", placeBrush, true);
+    };
+  }, [brushOpen, preferences.dock, preferences.offset]);
   useEffect(() => {
     const cancel = () => {
       const pointerId = dragPointer.current;
@@ -194,12 +195,24 @@ export function ReaderToolPalette({
               }}><Icon name={item.icon} /></button>
           ))}
           <span className="palette-separator" />
-          <button aria-label="添加文本或卡片" title="添加文本或卡片"
-            aria-pressed={addTools.some((item) => item.id === tool)}
-            onClick={() => openMenu("add")}><Icon name="plus" /></button>
-          <button aria-label="添加形状" title="添加形状"
-            aria-pressed={shapeTools.some((item) => item.id === tool)}
-            onClick={() => openMenu("shape")}><Icon name="rectangle" /></button>
+          <Popover label="添加内容" triggerLabel="添加文本或卡片" trigger={<Icon name="plus" />}
+            role="menu" className="reader-tool-menu" autoFocusFirst width={176}
+            pressed={addTools.some((item) => item.id === tool)}
+            placement={preferences.dock === "bottom" ? "top" : preferences.dock === "left" ? "right" : "left"}>
+            {(close) => addTools.map((item) =>
+              <button key={item.id} role="menuitem" onClick={() => { onTool(item.id); close(); }}>
+                <Icon name={item.icon} />{item.label}
+              </button>)}
+          </Popover>
+          <Popover label="添加形状" trigger={<Icon name="rectangle" />}
+            role="menu" className="reader-tool-menu" autoFocusFirst width={176}
+            pressed={shapeTools.some((item) => item.id === tool)}
+            placement={preferences.dock === "bottom" ? "top" : preferences.dock === "left" ? "right" : "left"}>
+            {(close) => shapeTools.map((item) =>
+              <button key={item.id} role="menuitem" onClick={() => { onTool(item.id); close(); }}>
+                <Icon name={item.icon} />{item.label}
+              </button>)}
+          </Popover>
           {tools.slice(6).map((item) => (
             <button key={item.id} aria-label={item.label} title={item.label}
               aria-pressed={tool === item.id} onClick={() => onTool(item.id)}>
@@ -226,7 +239,12 @@ export function ReaderToolPalette({
           </button>
         </>
       )}
-      <div ref={settings} popover="auto" role="dialog" aria-label="画笔设置" className="reader-brush-settings">
+      <div ref={settings} popover="auto" role="dialog" aria-label="画笔设置"
+        className="reader-popover reader-brush-settings"
+        onToggle={(event) => {
+          setBrushOpen(event.newState === "open");
+          if (event.newState === "open") requestAnimationFrame(placeBrush);
+        }}>
         <header>{settingTool === "pen" ? "画笔" : "荧光笔"}<span>再次点击工具可调整</span></header>
         <div className="brush-swatches" role="group" aria-label="画笔颜色">
           {["#345d84", "#222222", "#d35e45", "#e6b72d", "#69b28d"].map((color) =>
@@ -253,14 +271,6 @@ export function ReaderToolPalette({
           background: preferences[settingTool].color,
           opacity: preferences[settingTool].opacity,
         }} /></div>
-      </div>
-      <div ref={menu} popover="auto" role="menu" aria-label={menuType === "add" ? "添加内容" : "添加形状"}
-        className="reader-tool-menu">
-        {(menuType === "add" ? addTools : shapeTools).map((item) =>
-          <button key={item.id} role="menuitem" onClick={() => {
-            menu.current?.hidePopover();
-            onTool(item.id);
-          }}><Icon name={item.icon} />{item.label}</button>)}
       </div>
     </div>
   );

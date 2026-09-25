@@ -1,10 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type {
-  Chapter,
-  IndexJob,
-  Passage,
-  SemanticNode,
-} from "../../../packages/protocol/src";
+import type { IndexJob, Passage, SemanticNode } from "../../../packages/protocol/src";
 import { Library } from "./library";
 import { CodexAdapter } from "./codex";
 export class IndexService {
@@ -14,24 +9,22 @@ export class IndexService {
     readonly library: Library,
     readonly codex: CodexAdapter,
   ) {
-    for (const job of library.store.list<IndexJob>("index"))
+    for (const job of library.index.jobs())
       if (job.status === "running") {
         job.status = "queued";
         this.save(job);
       }
   }
   resume() {
-    for (const job of this.library.store.list<IndexJob>("index"))
+    for (const job of this.library.index.jobs())
       if (job.status === "queued") void this.run(job);
   }
   list(bookId: string) {
     this.library.book(bookId);
-    return this.library.store.list<IndexJob>("index", bookId);
+    return this.library.index.jobs(bookId);
   }
   nodes(bookId: string) {
-    return this.library.store
-      .list<SemanticNode>("semantic", bookId)
-      .filter((n) => n.indexVersion === this.library.book(bookId).indexVersion);
+    return this.library.index.nodes(bookId, this.library.book(bookId).indexVersion);
   }
   start(
     bookId: string,
@@ -40,6 +33,7 @@ export class IndexService {
     model?: string,
     effort?: string,
   ) {
+    if (this.closed) throw new Error("Core 正在关闭");
     const book = this.library.book(bookId);
     if (book.status !== "ready")
       throw new Error("请等待文本解析完成后建立语义索引。");
@@ -61,17 +55,13 @@ export class IndexService {
       completed: [],
       full,
     };
-    this.library.store.put(
-      "index-target",
-      job.id,
-      bookId,
-      full ? book.chapters : [chapter],
-    );
-    this.save(job);
+    this.library.index.createJob(job, full ? book.chapters : [chapter]);
+    this.library.emit({ type: "index", bookId, taskId: job.id, data: job });
     void this.run(job);
     return job;
   }
   control(bookId: string, id: string, action: "pause" | "cancel" | "resume") {
+    if (this.closed) throw new Error("Core 正在关闭");
     const job = this.list(bookId).find((j) => j.id === id);
     if (!job) throw new Error("索引任务不存在");
     if (action === "resume") {
@@ -90,7 +80,7 @@ export class IndexService {
   }
   private save(job: IndexJob) {
     if (this.closed) return;
-    this.library.store.put("index", job.id, job.bookId, job);
+    this.library.index.saveJob(job);
     this.library.emit({
       type: "index",
       bookId: job.bookId,
@@ -131,8 +121,7 @@ export class IndexService {
     this.save(job);
     try {
       const book = this.library.book(job.bookId);
-      const chapters =
-        this.library.store.get<Chapter[]>("index-target", job.id) ?? [];
+      const chapters = this.library.index.targets(job);
       for (const chapter of chapters) {
         if (controller.signal.aborted) break;
         if (job.completed.includes(chapter.id)) continue;
@@ -170,16 +159,11 @@ export class IndexService {
         const summaries: string[] = [];
         const concepts = new Set<string>();
         for (let i = 0; i < batches.length; i++) {
-          const key =
-            book.id + ":" + chapter.id + ":" + i + ":v" + book.indexVersion;
-          let result = this.library.store.get<{
-            summary: string;
-            concepts: string[];
-          }>("index-batch", key);
+          let result = this.library.index.batch(book.id, chapter.id, i, book.indexVersion);
           if (!result) {
             result = await this.summarize(batches[i], controller.signal, job);
             if (controller.signal.aborted) break;
-            this.library.store.put("index-batch", key, book.id, result);
+            this.library.index.saveBatch(book.id, chapter.id, i, book.indexVersion, result);
           }
           summaries.push(result.summary);
           result.concepts.forEach((c) => concepts.add(c));
@@ -194,7 +178,7 @@ export class IndexService {
           sourcePassageIds: passages.map((p) => p.id),
           indexVersion: book.indexVersion,
         };
-        this.library.store.put("semantic", node.id, book.id, node);
+        this.library.index.saveNode(node);
         job.completed.push(chapter.id);
         this.save(job);
       }
@@ -218,7 +202,7 @@ export class IndexService {
     for (const controller of this.controls.values()) controller.abort();
   }
   pauseAll() {
-    for (const job of this.library.store.list<IndexJob>("index"))
+    for (const job of this.library.index.jobs())
       if (["queued", "running"].includes(job.status))
         this.control(job.bookId, job.id, "pause");
   }

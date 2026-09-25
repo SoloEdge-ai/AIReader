@@ -1,7 +1,51 @@
 import { app, BrowserWindow, dialog, utilityProcess, shell } from "electron";
 import { join } from "node:path";
 import { release } from "node:os";
+import { randomUUID } from "node:crypto";
 let core: Electron.UtilityProcess | undefined;
+function withDeadline<T>(work: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([work, new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`等待超过 ${milliseconds / 1000} 秒`)), milliseconds);
+  })]).finally(() => clearTimeout(timer));
+}
+function stopCore(onLateComplete: () => void): Promise<void> {
+  const child = core;
+  if (!child) return Promise.reject(new Error("Core 尚未就绪"));
+  const requestId = randomUUID();
+  return new Promise<void>((resolve, reject) => {
+    let timedOut = false;
+    let finished = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error("Core 停止超过 15 秒，仍在等待确认"));
+    }, 15000);
+    const onMessage = (value: unknown) => {
+      if (!value || typeof value !== "object" || (value as { requestId?: unknown }).requestId !== requestId) return;
+      const message = value as { type?: string; error?: string };
+      if (message.type === "shutdown-complete") finish();
+      else if (message.type === "shutdown-failed") finish(new Error(message.error ?? "Core 停止失败"));
+    };
+    const onExit = () => finish(new Error("Core 未确认关闭便退出"));
+    function finish(error?: Error) {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      child!.off("message", onMessage);
+      child!.off("exit", onExit);
+      if (error) { if (!timedOut) reject(error); }
+      else {
+        core = undefined;
+        if (timedOut) onLateComplete();
+        else resolve();
+      }
+    }
+    child.on("message", onMessage);
+    child.once("exit", onExit);
+    try { child.postMessage({ type: "shutdown", requestId }); }
+    catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+  });
+}
 app.setPath(
   "userData",
   process.env.AIREADER_DATA ??
@@ -28,7 +72,9 @@ app.whenReady().then(() => {
     },
     serviceName: "AIReader Core",
   });
-  core.on("message", (message: { port: number }) => {
+  core.on("message", (message: unknown) => {
+    if (!message || typeof message !== "object" || typeof (message as { port?: unknown }).port !== "number") return;
+    const port = (message as { port: number }).port;
     const window = new BrowserWindow({
       width: 1440,
       height: 960,
@@ -43,6 +89,61 @@ app.whenReady().then(() => {
         sandbox: true,
       },
     });
+    let checkingClose = false;
+    let coreStopUncertain = false;
+    let coreStopError = "";
+    let coreWarningOpen = false;
+    const showCoreWarning = () => {
+      if (coreWarningOpen || window.isDestroyed()) return;
+      coreWarningOpen = true;
+      void dialog.showMessageBox(window, {
+        type: "warning", title: "Core 未能安全停止",
+        message: "草稿已保存，但 Core 停止状态未确认。窗口保持锁定，以免继续写入。",
+        detail: coreStopError,
+        buttons: ["保留窗口", "退出应用（停止未确认）"],
+        defaultId: 0, cancelId: 0,
+      }).then(({ response }) => {
+        if (response === 1 && !window.isDestroyed()) window.destroy();
+      }).catch(() => {}).finally(() => { coreWarningOpen = false; });
+    };
+    window.on("close", (event) => {
+      event.preventDefault();
+      if (coreStopUncertain) { showCoreWarning(); return; }
+      if (checkingClose) return;
+      checkingClose = true;
+      let stoppingCore = false;
+      void withDeadline(window.webContents.executeJavaScript(`(async () => {
+        if (typeof window.aiReaderFlushBeforeClose !== "function") throw new Error("未找到保存入口");
+        const saved = await window.aiReaderFlushBeforeClose();
+        if (typeof saved !== "boolean") throw new Error("保存结果无效");
+        return saved;
+      })()`), 15000)
+        .then(async (saved: boolean) => {
+          if (!saved || window.isDestroyed()) return;
+          stoppingCore = true;
+          await stopCore(() => { if (!window.isDestroyed()) window.destroy(); });
+          // The drafts were verified before Core closed. A second cancelable
+          // beforeunload would strand an editor with no database behind it.
+          if (!window.isDestroyed()) window.destroy();
+        })
+        .catch((error: unknown) => {
+          if (!window.isDestroyed()) {
+            console.error("AIReader close handshake failed:", error);
+            if (!stoppingCore) {
+              void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
+              void dialog.showMessageBox(window, {
+                type: "warning", title: "无法安全退出",
+                message: "保存未得到确认，窗口保持打开。",
+                detail: String(error), buttons: ["返回编辑"],
+              });
+            } else {
+              coreStopUncertain = true;
+              coreStopError = String(error);
+              showCoreWarning();
+            }
+          }
+        }).finally(() => { checkingClose = false; });
+    });
     window.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url);
@@ -52,7 +153,7 @@ app.whenReady().then(() => {
       return { action: "deny" };
     });
     window.webContents.on("will-navigate", (event, url) => {
-      if (!url.startsWith(`http://127.0.0.1:${message.port}/`))
+      if (!url.startsWith(`http://127.0.0.1:${port}/`))
         event.preventDefault();
     });
     window.webContents.on("will-prevent-unload", (event) => {
@@ -67,7 +168,7 @@ app.whenReady().then(() => {
       });
       if (discard === 1) event.preventDefault();
     });
-    void window.loadURL(`http://127.0.0.1:${message.port}`);
+    void window.loadURL(`http://127.0.0.1:${port}`);
   });
   core.on("exit", () => {
     if (!app.isPackaged) console.log("Core stopped");

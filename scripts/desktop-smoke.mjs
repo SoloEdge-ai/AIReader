@@ -1,7 +1,8 @@
 import { _electron as electron, chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { basename, join, resolve, sep } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 await mkdir(".local/screenshots", { recursive: true });
 const fixture = resolve(".local/desktop-fixture.pdf");
@@ -15,13 +16,17 @@ pdf
     y: 700,
   });
 await writeFile(fixture, await pdf.save());
+// A normal smoke must never reopen (or upgrade) a previous run's database.
+// Installer continuity deliberately opts into the real default path instead.
+const scratchData = process.env.AIREADER_SMOKE_USE_DEFAULT === "1" || process.env.AIREADER_SMOKE_DATA
+  ? undefined : await mkdtemp(join(tmpdir(), "aireader-desktop-smoke-"));
 const env = {
   ...process.env,
   ELECTRON_RUN_AS_NODE: undefined,
   AIREADER_DATA:
     process.env.AIREADER_SMOKE_USE_DEFAULT === "1"
       ? undefined
-      : resolve(process.env.AIREADER_SMOKE_DATA ?? ".local/desktop-library"),
+      : resolve(process.env.AIREADER_SMOKE_DATA ?? scratchData),
 };
 const portable = process.argv[2]?.includes("Portable-");
 let app;
@@ -151,9 +156,16 @@ try {
   let closeError;
   if (app) {
     let watchdog;
+    let requestTimer;
     try {
+      const closed = app.waitForEvent("close", { timeout: 20000 });
+      await Promise.race([app.evaluate(({ BrowserWindow }) => {
+        for (const window of BrowserWindow.getAllWindows()) window.close();
+      }), new Promise((_, reject) => {
+        requestTimer = setTimeout(() => reject(new Error("Desktop close request timed out")), 5000);
+      })]).finally(() => clearTimeout(requestTimer));
       await Promise.race([
-        app.close(),
+        closed,
         new Promise((_, reject) => {
           watchdog = setTimeout(
             () =>
@@ -171,12 +183,19 @@ try {
       closeError = error;
     } finally {
       clearTimeout(watchdog);
+      clearTimeout(requestTimer);
     }
   }
   if (browser) {
     const session = await browser.newBrowserCDPSession();
     await session.send("Browser.close").catch(() => {});
     await browser.close();
+  }
+  if (scratchData) {
+    const target = resolve(scratchData), temp = resolve(tmpdir());
+    if (!target.startsWith(temp + sep) || !basename(target).startsWith("aireader-desktop-smoke-"))
+      throw new Error("Refusing to remove an unexpected temporary directory");
+    await rm(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
   }
   if (closeError) throw closeError;
 }

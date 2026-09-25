@@ -1,359 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import type {
-  Annotation,
-  Note,
-  RichNode,
-  SourceAnchor,
-} from "../../../packages/protocol/src";
-import { api, base, post } from "./api";
+import type { Annotation, Note, SourceAnchor } from "../../../packages/protocol/src";
+import type { BookWorkspace as WorkspaceSnapshot } from "../../../packages/protocol/src/workspace";
+import { base } from "./api";
 import { ChatImageList } from "./ChatImageList";
-type Draft = { title: string; document: RichNode; generation: number };
-const canonical = (value: unknown): string =>
-  JSON.stringify(value, (_key, v) =>
-    v && typeof v === "object" && !Array.isArray(v)
-      ? Object.fromEntries(
-          Object.keys(v)
-            .sort()
-            .map((k) => [k, v[k]]),
-        )
-      : v,
-  );
-export function useBookNotes(bookId: string | undefined) {
-  const [notes, setNotes] = useState<Note[]>([]),
-    [annotations, setAnnotations] = useState<Annotation[]>([]),
-    [selected, setSelected] = useState<string>(),
-    [status, setStatus] = useState("已保存");
-  const records = useRef<Note[]>([]),
-    drafts = useRef(new Map<string, Draft>()),
-    timer = useRef<ReturnType<typeof setTimeout>>(undefined),
-    pending = useRef<Promise<boolean> | undefined>(undefined),
-    current = useRef(bookId),
-    undo = useRef<(() => Promise<unknown>)[]>([]);
-  current.current = bookId;
-  const refresh = async () => {
-    if (!bookId) return;
-    const [n, a] = await Promise.all([
-      api<Note[]>(`books/${bookId}/notes`),
-      api<Annotation[]>(`books/${bookId}/annotations`),
-    ]);
-    if (current.current !== bookId) return;
-    records.current = n;
-    setNotes(n);
-    setAnnotations(a);
-  };
-  useEffect(() => {
-    records.current = [];
-    drafts.current.clear();
-    undo.current = [];
-    setSelected(undefined);
-    setNotes([]);
-    setAnnotations([]);
-    setStatus("已保存");
-    void refresh().catch((e) => setStatus(e.message));
-    return () => clearTimeout(timer.current);
-  }, [bookId]);
-  async function flush(): Promise<boolean> {
-    clearTimeout(timer.current);
-    if (pending.current) {
-      const ok = await pending.current;
-      if (!ok) return false;
-      if (drafts.current.size) return flush();
-      return true;
-    }
-    if (!bookId || !drafts.current.size) return true;
-    const task = (async () => {
-      try {
-        setStatus("保存中…");
-        for (const [id, draft] of drafts.current) {
-          const original = records.current.find((n) => n.id === id);
-          if (!original) throw new Error("草稿对应的笔记不存在，请保留内容");
-          const result = await post<Note>(`books/${bookId}/notes/${id}`, {
-            revision: original.revision,
-            title: draft.title || "未命名笔记",
-            document: draft.document,
-          });
-          records.current = records.current.map((n) =>
-            n.id === id ? result : n,
-          );
-          setNotes([...records.current]);
-          if (drafts.current.get(id)?.generation === draft.generation)
-            drafts.current.delete(id);
-        }
-        setStatus(drafts.current.size ? "保存中…" : "已保存");
-        return true;
-      } catch (e) {
-        // A lost response may hide a successful commit. Reconcile identical content only.
-        try {
-          const latest = await api<Note[]>(`books/${bookId}/notes`);
-          for (const [id, draft] of drafts.current) {
-            const saved = latest.find((n) => n.id === id);
-            if (
-              saved &&
-              saved.title === (draft.title || "未命名笔记") &&
-              canonical(saved.document) === canonical(draft.document)
-            ) {
-              drafts.current.delete(id);
-              records.current = records.current.map((n) =>
-                n.id === id ? saved : n,
-              );
-            }
-          }
-          setNotes([...records.current]);
-          if (!drafts.current.size) {
-            setStatus("已保存");
-            return true;
-          }
-        } catch {}
-        setStatus("保存失败，草稿仍保留：" + String(e));
-        return false;
-      }
-    })();
-    pending.current = task;
-    const ok = await task;
-    pending.current = undefined;
-    if (ok && drafts.current.size) return flush();
-    return ok;
-  }
-  async function retryWithLatest() {
-    if (pending.current) await pending.current;
-    await refresh();
-    return flush();
-  }
-  useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => {
-      if (drafts.current.size) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, []);
-  function edit(id: string, title: string, document: RichNode) {
-    drafts.current.set(id, {
-      title,
-      document,
-      generation: (drafts.current.get(id)?.generation ?? 0) + 1,
-    });
-    setStatus("保存中…");
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), 650);
-  }
-  async function create() {
-    if (!bookId || !(await flush())) return;
-    const n = await post<Note>(`books/${bookId}/notes`, {});
-    await refresh();
-    setSelected(n.id);
-  }
-  async function remove(note: Note) {
-    if (!bookId || !(await flush())) return;
-    const a = annotations.find((a) => a.id === note.annotationId);
-    const path = `books/${bookId}/${a ? "annotations" : "notes"}/${a?.id ?? note.id}`;
-    await api(path, { method: "DELETE" });
-    undo.current.push(() => post(path + "/restore", {}));
-    setSelected(undefined);
-    await refresh();
-  }
-  async function color(a: Annotation, value: Annotation["color"]) {
-    if (!bookId) return;
-    const path = `books/${bookId}/annotations/${a.id}`;
-    const updated = await post<Annotation>(path, {
-      revision: a.revision,
-      color: value,
-    });
-    undo.current.push(async () => {
-      const latest = await api<Annotation[]>(`books/${bookId}/annotations`);
-      const record = latest.find((v) => v.id === a.id);
-      if (!record) throw new Error("批注不存在");
-      return post(path, { revision: record.revision, color: a.color });
-    });
-    await refresh();
-  }
-  async function undoLast() {
-    if (!(await flush())) return;
-    const action = undo.current.at(-1);
-    if (action) {
-      await action();
-      undo.current.pop();
-      await refresh();
-    }
-  }
-  return {
-    notes,
-    annotations,
-    selected,
-    setSelected,
-    status,
-    edit,
-    flush,
-    retryWithLatest,
-    refresh,
-    create,
-    remove,
-    color,
-    undoLast,
-    undo,
-    drafts,
-  };
-}
-export type BookNotes = ReturnType<typeof useBookNotes>;
-function NoteEditor({ note, state }: { note: Note; state: BookNotes }) {
-  const draft = state.drafts.current.get(note.id),
-    [title, setTitle] = useState(draft?.title ?? note.title),
-    [link, setLink] = useState<string | undefined>();
-  const titleRef = useRef(title),
-    composition = useRef(false);
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
-        link: { openOnClick: false, protocols: ["https", "http", "mailto"] },
-      }),
-    ],
-    content: draft?.document ?? note.document,
-    onUpdate: ({ editor }) => {
-      if (!composition.current)
-        state.edit(note.id, titleRef.current, editor.getJSON() as RichNode);
-    },
-    editorProps: {
-      attributes: {
-        "aria-label": "笔记正文",
-        role: "textbox",
-        "aria-multiline": "true",
-      },
-      handleDOMEvents: {
-        compositionstart: () => {
-          composition.current = true;
-          return false;
-        },
-        compositionend: (_view) => {
-          composition.current = false;
-          queueMicrotask(() => {
-            if (editor)
-              state.edit(
-                note.id,
-                titleRef.current,
-                editor.getJSON() as RichNode,
-              );
-          });
-          return false;
-        },
-      },
-    },
-  });
-  if (!editor) return null;
-  return (
-    <>
-      <input
-        className="note-title"
-        aria-label="笔记标题"
-        value={title}
-        maxLength={200}
-        onChange={(e) => {
-          setTitle(e.target.value);
-          titleRef.current = e.target.value;
-          state.edit(note.id, e.target.value, editor.getJSON() as RichNode);
-        }}
-      />
-      <div className="editor-toolbar" role="toolbar" aria-label="笔记格式">
-        <button
-          title="粗体"
-          aria-pressed={editor.isActive("bold")}
-          onClick={() => editor.chain().focus().toggleBold().run()}
-        >
-          <b>B</b>
-        </button>
-        <button
-          title="斜体"
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-        >
-          <i>I</i>
-        </button>
-        <button
-          title="标题"
-          onClick={() =>
-            editor.chain().focus().toggleHeading({ level: 2 }).run()
-          }
-        >
-          H
-        </button>
-        <button
-          title="无序列表"
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-        >
-          • 列表
-        </button>
-        <button
-          title="有序列表"
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        >
-          1. 列表
-        </button>
-        <button
-          title="引用"
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-        >
-          ❞
-        </button>
-        <button
-          title="代码块"
-          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-        >
-          &lt;/&gt;
-        </button>
-        <button
-          title="链接"
-          onClick={() =>
-            setLink(editor.getAttributes("link").href ?? "https://")
-          }
-        >
-          链接
-        </button>
-        <button
-          title="撤销编辑"
-          onClick={() => editor.chain().focus().undo().run()}
-        >
-          ↶
-        </button>
-      </div>
-      {link !== undefined && (
-        <form
-          className="note-link-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            try {
-              if (!link) editor.chain().focus().unsetLink().run();
-              else {
-                if (
-                  !["https:", "http:", "mailto:"].includes(
-                    new URL(link).protocol,
-                  )
-                )
-                  return;
-                editor.chain().focus().setLink({ href: link }).run();
-              }
-              setLink(undefined);
-            } catch {}
-          }}
-        >
-          <input
-            autoFocus
-            aria-label="笔记链接地址"
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-          />
-          <button>应用链接</button>
-          <button type="button" onClick={() => setLink(undefined)}>
-            取消
-          </button>
-        </form>
-      )}
-      <EditorContent editor={editor} />
-    </>
-  );
-}
+import { NoteEditor } from "./features/notes/NoteEditor";
+import type { BookNotes } from "./features/notes/useBookNotes";
+import { MaterialCatalog } from "./features/materials/MaterialCatalog";
+
 const kindNames = {
   highlight: "高亮",
   underline: "下划线",
@@ -367,12 +20,24 @@ export function NotesPanel({
   onJump,
   onAddToQuestion,
   onAddAnnotation,
+  onExpand,
+  onPlace,
+  catalog,
+  onLocateItem,
+  onAddItemToQuestion,
+  beforeWorkspaceChange,
 }: {
   bookId: string;
   state: BookNotes;
   onJump: (page: number, anchor?: SourceAnchor) => void;
   onAddToQuestion?: (note: Note) => Promise<void>;
   onAddAnnotation?: (annotation: Annotation) => Promise<void>;
+  onExpand?: (note: Note) => void;
+  onPlace?: (note: Note) => Promise<void>;
+  catalog?: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">;
+  onLocateItem?: (id: string) => void;
+  onAddItemToQuestion?: (id: string) => Promise<void>;
+  beforeWorkspaceChange?: () => Promise<boolean>;
 }) {
   const [query, setQuery] = useState(""),
     [kind, setKind] = useState(""),
@@ -386,12 +51,18 @@ export function NotesPanel({
     return () => exportController.current?.abort();
   }, [bookId]);
   const selected = state.notes.find((n) => n.id === state.selected),
-    annotation = state.annotations.find((a) => a.id === selected?.annotationId);
+    annotation = state.annotations.find((a) => a.id === selected?.annotationId) ?? selected?.annotationSource;
+  const unlinked = state.annotations.filter((a) => !state.notes.some((n) => n.id === a.noteId));
+  const selectedAnnotation = unlinked.find((a) => a.id === state.selectedAnnotation);
   const materialImageIds = new Set(selected?.origin?.materials?.flatMap((material) =>
     material.images.map((image) => image.id)) ?? []);
   const questionImages = selected?.origin?.images?.filter((image) => !materialImageIds.has(image.id)) ?? [];
   const run = (fn: () => Promise<unknown>) =>
     void fn().catch((e) => window.alert(String(e)));
+  const workspaceChange = async (fn: () => Promise<unknown>) => {
+    if (beforeWorkspaceChange && !(await beforeWorkspaceChange())) throw new Error("画板草稿尚未保存，请先重试");
+    return fn();
+  };
   async function exportNote(note: Note) {
     if (exporting) return;
     const controller = new AbortController();
@@ -429,16 +100,16 @@ export function NotesPanel({
       <div className="notes-actions">
         <button onClick={() => run(state.create)}>新建笔记</button>
         <button
-          onClick={() => run(state.undoLast)}
-          disabled={!state.undo.current.length}
+          onClick={() => run(() => workspaceChange(state.undoLast))}
+          disabled={!state.canUndo}
         >
           撤销批注操作
         </button>
       </div>
       <div className="note-filters">
         <input
-          aria-label="搜索笔记"
-          placeholder="搜索批注和笔记"
+          aria-label="搜索材料"
+          placeholder="搜索本书材料"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -469,7 +140,19 @@ export function NotesPanel({
           ))}
         </select>
       </div>
+      <MaterialCatalog bookId={bookId} catalog={catalog} notes={state.notes} query={query}
+        onLocate={(id) => onLocateItem?.(id)} onAdd={async (id) => {
+          if (!onAddItemToQuestion) throw new Error("材料操作不可用");
+          await onAddItemToQuestion(id);
+        }} />
+      <h3 className="material-notes-heading">批注与笔记</h3>
       <div className="notes-list">
+        {unlinked.filter((a) => (!kind || a.kind === kind) && (!color || a.color === color) &&
+          a.quote.toLowerCase().includes(query.toLowerCase())).sort((a, b) => a.anchors[0].page - b.anchors[0].page)
+          .map((a) => <button key={a.id} className={a.id === selectedAnnotation?.id ? "chosen" : ""}
+            onClick={() => run(async () => { if (await state.flush()) { state.selectAnnotation(a.id); onJump(a.anchors[0].page); } })}>
+            <span>{a.quote || kindNames[a.kind]}</span><small>{kindNames[a.kind]} · 第 {a.anchors[0].page} 页 · 无评论</small>
+          </button>)}
         {[...state.notes]
           .sort(
             (a, b) =>
@@ -509,12 +192,21 @@ export function NotesPanel({
                     ? `${kindNames[a.kind]} · ${a.anchors.map((x) => x.page).join("、")} 页`
                     : n.origin
                       ? "AI 回答笔记"
-                      : "独立笔记"}
+                      : n.sourceCard
+                        ? `摘录评论 · 第 ${n.sourceCard.region?.page ?? n.sourceCard.source?.anchors[0].page} 页`
+                        : "独立笔记"}
                 </small>
               </button>
             );
           })}
       </div>
+      {selectedAnnotation && <div className="note-source">
+        <button onClick={() => onJump(selectedAnnotation.anchors[0].page)}>第 {selectedAnnotation.anchors[0].page} 页原文 ↗</button>
+        <blockquote>{selectedAnnotation.quote}</blockquote>
+        {selectedAnnotation.assetId && <img alt="区域摘录" src={`${base}/api/books/${bookId}/annotation-assets/${selectedAnnotation.assetId}`} />}
+        <button onClick={() => run(() => state.comment(selectedAnnotation.id))}>写评论</button>
+        <button onClick={() => run(() => state.removeAnnotation(selectedAnnotation))}>删除批注</button>
+      </div>}
       {selected ? (
         <div className="note-detail">
           {selected.origin && (
@@ -567,6 +259,7 @@ export function NotesPanel({
           )}
           {annotation && (
             <div className="note-source">
+              {annotation.deletedAt && <p>源标注已删除，以下保留原文位置与摘录。</p>}
               <button onClick={() => onJump(annotation.anchors[0].page)}>
                 第 {annotation.anchors[0].page} 页原文 ↗
               </button>
@@ -581,6 +274,7 @@ export function NotesPanel({
                 颜色{" "}
                 <select
                   aria-label="批注颜色"
+                  disabled={Boolean(annotation.deletedAt)}
                   value={annotation.color}
                   onChange={(e) =>
                     run(() =>
@@ -600,15 +294,27 @@ export function NotesPanel({
               </label>
             </div>
           )}
+          {selected.sourceCard && <div className="note-source">
+            <p>摘录来源 · 下方评论是个人内容，不是书中原文</p>
+            <button onClick={() => onJump(selected.sourceCard!.region?.page ??
+              selected.sourceCard!.source!.anchors[0].page)}>
+              第 {selected.sourceCard.region?.page ?? selected.sourceCard.source?.anchors[0].page} 页原文 ↗
+            </button>
+            {selected.sourceCard.text && <blockquote>{selected.sourceCard.text}</blockquote>}
+            {selected.sourceCard.region && <img alt="摘录图片"
+              src={`${base}/api/books/${bookId}/workspace-assets/${selected.sourceCard.region.assetId}`} />}
+          </div>}
           <NoteEditor key={selected.id} note={selected} state={state} />
           <footer>
             <span role="status">{state.status}</span>
+            {onExpand && <button onClick={() => onExpand(selected)}>展开编辑笔记</button>}
+            {onPlace && <button onClick={() => run(() => onPlace(selected))}>放到画布</button>}
             {onAddToQuestion && <button onClick={() => run(async () => {
               if (!(await state.flush())) throw new Error("笔记尚未保存，请先重试");
               const latest = state.notes.find((note) => note.id === selected.id) ?? selected;
               await onAddToQuestion(latest);
             })}>加入提问</button>}
-            {annotation && onAddAnnotation && <button onClick={() => run(() => onAddAnnotation(annotation))}>
+            {annotation && !annotation.deletedAt && onAddAnnotation && <button onClick={() => run(() => onAddAnnotation(annotation))}>
               加入批注到提问
             </button>}
             <button
@@ -628,9 +334,10 @@ export function NotesPanel({
                 </button>
               </>
             )}
-            <button onClick={() => run(() => state.remove(selected))}>
-              删除{annotation ? "批注" : "笔记"}
+            <button onClick={() => run(() => workspaceChange(() => state.remove(selected)))}>
+              删除笔记
             </button>
+            {annotation && !annotation.deletedAt && <button onClick={() => run(() => state.removeAnnotation(annotation))}>删除批注</button>}
           </footer>
           {exportMessage && (
             <p className="export-status" role="status">

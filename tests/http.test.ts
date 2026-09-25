@@ -1,12 +1,16 @@
 import { test, expect } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { createCore } from "../apps/core/src/server";
 test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched reading state", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aireader-http-"));
-  const core = createCore(directory, "dist/web");
+  const core = createCore(directory, "dist/web", {
+    path: process.execPath,
+    version: "fixture",
+    args: [resolve("tests/fixtures/fake-codex.mjs")],
+  });
   await new Promise<void>((r) => core.server.listen(0, "127.0.0.1", r));
   const address = core.server.address() as { port: number };
   const base = `http://127.0.0.1:${address.port}`;
@@ -46,6 +50,13 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
       method: "PUT", headers,
       body: JSON.stringify({ dock: "outside", offset: 4, collapsed: true }),
     })).status).toBe(400);
+    const globalPreferences = base + "/api/preferences";
+    expect((await (await fetch(globalPreferences, { headers })).json()).zoom).toBe(1.1);
+    expect((await fetch(globalPreferences, {
+      method: "POST", headers, body: JSON.stringify({ theme: "dark", zoom: 1.8 }),
+    })).status).toBe(200);
+    expect(await (await fetch(globalPreferences, { headers })).json()).toMatchObject({ theme: "dark", zoom: 1.8 });
+    expect((await fetch(globalPreferences, { method: "DELETE", headers })).status).toBe(405);
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     pdf.addPage().drawText("Memory isolation for inference", { font });
@@ -62,6 +73,63 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
       await fetch(base + `/api/books/${book.id}/search?q=memory`, { headers })
     ).json();
     expect(results[0].anchor).toMatchObject({ bookId: book.id, page: 1 });
+    const reader = base + `/api/books/${book.id}`;
+    expect((await (await fetch(reader, { headers })).json()).id).toBe(book.id);
+    expect((await (await fetch(reader + "/preferences", { headers })).json()).zoom).toBe(1.1);
+    expect((await fetch(reader + "/preferences", { method: "DELETE", headers })).status).toBe(405);
+    expect((await fetch(reader + "/preferences/extra", { headers })).status).toBe(404);
+    const changedPreferences = await fetch(reader + "/preferences", {
+      method: "POST", headers,
+      body: JSON.stringify({ theme: "dark", zoom: 1.4 }),
+    });
+    expect((await changedPreferences.json()).theme).toBe("dark");
+    expect((await (await fetch(reader + "/preferences", { headers })).json()).zoom).toBe(1.4);
+    expect((await (await fetch(reader + "/open", { method: "POST", headers })).json()).lastOpenedAt).toBeTruthy();
+    expect((await (await fetch(reader + "/file", { headers })).arrayBuffer()).byteLength).toBe(bytes.byteLength);
+    await fetch(reader + "/progress", { method: "POST", headers, body: JSON.stringify({ page: 1 }) });
+    expect((await (await fetch(reader, { headers })).json()).progress).toBe(1);
+    const bookmark = await (await fetch(reader + "/bookmarks", {
+      method: "POST", headers, body: JSON.stringify({ page: 1, note: "关键论述" }),
+    })).json();
+    expect((await (await fetch(reader + "/bookmarks", { headers })).json()).map((item: { id: string }) => item.id)).toContain(bookmark.id);
+    const otherPdf = await PDFDocument.create();
+    otherPdf.addPage().drawText("A separate book");
+    const other = await (await fetch(base + "/api/books", {
+      method: "POST", headers: { ...headers, "X-Filename": "Other.pdf" }, body: Buffer.from(await otherPdf.save()),
+    })).json();
+    await core.library.waitForBook(other.id);
+    await fetch(base + `/api/books/${other.id}/bookmarks/${bookmark.id}`, { method: "DELETE", headers });
+    expect((await (await fetch(reader + "/bookmarks", { headers })).json()).map((item: { id: string }) => item.id)).toContain(bookmark.id);
+    await fetch(reader + `/bookmarks/${bookmark.id}`, { method: "DELETE", headers });
+    expect(await (await fetch(reader + "/bookmarks", { headers })).json()).toEqual([]);
+    expect((await (await fetch(reader + "/index", { headers })).json()).jobs).toEqual([]);
+    expect((await fetch(reader + "/index/missing", {
+      method: "POST", headers, body: JSON.stringify({ action: "pause" }),
+    })).status).toBe(400);
+    const otherSession = await (await fetch(base + `/api/books/${other.id}/sessions`, {
+      method: "POST", headers,
+    })).json();
+    const foreignTurn = await (await fetch(base + `/api/books/${other.id}/turns`, {
+      method: "POST", headers,
+      body: JSON.stringify({ reading: { bookId: other.id, page: 1 }, question: "Scope test",
+        sessionId: otherSession.id, model: "fixture-a", effort: "high" }),
+    })).json();
+    const stopForeign = await fetch(reader + "/tools/stop", {
+      method: "POST", headers, body: JSON.stringify({ turnId: foreignTurn.id }),
+    });
+    expect(stopForeign.status).toBe(400);
+    expect((await stopForeign.json()).error).toContain("会话与书籍不匹配");
+    const runForeign = await fetch(reader + "/tools/run", {
+      method: "POST", headers,
+      body: JSON.stringify({ turnId: foreignTurn.id, script: "Write-Output unsafe" }),
+    });
+    expect(runForeign.status).toBe(400);
+    expect((await runForeign.json()).error).toContain("会话与书籍不匹配");
+    const draft = await fetch(reader + "/tools/draft", {
+      method: "POST", headers, body: JSON.stringify({ task: "生成一行测试输出" }),
+    });
+    expect(draft.status).toBe(200);
+    expect((await draft.json()).script).toBeTruthy();
     const mismatch = await fetch(base + `/api/books/${book.id}/turns`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
@@ -91,7 +159,7 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
     ).toBe(400);
     expect((await fetch(base + "/api/health", { headers })).status).toBe(200);
   } finally {
-    core.close();
+    await core.shutdown();
     await rm(directory, { recursive: true, force: true });
   }
 });

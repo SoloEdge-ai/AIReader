@@ -3,8 +3,8 @@ import type {
   ModelOption,
   ModelSelection,
 } from "../../../packages/protocol/src";
-import { Icon } from "./Icon";
-import { Popover } from "./Popover";
+import { Icon } from "./ui/Icon";
+import { Popover } from "./ui/Popover";
 
 const effortNames: Record<string, string> = {
   none: "无",

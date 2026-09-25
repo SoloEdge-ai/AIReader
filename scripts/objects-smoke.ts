@@ -21,10 +21,20 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];
+  const commandResponses: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("response", (response) => {
+    if (response.url().includes("/workspace/commands"))
+      commandResponses.push(`${response.status()} ${response.request().method()}`);
+  });
+  page.on("requestfailed", (request) => {
+    if (request.url().includes("/workspace/commands"))
+      commandResponses.push(`failed ${request.failure()?.errorText ?? "unknown"}`);
+  });
   await page.goto(origin);
   await page.getByRole("button", { name: /Object acceptance/ }).click();
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const first = (await page.locator("#page-1").boundingBox())!;
   const workspace = async () => (await (await page.request.get(`${origin}/api/books/${book.id}/workspace`)).json());
   await page.getByRole("button", { name: "添加文本或卡片" }).click();
@@ -33,11 +43,23 @@ try {
   await expect(page.getByLabel("编辑画布文本")).toBeVisible();
   await page.getByLabel("编辑画布文本").fill("中文想法：比较两个概念");
   await page.getByLabel("编辑画布文本").press("Tab");
-  await expect.poll(async () => (await workspace()).objects.length).toBe(1);
+  try {
+    await expect.poll(async () => (await workspace()).objects.length, { timeout: 10_000 }).toBe(1);
+  } catch (cause) {
+    const snapshot = await workspace();
+    const editor = page.getByLabel("编辑画布文本");
+    throw new Error(`First canvas object was not saved: ${JSON.stringify({
+      revision: snapshot.revision, objects: snapshot.objects.length,
+      editorVisible: await editor.isVisible(), editorText: await editor.isVisible() ? await editor.inputValue() : null,
+      feedback: await page.locator(".workspace-feedback").allTextContents(),
+      commandResponses, pageErrors: errors,
+    })}`, { cause });
+  }
   await expect.poll(async () => (await workspace()).objects[0]?.text).toBe("中文想法：比较两个概念");
   const text = (await workspace()).objects[0];
   expect(text).toMatchObject({ kind: "text", text: "中文想法：比较两个概念", surface: { kind: "pdf", page: 1 } });
   await page.getByRole("button", { name: "对象格式" }).click();
+  await expect(page.getByLabel("文字字号")).toBeFocused();
   await page.getByLabel("文字字号").fill("20");
   await page.getByLabel("粗体文字").check();
   await page.getByLabel("文字对齐").selectOption("center");
@@ -60,13 +82,18 @@ try {
   await page.mouse.up();
   await expect.poll(async () => (await workspace()).objects[1].width).toBeGreaterThan(originalWidth);
   await page.getByRole("button", { name: "对象格式" }).click();
+  await expect(page.getByLabel("形状线宽")).toBeFocused();
   await page.getByLabel("形状线宽").selectOption("4");
   await page.getByLabel("填充形状").check();
   await page.getByLabel("形状填充透明度").selectOption("0.3");
   await expect.poll(async () => (await workspace()).objects[1].fillOpacity).toBe(.3);
   expect((await workspace()).objects[1]).toMatchObject({ strokeWidth: 4, fill: "#345d84" });
-  await page.getByLabel("形状填充透明度").press("Escape");
+  await page.screenshot({ path: ".local/screenshots/object-style.png" });
+  await page.getByRole("button", { name: "对象格式" }).focus();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("group", { name: "对象格式设置" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "添加形状" })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "添加文本或卡片" }).click();
   await page.getByRole("menuitem", { name: "个人笔记卡片" }).click();
@@ -95,7 +122,16 @@ try {
   const groupBefore = await workspace();
   await page.locator(`[data-object-id="${text.id}"]`).click();
   await page.locator(".workspace-card").first().click({ modifiers: ["Shift"] });
-  await expect(page.getByRole("toolbar", { name: "对象操作" })).toContainText("2 个对象");
+  const objectToolbar = page.getByRole("toolbar", { name: "对象操作" });
+  await expect(objectToolbar).toContainText("2 个对象");
+  await expect(objectToolbar).toHaveClass(/reader-context-bar/);
+  const connectButton = await objectToolbar.getByRole("button", { name: "连接选中对象" }).boundingBox();
+  expect(connectButton!.width).toBeGreaterThanOrEqual(36);
+  expect(connectButton!.height).toBeGreaterThanOrEqual(36);
+  await objectToolbar.getByRole("button", { name: /对象颜色/ }).click();
+  await page.screenshot({ path: ".local/screenshots/object-color-menu.png" });
+  await page.getByRole("dialog", { name: "对象颜色" }).getByRole("button", { name: "红色" }).click();
+  await expect.poll(async () => (await workspace()).objects[0].color).toBe("#d35e45");
   const cardHeader = (await page.locator(".workspace-card header").first().boundingBox())!;
   await page.mouse.move(cardHeader.x + 50, cardHeader.y + 12);
   await page.mouse.down();
@@ -163,7 +199,10 @@ try {
   await page.mouse.up();
   const selectedSource = page.getByRole("toolbar", { name: "对象操作" });
   await expect(selectedSource).toContainText("原文固定");
-  await selectedSource.getByLabel("批注颜色").selectOption("blue");
+  await selectedSource.getByRole("button", { name: "批注颜色：黄色" }).click();
+  await page.screenshot({ path: ".local/screenshots/annotation-object-color-menu.png" });
+  await page.getByRole("dialog", { name: "批注颜色" })
+    .getByRole("button", { name: "蓝色" }).click();
   await expect.poll(async () => page.evaluate(async (id) =>
     (await (await fetch(`/api/books/${id}/annotations`)).json())[0].color, book.id))
     .toBe("blue");
@@ -186,6 +225,25 @@ try {
   await expect.poll(async () => (await workspace()).links.length).toBe(1);
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await workspace()).links.length).toBe(2);
+  await page.getByRole("button", { name: "指针（V）" }).click();
+  await page.locator(`[data-object-id="${text.id}"]`).click();
+  const formatTrigger = page.getByRole("button", { name: "对象格式" });
+  await formatTrigger.click();
+  const formatPanel = page.getByRole("dialog", { name: "对象格式设置" });
+  await expect(formatPanel).toBeVisible();
+  const horizontalOffset = async () => {
+    const trigger = (await formatTrigger.boundingBox())!;
+    const panel = (await formatPanel.boundingBox())!;
+    return panel.x - trigger.x;
+  };
+  const initialOffset = await horizontalOffset();
+  const pageBox = (await page.locator("#page-1").boundingBox())!;
+  await page.mouse.move(pageBox.x + pageBox.width / 2, pageBox.y + pageBox.height / 2);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -160);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => Math.abs((await horizontalOffset()) - initialOffset)).toBeLessThan(5);
+  await page.keyboard.press("Escape");
   expect(errors).toEqual([]);
   console.log("Text, shape, card link, lasso, object move, and restart passed.");
 } finally {

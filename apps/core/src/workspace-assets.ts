@@ -6,16 +6,9 @@ import { RegionExcerptInputSchema, WorkspaceCommandBatchSchema,
 import { PDFDocument } from "pdf-lib";
 import { decodeImage } from "./chat-images";
 import { Library } from "./library";
-import { Workspaces } from "./workspace";
-
-interface AssetRecord {
-  id: string;
-  bookId: string;
-  width: number;
-  height: number;
-  bytes: number;
-  sha256: string;
-}
+import { Workspaces, WorkspaceConflict } from "./workspace";
+import type { WorkspaceAssetRecord } from "./workspace-repository";
+import { WorkspaceCommandV2Schema } from "../../../packages/protocol/src/workspace-commands";
 
 /** Core owns immutable PNG bytes and their book-scoped references. */
 export class WorkspaceAssets {
@@ -27,13 +20,11 @@ export class WorkspaceAssets {
   async read(bookId: string, assetId: string) {
     this.library.book(bookId);
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(assetId)) throw new Error("资源标识无效");
-    const record = this.library.store.get<AssetRecord>("workspace-asset", assetId);
-    if (record?.bookId !== bookId) throw new Error("图片不属于本书");
+    if (!this.library.store.workspaces.asset(bookId, assetId)) throw new Error("图片不属于本书");
     return readFile(this.path(bookId, assetId));
   }
   private async pageBounds(bookId: string, page: number): Promise<[number, number, number, number]> {
-    const key = `${bookId}:${page}`;
-    const cached = this.library.store.get<[number, number, number, number]>("pdf-page-bounds", key);
+    const cached = this.library.store.workspaces.pageBounds(bookId, page);
     if (cached) return cached;
     const document = await PDFDocument.load(await readFile(this.library.file(bookId)),
       { updateMetadata: false });
@@ -46,13 +37,12 @@ export class WorkspaceAssets {
     ];
     if (bounds[0] >= bounds[2] || bounds[1] >= bounds[3])
       throw new Error("PDF 页面裁剪范围无效");
-    this.library.store.put("pdf-page-bounds", key, bookId, bounds);
+    this.library.store.workspaces.savePageBounds(bookId, page, bounds);
     return bounds;
   }
-  async validateCommandObjects(bookId: string, raw: unknown) {
-    const batch = WorkspaceCommandBatchSchema.parse(raw);
+  async validateCommandObjects(bookId: string, raw: unknown, version: 1 | 2 = 1) {
+    const batch = version === 2 ? WorkspaceCommandV2Schema.parse(raw) : WorkspaceCommandBatchSchema.parse(raw);
     if (batch.bookId !== bookId) throw new Error("工作区命令与书籍不匹配");
-    if (this.library.store.get("workspace-command", `${bookId}:${batch.commandId}`)) return batch;
     const book = this.library.book(bookId);
     const bounds = new Map<number, [number, number, number, number]>();
     for (const change of batch.changes) {
@@ -89,9 +79,13 @@ export class WorkspaceAssets {
     if (input.rect[0] < bounds[0] - 1 || input.rect[1] < bounds[1] - 1 ||
         input.rect[2] > bounds[2] + 1 || input.rect[3] > bounds[3] + 1)
       throw new Error("图片摘录超出 PDF 页面范围");
-    const commandKey = `${bookId}:${input.commandId}`;
-    if (this.library.store.get("workspace-command", commandKey))
+    const hash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const previous = this.workspaces.commandReceipt(bookId, input.commandId);
+    if (previous) {
+      if (previous.payloadHash && previous.payloadHash !== hash)
+        throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
       return { workspace: this.workspaces.get(bookId), cardId: input.commandId };
+    }
     const image = decodeImage({ name: input.title || "图片摘录", dataUrl: input.image });
     const assetId = randomUUID();
     const card: WorkspaceCard = {
@@ -112,7 +106,7 @@ export class WorkspaceAssets {
         includePersonalMarks: input.includePersonalMarks,
       },
     };
-    const record: AssetRecord = {
+    const record: WorkspaceAssetRecord = {
       id: assetId, bookId, width: image.width, height: image.height,
       bytes: image.buffer.length,
       sha256: createHash("sha256").update(image.buffer).digest("hex"),
@@ -126,7 +120,7 @@ export class WorkspaceAssets {
       const workspace = this.workspaces.command(bookId, {
         bookId, commandId: input.commandId, expectedVersion: input.expectedVersion,
         changes: [{ type: "upsert-card", card }],
-      }, () => this.library.store.put("workspace-asset", assetId, bookId, record));
+      }, () => this.library.store.workspaces.saveAsset(record), hash);
       if (workspace.cards.find((entry) => entry.id === card.id)?.region?.assetId !== assetId)
         await rm(path, { force: true });
       return { workspace, cardId: card.id };

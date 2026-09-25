@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { BrushStyle } from "../../../packages/protocol/src/reader-tools";
-import type { InkPoint, ProjectedInk } from "./InkGeometry";
+import type { InkPoint, ProjectedInk } from "../../../packages/workspace-engine/src/ink";
 
 export interface InkCanvasHandle {
   preview(points: InkPoint[], brush: BrushStyle | undefined, erased: ReadonlySet<string>): void;

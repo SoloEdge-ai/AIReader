@@ -17,8 +17,9 @@ import type {
 } from "../../../packages/protocol/src";
 import type { z } from "zod";
 import { fileUrl } from "./api";
-import { zoomWorkspaceAtPointer } from "./WorkspaceViewport";
-import type { InkPoint } from "./InkGeometry";
+import { zoomWorkspaceAtPointer } from "../../../packages/workspace-engine/src/viewport";
+import type { InkPoint } from "../../../packages/workspace-engine/src/ink";
+import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
 import type { InkStroke, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import {
   WORKSPACE_DOCUMENT_X,
@@ -364,7 +365,7 @@ function Page({
                     } as React.CSSProperties
                   }
                   onClick={() => mode === "link" && onAnnotationTarget ?
-                    onAnnotationTarget(a.id) : onAnnotation(a.noteId)}
+                    onAnnotationTarget(a.id) : onAnnotation(a.id)}
                 >
                   {a.kind === "sticky" ? "▤" : null}
                   {(a.kind === "underline" || a.kind === "strike") && (
@@ -536,16 +537,6 @@ function Page({
     </div>
   );
 }
-export type WorkspacePage = {
-  page: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  locate: (rect: Rect) => { x: number; y: number };
-  toPdf: (point: InkPoint) => InkPoint;
-  toWorld: (point: InkPoint) => InkPoint;
-};
 export interface PdfReaderProps {
   id: string;
   initialPage: number;
@@ -576,7 +567,7 @@ export interface PdfReaderProps {
     sourceFocus?: PdfAnchor[];
     ink?: InkStroke[];
     marks?: Exclude<WorkspaceObject, InkStroke>[];
-    onInkStart?: (point: InkPoint) => void;
+    onInkStart?: (point: InkPoint) => boolean;
     onInkMove?: (points: InkPoint[]) => void;
     onInkEnd?: (point: InkPoint) => void;
     onInkCancel?: () => void;
@@ -944,6 +935,7 @@ export function PdfReader({
     <div
       ref={scroll}
       className={`pdf-scroll${workspace ? " workspace-scroll" : ""}${mode === "pointer" ? " pointer-tool" : ""}${panReady ? " pan-ready" : ""}${panning ? " panning" : ""}`}
+      data-workspace-ready={workspace?.ready ? "true" : "false"}
       tabIndex={-1}
       onPointerDownCapture={(event) => {
         if (!workspace) return;
@@ -964,10 +956,10 @@ export function PdfReader({
           event.preventDefault();
           event.stopPropagation();
           const point = worldPoint(event);
+          if (!workspace.onInkStart(point)) return;
           inkPointer.current = event.pointerId;
           inkLast.current = { x: event.clientX, y: event.clientY, point };
           scroll.current!.setPointerCapture(event.pointerId);
-          workspace.onInkStart(point);
           return;
         }
         if (event.button === 0 && !space.current && workspace.onCanvasStart &&

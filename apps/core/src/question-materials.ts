@@ -19,6 +19,7 @@ import { Library } from "./library";
 import { Notes } from "./notes";
 import { WorkspaceAssets } from "./workspace-assets";
 import { Workspaces } from "./workspace";
+import { QuestionMaterialRepository } from "./question-material-repository";
 
 const plainText = (node: RichNode): string => {
   const content = (node.content ?? []).map(plainText).join("");
@@ -33,8 +34,10 @@ const surfaceKey = (id: string, surface: { kind: "board" } | { kind: "pdf"; page
 
 /** Freezes user-selected local material without conferring original-text citation authority. */
 export class QuestionMaterials {
+  private readonly records: QuestionMaterialRepository;
   constructor(private readonly library: Library, private readonly workspaces: Workspaces,
     private readonly notes: Notes, private readonly workspaceAssets: WorkspaceAssets) {
+    this.records = new QuestionMaterialRepository(library.store);
     this.cleanup();
   }
 
@@ -46,9 +49,8 @@ export class QuestionMaterials {
   }
   get(bookId: string, sessionId: string, materialId: string) {
     this.library.book(bookId);
-    const value = this.library.store.get<QuestionMaterialSnapshot>("question-material", materialId);
-    if (!value || value.bookId !== bookId || value.sessionId !== sessionId)
-      throw new Error("材料不存在或不属于当前书籍会话");
+    const value = this.records.get(bookId, sessionId, materialId);
+    if (!value) throw new Error("材料不存在或不属于当前书籍会话");
     return value;
   }
   image(bookId: string, sessionId: string, materialId: string, imageId: string) {
@@ -67,29 +69,26 @@ export class QuestionMaterials {
     return values;
   }
   commit(bookId: string, sessionId: string, ids: string[], turnId: string) {
-    for (const value of this.resolveForTurn(bookId, sessionId, ids))
-      this.library.store.put("question-material", value.id, bookId,
-        { ...value, committedTurnId: turnId });
+    this.resolveForTurn(bookId, sessionId, ids);
+    this.records.commit(bookId, sessionId, ids, turnId);
   }
   private cleanup() {
     const deadline = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    for (const value of this.library.store.list<QuestionMaterialSnapshot>("question-material")) {
-      if (value.committedTurnId || Date.parse(value.createdAt) >= deadline) continue;
+    for (const value of this.records.expiredUncommitted(deadline)) {
       for (const image of value.images)
         try { unlinkSync(this.imagePath(value.bookId, value.id, image.id)); } catch { /* orphan-safe */ }
       try { rmdirSync(this.directory(value.bookId, value.id)); } catch { /* orphan-safe */ }
-      this.library.store.remove("question-material", value.id);
+      this.records.removeUncommitted(value);
     }
   }
   async create(bookId: string, raw: unknown): Promise<QuestionMaterialSnapshot> {
     const input = QuestionMaterialInputSchema.parse(raw);
     if (input.bookId !== bookId) throw new Error("材料书籍与请求不匹配");
     this.library.book(bookId);
-    if (!this.library.store.list<{ id: string }>("session", bookId)
+    if (!this.library.chat.sessions(bookId)
       .some((session) => session.id === input.sessionId)) throw new Error("会话不存在或不属于本书");
-    const key = `${bookId}:${input.requestId}`;
     const digest = createHash("sha256").update(JSON.stringify(input)).digest("hex");
-    const repeated = this.library.store.get<{ materialId: string; digest: string }>("question-material-request", key);
+    const repeated = this.records.request(bookId, input.requestId);
     if (repeated) {
       if (repeated.digest !== digest) throw new Error("材料操作标识已被其他内容使用");
       return this.get(bookId, input.sessionId, repeated.materialId);
@@ -127,6 +126,7 @@ export class QuestionMaterials {
       return id;
     };
     const requiredVisuals = new Set<string>();
+    const linkedNotes = new Map<string, number>();
     for (const target of input.targets) {
       if (target.kind === "relation") {
         if (!links.has(target.id)) throw new Error("关系不存在或不属于本书");
@@ -144,7 +144,13 @@ export class QuestionMaterials {
           sections.push({ kind: "book-region", targetId: card.id, title: card.title,
             text: card.region.includePersonalMarks ? "PDF 区域截图，含个人标注" : "PDF 区域截图",
             anchors: [{ page: card.region.page, rects: [card.region.rect] }], imageIds: [id] });
-        } else sections.push({ kind: "user-note", targetId: card.id, title: card.title, text: card.text });
+        } else if (!card.noteId) sections.push({ kind: "user-note", targetId: card.id, title: card.title, text: card.text });
+        if (card.noteId) {
+          const note = notes.get(card.noteId);
+          if (!note || target.revision !== note.revision) throw new Error("卡片笔记已变化，请重新加入材料");
+          linkedNotes.set(note.id, note.revision);
+          sections.push({ kind: "user-note", targetId: card.id, title: note.title, text: plainText(note.document) });
+        }
         if (card.comment) sections.push({ kind: "user-note", targetId: card.id,
           title: `${card.title} · 个人评论`, text: card.comment });
       } else if (target.kind === "object") {
@@ -220,26 +226,35 @@ export class QuestionMaterials {
     };
     const directory = this.directory(bookId, materialId);
     mkdirSync(directory, { recursive: true });
+    const removeNewFiles = () => {
+      for (const image of pixels)
+        try { unlinkSync(this.imagePath(bookId, materialId, image.id)); } catch { /* newly created only */ }
+      try { rmdirSync(directory); } catch { /* best effort */ }
+    };
     try {
       for (const image of pixels) writeFileSync(this.imagePath(bookId, materialId, image.id), image.bytes,
         { flag: "wx" });
-      this.library.store.transaction(() => {
+      const saved = this.records.create(snapshot, input.requestId, digest, () => {
         if (this.workspaces.get(bookId).revision !== input.workspaceRevision)
           throw new Error("画板内容已变化，请重新选择材料");
         for (const target of input.targets.filter((target) =>
           target.kind === "annotation" || target.kind === "note")) {
-          const current = this.library.store.get<Annotation | Note>(target.kind, target.id);
-          if (!current || current.bookId !== bookId || current.deletedAt || current.revision !== target.revision)
+          const current = this.library.store.getForBook<Annotation | Note>(target.kind, target.id, bookId);
+          if (!current || current.deletedAt || current.revision !== target.revision)
             throw new Error("笔记或批注已变化，请重新加入材料");
         }
-        this.library.store.put("question-material", materialId, bookId, snapshot);
-        this.library.store.put("question-material-request", key, bookId,
-          { materialId, digest });
+        for (const [id, revision] of linkedNotes) {
+          const current = this.library.store.getForBook<Note>("note", id, bookId);
+          if (!current || current.deletedAt || current.revision !== revision)
+            throw new Error("卡片笔记已变化，请重新加入材料");
+        }
       });
+      if (!saved.created) {
+        removeNewFiles();
+        return saved.snapshot;
+      }
     } catch (cause) {
-      for (const image of pixels)
-        try { unlinkSync(this.imagePath(bookId, materialId, image.id)); } catch { /* newly created only */ }
-      try { rmdirSync(directory); } catch { /* best effort */ }
+      removeNewFiles();
       throw cause;
     }
     this.cleanup();

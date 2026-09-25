@@ -60,6 +60,10 @@ test("book-scoped commands are atomic, idempotent, versioned and independent of 
     const saved = await savedResponse.json();
     expect(saved.revision).toBe(1);
     expect((await (await request(path + "/commands", batch)).json()).revision).toBe(1);
+    const reused = await request(path + "/commands", { ...batch,
+      changes: [{ type: "upsert-card", card: { ...card, text: "Different payload" } }] });
+    expect(reused.status).toBe(409);
+    expect(await reused.json()).toMatchObject({ code: "COMMAND_ID_REUSED" });
     const conflict = await request(path + "/commands", { ...batch, commandId: "stale" });
     expect(conflict.status).toBe(409);
     expect((await conflict.json()).error).toContain("版本冲突");

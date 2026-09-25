@@ -1,0 +1,29 @@
+.material-card-list {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+.material-card-list h3 {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.material-card-list h3 small { color: var(--muted); font-weight: 400; }
+.material-catalog-controls { display: flex; gap: 6px; margin-bottom: 6px; }
+.material-catalog-controls select { min-width: 0; flex: 1; font-size: 12px; }
+.material-card-list p { color: var(--muted); font-size: 12px; margin: 7px 0; }
+.material-card-row { display: flex; align-items: stretch; flex-wrap: wrap; gap: 2px; }
+.material-card-row > button:first-child {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px;
+  text-align: left;
+}
+.material-card-row span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.material-card-row small { color: var(--muted); font-size: 11px; }
+.material-card-add { align-self: center; min-width: 28px; min-height: 28px; }
+.material-card-error { flex-basis: 100%; color: var(--danger); overflow-wrap: anywhere; }

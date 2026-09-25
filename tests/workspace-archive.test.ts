@@ -7,7 +7,7 @@ import { PNG } from "pngjs";
 import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 import { createCore } from "../apps/core/src/server";
 
-test("workspace package restores PDF, notes, region image, links and camera as an independent copy", async () => {
+test("workspace package restores PDF, notes, region image, cross-page ink, links and camera as an independent copy", async () => {
   const directory = await mkdtemp(join(tmpdir(), "aireader-archive-"));
   let core = createCore(directory, "dist/web");
   let origin = "",
@@ -39,6 +39,7 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     await connect();
     const pdf = await PDFDocument.create();
     pdf.addPage([500, 700]).drawText("Source document");
+    pdf.addPage([500, 700]).drawText("Second page");
     const bytes = await pdf.save();
     const book = await (await request("books", bytes)).json();
     await core.library.waitForBook(book.id);
@@ -61,7 +62,15 @@ test("workspace package restores PDF, notes, region image, links and camera as a
       changes: [
         { type: "upsert-card", card },
         { type: "upsert-card", card: { ...card, id: "second-card", x: 1900 } },
+        { type: "upsert-object", object: { id: "cross-page-ink", kind: "ink", brush: "pen",
+          color: "#345d84", width: 2, opacity: 1, segments: [
+            { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 1 }, points: [[20, 30], [50, 60]] },
+            { surface: { kind: "board" }, points: [[1500, 710], [1510, 730]] },
+            { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 2 }, points: [[70, 80], [100, 120]] },
+          ] } },
         { type: "upsert-link", link: { id: "link", from: card.id, to: "second-card", label: "supports" } },
+        { type: "upsert-link", link: { id: "ink-link", from: "cross-page-ink", to: card.id,
+          label: "sketched from" } },
       ],
     });
     await request(`books/${book.id}/workspace/camera`, { x: 800, y: 20, zoom: 1.2 }, "PUT");
@@ -74,7 +83,8 @@ test("workspace package restores PDF, notes, region image, links and camera as a
         image: `data:image/png;base64,${image.toString("base64")}`,
       })
     ).json();
-    await request(`books/${book.id}/notes/${annotation.noteId}`, {
+    const comment = await (await request(`books/${book.id}/annotations/${annotation.id}/note`, {})).json();
+    await request(`books/${book.id}/notes/${comment.id}`, {
       revision: 1,
       title: "Figure note",
       document: {
@@ -103,10 +113,15 @@ test("workspace package restores PDF, notes, region image, links and camera as a
         to: card.id, label: "explains" } }],
     });
     expect(linkedResponse.status).toBe(200);
+    const regionAssetId = region.workspace.cards[2].region.assetId;
+    const registration = core.library.store.workspaces.asset(book.id, regionAssetId)!;
+    core.library.store.remove("workspace-asset", regionAssetId);
+    expect((await request(`books/${book.id}/workspace/archive`)).status).toBe(400);
+    core.library.store.workspaces.saveAsset(registration);
     const download = await request(`books/${book.id}/workspace/archive`);
     expect(download.status).toBe(200);
     const archive = new Uint8Array(await download.arrayBuffer());
-    expect(JSON.parse(strFromU8(unzipSync(archive)["workspace.json"])).version).toBe(2);
+    expect(JSON.parse(strFromU8(unzipSync(archive)["workspace.json"])).version).toBe(3);
     const restoredResponse = await request("workspace-archives", archive);
     expect(restoredResponse.status).toBe(201);
     const restored = await restoredResponse.json();
@@ -131,6 +146,15 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     expect(restoredWorkspace.links[0]).toMatchObject({
       from: restoredWorkspace.cards[0].id, to: restoredWorkspace.cards[1].id, label: "supports",
     });
+    expect(restoredWorkspace.objects).toHaveLength(1);
+    expect(restoredWorkspace.objects[0].id).not.toBe("cross-page-ink");
+    expect(restoredWorkspace.objects[0].segments).toEqual([
+      { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 1 }, points: [[20, 30], [50, 60]] },
+      { surface: { kind: "board" }, points: [[1500, 710], [1510, 730]] },
+      { surface: { kind: "pdf", fingerprint: book.fingerprint, page: 2 }, points: [[70, 80], [100, 120]] },
+    ]);
+    expect(restoredWorkspace.links.find((link: { label: string }) => link.label === "sketched from"))
+      .toMatchObject({ from: restoredWorkspace.objects[0].id, to: restoredWorkspace.cards[0].id });
     const restoredRegion = restoredWorkspace.cards[2];
     expect(restoredRegion).toMatchObject({ kind: "region", title: "Diagram",
       region: { fingerprint: book.fingerprint, page: 1, rect: [30, 40, 180, 220], includePersonalMarks: true } });
@@ -148,7 +172,7 @@ test("workspace package restores PDF, notes, region image, links and camera as a
       anchors: annotation.anchors,
     });
     expect(annotations[0].id).not.toBe(annotation.id);
-    expect(restoredWorkspace.links[1]).toMatchObject({
+    expect(restoredWorkspace.links.find((link: { label: string }) => link.label === "explains")).toMatchObject({
       from: annotations[0].id, to: restoredWorkspace.cards[0].id, label: "explains",
     });
     expect(
@@ -167,22 +191,21 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     expect(
       (await (await request(`books/${book.id}/annotations`)).json())[0].id,
     ).toBe(annotation.id);
-    const legacyFiles = unzipSync(archive);
-    const legacyManifest = JSON.parse(strFromU8(legacyFiles["workspace.json"]));
-    const oldRegionAsset = legacyManifest.workspace.cards[2].region.assetId;
-    legacyManifest.version = 1;
-    legacyManifest.workspace.cards.pop();
-    delete legacyManifest.workspace.objects;
-    delete legacyManifest.workspace.formatVersion;
-    delete legacyManifest.assets[oldRegionAsset];
-    delete legacyFiles[`assets/${oldRegionAsset}.png`];
-    legacyFiles["workspace.json"] = strToU8(JSON.stringify(legacyManifest));
-    const legacyResponse = await request("workspace-archives", zipSync(legacyFiles));
-    expect(legacyResponse.status).toBe(201);
-    const legacy = await legacyResponse.json();
-    const legacyWorkspace = await (await request(`books/${legacy.id}/workspace`)).json();
-    expect(legacyWorkspace.cards).toHaveLength(2);
-    expect(legacyWorkspace.formatVersion).toBe(4);
+    for (const oldVersion of [1, 2]) {
+      const oldFiles = unzipSync(archive);
+      const oldManifest = JSON.parse(strFromU8(oldFiles["workspace.json"]));
+      oldManifest.version = oldVersion;
+      oldFiles["workspace.json"] = strToU8(JSON.stringify(oldManifest));
+      const oldResponse = await request("workspace-archives", zipSync(oldFiles));
+      expect(oldResponse.status).toBe(400);
+      expect((await oldResponse.json()).error).toContain("归档版本");
+    }
+    const incompleteFiles = unzipSync(archive);
+    const incompleteManifest = JSON.parse(strFromU8(incompleteFiles["workspace.json"]));
+    delete incompleteManifest.workspace.objects;
+    delete incompleteManifest.workspace.formatVersion;
+    incompleteFiles["workspace.json"] = strToU8(JSON.stringify(incompleteManifest));
+    expect((await request("workspace-archives", zipSync(incompleteFiles))).status).toBe(400);
     core.close();
     core = createCore(directory, "dist/web");
     await connect();
@@ -205,18 +228,45 @@ test("workspace package restores PDF, notes, region image, links and camera as a
     );
     delete files["../outside.txt"];
     const manifest = JSON.parse(strFromU8(files["workspace.json"]));
-    manifest.version = 3;
+    manifest.version = 4;
     files["workspace.json"] = strToU8(JSON.stringify(manifest));
     const newer = await request("workspace-archives", zipSync(files));
     expect(newer.status).toBe(400);
     expect((await newer.json()).error).toContain("归档版本");
-    manifest.version = 2;
+    manifest.version = 3;
     manifest.fingerprint = "0".repeat(64);
     files["workspace.json"] = strToU8(JSON.stringify(manifest));
     expect((await request("workspace-archives", zipSync(files))).status).toBe(
       400,
     );
-    expect(await (await request("books")).json()).toHaveLength(3);
+    expect(await (await request("books")).json()).toHaveLength(2);
+    // Independent annotations and deleted-source comments both survive an archive copy.
+    await request(`books/${book.id}/annotations/${annotation.id}`, undefined, "DELETE");
+    const standalone = await (await request(`books/${book.id}/annotations`, {
+      kind: "highlight", quote: "No comment", anchors: [{ page: 1, rects: [[10, 20, 50, 40]] }],
+    })).json();
+    expect(standalone.noteId).toBeUndefined();
+    const detachedDownload = await request(`books/${book.id}/workspace/archive`);
+    const detachedResponse = await request("workspace-archives", new Uint8Array(await detachedDownload.arrayBuffer()));
+    expect(detachedResponse.status).toBe(201);
+    const detachedBook = await detachedResponse.json();
+    const detachedAnnotations = await (await request(`books/${detachedBook.id}/annotations`)).json();
+    expect(detachedAnnotations).toHaveLength(1);
+    expect(detachedAnnotations[0]).toMatchObject({ quote: "No comment" });
+    expect(detachedAnnotations[0].noteId).toBeUndefined();
+    const detachedNotes = await (await request(`books/${detachedBook.id}/notes`)).json();
+    expect(detachedNotes[0].annotationSource.deletedAt).toBeTruthy();
+    expect(detachedNotes[0].annotationId).not.toBe(annotation.id);
+    expect((await request(`books/${detachedBook.id}/annotation-assets/${detachedNotes[0].annotationSource.assetId}`)).status).toBe(200);
+    expect((await request(`books/${book.id}/annotation-assets/${detachedNotes[0].annotationSource.assetId}`)).status).toBe(400);
+    const regionNoteResponse = await request(`books/${book.id}/workspace/cards/${region.cardId}/note`, {});
+    expect(regionNoteResponse.status).toBe(201);
+    const regionNote = await regionNoteResponse.json();
+    const regionRegistration = core.library.store.workspaces.asset(book.id, regionAssetId)!;
+    core.library.store.remove("workspace-asset", regionAssetId);
+    expect((await request(`books/${book.id}/notes/${regionNote.id}/export`)).status).toBe(400);
+    core.library.store.workspaces.saveAsset(regionRegistration);
+    expect((await request(`books/${book.id}/notes/${regionNote.id}/export`)).status).toBe(200);
   } finally {
     core.close();
     await rm(directory, {

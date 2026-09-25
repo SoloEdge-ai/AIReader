@@ -92,6 +92,8 @@ export class CodexAdapter extends EventEmitter {
     }
   >();
   private starting?: Promise<void>;
+  private startup?: AbortController;
+  private shuttingDown = false;
   private threadConfig: Record<string, unknown> = {};
   info: AccountState = { connected: false };
   constructor(
@@ -101,27 +103,47 @@ export class CodexAdapter extends EventEmitter {
       path: string;
       version: string;
       args: string[];
+      beforeSpawn?: () => Promise<void>;
     },
   ) {
     super();
   }
   async connect() {
+    if (this.shuttingDown) throw new Error("AIReader 正在关闭，无法连接 Codex");
     if (this.starting) return this.starting;
     if (this.child) return;
-    this.starting = this.start().finally(() => {
-      this.starting = undefined;
-    });
+    const controller = new AbortController();
+    this.startup = controller;
+    const aborted = new Promise<never>((_resolve, reject) =>
+      controller.signal.addEventListener(
+        "abort",
+        () => reject(new Error("Codex 连接已关闭")),
+        { once: true },
+      ),
+    );
+    this.starting = Promise.race([this.start(controller.signal), aborted])
+      .finally(() => {
+        if (this.startup === controller) this.startup = undefined;
+        this.starting = undefined;
+      });
     return this.starting;
   }
-  private async start() {
+  private ensureActive(signal: AbortSignal) {
+    if (signal.aborted || this.shuttingDown)
+      throw new Error("Codex 连接已关闭");
+  }
+  private async start(signal: AbortSignal) {
     const found =
       this.testLaunch ??
       (await detectCodex(
         typeof this.custom === "function" ? await this.custom() : this.custom,
       ));
+    this.ensureActive(signal);
     await mkdir(this.directory, { recursive: true });
+    this.ensureActive(signal);
     const credentials = join(this.directory, "codex-home");
     await mkdir(credentials, { recursive: true, mode: 0o700 });
+    this.ensureActive(signal);
     if (process.platform === "win32") {
       const system = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
       const identity = await exec(
@@ -129,6 +151,7 @@ export class CodexAdapter extends EventEmitter {
         ["/user", "/fo", "csv", "/nh"],
         { windowsHide: true },
       );
+      this.ensureActive(signal);
       const sid = identity.stdout.match(/S-1-\d+(?:-\d+)+/)?.[0];
       if (!sid) throw new Error("无法确认凭证目录的当前用户权限");
       await exec(
@@ -144,6 +167,7 @@ export class CodexAdapter extends EventEmitter {
         { windowsHide: true },
       );
     } else await chmod(credentials, 0o700);
+    this.ensureActive(signal);
     const args = [
       ...(this.testLaunch?.args ?? []),
       "app-server",
@@ -165,6 +189,8 @@ export class CodexAdapter extends EventEmitter {
       'permissions.aireader-tool={filesystem={":root"="deny",":minimal"="read",":workspace_roots"={"."="write"}},network={enabled=false}}',
     );
     args.push("-c", 'default_permissions="aireader-tool"');
+    if (this.testLaunch?.beforeSpawn) await this.testLaunch.beforeSpawn();
+    this.ensureActive(signal);
     const child = spawn(found.path, args, {
       cwd: this.directory,
       stdio: ["pipe", "pipe", "pipe"],
@@ -207,13 +233,14 @@ export class CodexAdapter extends EventEmitter {
       const account = await this.request("account/read", {
         refreshToken: false,
       });
+      this.ensureActive(signal);
       this.info = {
         connected: true,
         version: found.version,
         account: account.account,
       };
     } catch (error) {
-      this.disconnect();
+      if (this.child === child) void this.disconnect();
       throw error;
     }
   }
@@ -262,6 +289,10 @@ export class CodexAdapter extends EventEmitter {
   }
   request(method: string, params: unknown, timeout = 30000): Promise<any> {
     return new Promise((resolve, reject) => {
+      if (this.shuttingDown) {
+        reject(new Error("AIReader 正在关闭，无法请求 Codex"));
+        return;
+      }
       if (!this.child?.stdin) {
         reject(new Error("Codex 未连接"));
         return;
@@ -286,6 +317,7 @@ export class CodexAdapter extends EventEmitter {
     this.emit("disconnected", error);
   }
   disconnect() {
+    this.startup?.abort();
     const child = this.child;
     this.child = undefined;
     const stopped = new Promise<void>((resolve) => {
@@ -299,6 +331,10 @@ export class CodexAdapter extends EventEmitter {
     child?.kill();
     this.fail(new Error("AIReader 连接已关闭。"));
     return stopped;
+  }
+  shutdown() {
+    this.shuttingDown = true;
+    return this.disconnect();
   }
   async login() {
     await this.connect();

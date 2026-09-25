@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { PNG } from "pngjs";
+const startupMarker = process.argv.find((arg) => arg.startsWith("--startup-marker="));
+if (startupMarker) writeFileSync(startupMarker.slice("--startup-marker=".length), "started");
 let sequence = 0;
 let initialized = false;
 const threads = new Map();

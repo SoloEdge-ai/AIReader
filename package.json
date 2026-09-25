@@ -11,7 +11,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "node scripts/build-worker.mjs && concurrently -k \"tsx watch apps/core/src/main.ts\" \"vite apps/web --host 127.0.0.1\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p packages/workspace-engine/tsconfig.json && node --import tsx scripts/check-boundaries.ts",
     "test": "node scripts/build-worker.mjs && vitest run",
     "test:reader-ui": "playwright test --config tests/palette-playwright.config.ts",
     "build": "node scripts/build.mjs && node scripts/bundled-core-smoke.mjs",

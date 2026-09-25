@@ -7,12 +7,14 @@ import {
   type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
+import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
 import type {
   Book,
   Annotation,
   QuestionMaterialInput,
   ReadingSelection,
   PdfAnchor,
+  Note,
 } from "../../../packages/protocol/src";
 import type { WorkspaceCard, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import { WORKSPACE_DOCUMENT_X } from "../../../packages/protocol/src/workspace";
@@ -22,28 +24,34 @@ import type { BrushStyle, ToolPreferences } from "../../../packages/protocol/src
 import {
   PdfReader,
   type PdfReaderProps,
-  type WorkspacePage,
   type QuestionRegion,
   type RegionAction,
 } from "./PdfReader";
 import { useWorkspace } from "./WorkspaceState";
-import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPoint, type ProjectedInk } from "./InkGeometry";
+import { hitStroke, projectStroke, simplifyInk, splitStroke, type InkPoint, type ProjectedInk } from "../../../packages/workspace-engine/src/ink";
 import { InkCanvas, type InkCanvasHandle } from "./InkCanvas";
 import { WorkspaceObjectView } from "./WorkspaceObjectView";
 import { captureMaterialPreviews } from "./WorkspaceMaterialPreview";
 import { lassoHitsPath, lassoHitsRect, newShape, objectRect, resizeObject,
-  translateObject, worldToSurface } from "./WorkspaceGeometry";
+  translateObject, worldToSurface } from "../../../packages/workspace-engine/src/objects";
 import { dockBesideDocument } from "./WorkspaceLayout";
-import { Icon } from "./Icon";
+import { locateWorkspaceItem } from "../../../packages/workspace-engine/src/catalog";
+import { Icon } from "./ui/Icon";
+import { Popover } from "./ui/Popover";
+import { WorkspaceObjectActions, WorkspaceRelationActions } from "./WorkspaceObjectActions";
 import { base, post } from "./api";
 import "./workspace.css";
+import type { BookNotes } from "./features/notes/useBookNotes";
+import type { WorkspaceEditingSession } from "./features/workspace/WorkspaceEditingSession";
+import { NoteCardContent } from "./features/notes/NoteCardContent";
 
 export interface BookWorkspaceHandle {
-  flush(): Promise<boolean>;
   excerpt(selection: ReadingSelection): void;
   escape(): void;
   addToQuestion(ids: string[]): Promise<boolean>;
   locate(anchors: PdfAnchor[]): void;
+  placeNote(note: Note): Promise<void>;
+  locateItem(id: string): void;
 }
 export const BookWorkspace = forwardRef<
   BookWorkspaceHandle,
@@ -52,6 +60,7 @@ export const BookWorkspace = forwardRef<
     page: number;
     toolPreferences: ToolPreferences;
     toolbarHost?: HTMLElement | null;
+    feedbackHost?: HTMLElement | null;
     workspaceEvent?: number;
     onAnnotationColor?: (annotation: Annotation, color: Annotation["color"]) => Promise<void>;
     onAnnotationDelete?: (annotation: Annotation) => Promise<void>;
@@ -59,9 +68,22 @@ export const BookWorkspace = forwardRef<
     onQuestionMaterials?: (selection: Pick<QuestionMaterialInput,
       "workspaceRevision" | "targets" | "previews">) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
+    notes: BookNotes;
+    workspaceSession: WorkspaceEditingSession;
+    onExpandNote: (note: Note) => void;
+    onCatalogChange?: (bookId: string, catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">) => void;
   }
 >(function BookWorkspace(props, ref) {
-  const state = useWorkspace(props.book.id, props.annotations?.map((annotation) => annotation.id));
+  const state = useWorkspace(props.workspaceSession, props.annotations?.map((annotation) => annotation.id));
+  const onCatalogChange = useRef(props.onCatalogChange);
+  onCatalogChange.current = props.onCatalogChange;
+  useEffect(() => {
+    onCatalogChange.current?.(props.book.id, {
+      cards: state.value?.cards ?? [], objects: state.value?.objects ?? [], links: state.value?.links ?? [],
+    });
+  }, [props.book.id, state.value?.cards, state.value?.objects, state.value?.links]);
+  const mounted = useRef(true), placing = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const lastWorkspaceEvent = useRef(props.workspaceEvent ?? 0);
   useEffect(() => {
     if (lastWorkspaceEvent.current !== (props.workspaceEvent ?? 0)) {
@@ -72,7 +94,6 @@ export const BookWorkspace = forwardRef<
   const [selected, setSelected] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedLink, setSelectedLink] = useState<string>();
-  const [styleOpen, setStyleOpen] = useState(false);
   const [editingText, setEditingText] = useState<string>();
   const [canvasGesture, setCanvasGesture] = useState<
     | { kind: "shape"; start: InkPoint; current: InkPoint }
@@ -82,9 +103,6 @@ export const BookWorkspace = forwardRef<
   >();
   const [linkFrom, setLinkFrom] = useState<string>();
   const [focus, setFocus] = useState(false);
-  const [toolbarOpen, setToolbarOpen] = useState(false);
-  const toolbarMenu = useRef<HTMLDivElement>(null);
-  const toolbarTrigger = useRef<HTMLButtonElement>(null);
   const [showOverview, setShowOverview] = useState(false);
   const [documentWidth, setDocumentWidth] = useState(0);
   const [navigation, setNavigation] = useState<{
@@ -97,24 +115,6 @@ export const BookWorkspace = forwardRef<
   const [exportError, setExportError] = useState("");
   const [inkError, setInkError] = useState("");
   const [materialBusy, setMaterialBusy] = useState(false);
-  useEffect(() => {
-    if (!toolbarOpen) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (!toolbarMenu.current?.contains(event.target as Node)) setToolbarOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing) return;
-      event.preventDefault();
-      setToolbarOpen(false);
-      toolbarTrigger.current?.focus({ preventScroll: true });
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      document.removeEventListener("keydown", closeOnEscape, true);
-    };
-  }, [toolbarOpen]);
   const inkCanvas = useRef<InkCanvasHandle>(null);
   const projectedInk = useRef<ProjectedInk[]>([]);
   const projectedCache = useRef<{
@@ -248,6 +248,7 @@ export const BookWorkspace = forwardRef<
     }
   }
   function add(selection?: ReadingSelection) {
+    if (!selection) { void placeNote().catch((error) => setInkError(String(error))); return; }
     if (!state.value) return;
     const page = pages.current.find(
       (item) => item.page === (selection?.page ?? props.page),
@@ -295,6 +296,30 @@ export const BookWorkspace = forwardRef<
       }),
     );
   }
+  async function placeNote(existing?: Note, point?: InkPoint) {
+    if (!state.value) throw new Error("工作区尚未加载，请稍后重试");
+    if (placing.current) throw new Error("正在放置笔记，请稍候");
+    if (existing && existing.bookId !== props.book.id) throw new Error("笔记不属于当前书籍");
+    placing.current = true;
+    try {
+      if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存草稿后再放置笔记");
+      const original = existing && state.value?.cards.find((card) => card.noteId === existing.id);
+      if (original) { navigate(original.x - 40, original.y - 40, 1); selectTarget(original.id); return; }
+      const note = existing ?? await props.notes.create();
+      if (!note || !mounted.current) return;
+      const card: WorkspaceCard = dockBesideDocument({ id: crypto.randomUUID(), kind: "note", noteId: note.id,
+        title: "", text: "", comment: "", x: point ? Math.max(0, point[0] + 20) : WORKSPACE_DOCUMENT_X + documentWidth + 40,
+        y: point ? Math.max(0, point[1]) : Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60),
+        width: 340, height: 300 }, documentWidth);
+      state.change((current) => {
+        while (current.cards.some((old) => Math.abs(old.x - card.x) < 20 && Math.abs(old.y - card.y) < 40)) card.y += 50;
+        return { ...current, cards: [...current.cards, card] };
+      });
+      setSelectedIds([card.id]); setSelected(card.id);
+      navigate(card.x - 40, card.y - 40, 1);
+      if (!(await state.flush())) throw new Error("卡片放置未保存；笔记已保留在列表，画板草稿可重试");
+    } finally { placing.current = false; }
+  }
   async function regionAction(region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) {
     if (action === "question") {
       await props.onRegionAction?.(region, action, includePersonalMarks);
@@ -326,11 +351,30 @@ export const BookWorkspace = forwardRef<
     setSelected(result.cardId);
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
-  useImperativeHandle(ref, () => ({ flush: state.flush, excerpt: add,
+  useImperativeHandle(ref, () => ({ excerpt: add,
+    placeNote,
     addToQuestion: addSelectedToQuestion,
     locate: locateAnchors,
+    locateItem: (id) => {
+      const card = state.value?.cards.find((entry) => entry.id === id);
+      if (card) {
+        navigate(card.x - 40, card.y - 40, 1);
+        setSelected(card.id);
+        setSelectedIds([card.id]);
+        setSelectedLink(undefined);
+      } else {
+        const object = state.value?.objects.find((entry) => entry.id === id);
+        const link = state.value?.links.find((entry) => entry.id === id);
+        const rect = state.value && locateWorkspaceItem(id, state.value, pages.current, props.annotations ?? []);
+        if (rect) navigate(rect.x - 40, rect.y - 40, 1);
+        setSelected(undefined);
+        setSelectedIds(object ? [object.id] : []);
+        setSelectedLink(link?.id);
+      }
+      setFocus(false);
+    },
     escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
-      setSelectedLink(undefined); setStyleOpen(false); setLinkFrom(undefined); setEditingText(undefined); },
+      setSelectedLink(undefined); setLinkFrom(undefined); setEditingText(undefined); },
   }));
   function update(id: string, change: Partial<WorkspaceCard>) {
     if (state.value)
@@ -343,8 +387,14 @@ export const BookWorkspace = forwardRef<
         ),
       }));
   }
+  async function promoteCard(card: WorkspaceCard) {
+    if (!(await state.flush())) throw new Error("卡片草稿尚未保存，请重试后编辑笔记");
+    const note = await props.notes.promoteCard(card.id);
+    if (!note) throw new Error("笔记草稿尚未保存，请重试");
+    await state.reload(true);
+    props.onExpandNote(note);
+  }
   function selectTarget(id: string, shift = false) {
-    setStyleOpen(false);
     const next = shift ? (selectedIds.includes(id) ? selectedIds.filter((value) => value !== id) : [...selectedIds, id]) :
       selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id];
     setSelectedIds(next);
@@ -392,7 +442,10 @@ export const BookWorkspace = forwardRef<
     inkCanvas.current?.preview([], undefined, gesture.ids);
   }
   function startInk(point: InkPoint) {
-    if (!state.value) return;
+    if (!state.value) {
+      setInkError("工作区尚未就绪，请等待加载完成后再绘画。");
+      return false;
+    }
     setInkError("");
     if (props.mode === "eraser") {
       inkGesture.current = { kind: "erase", ids: new Set() };
@@ -402,6 +455,7 @@ export const BookWorkspace = forwardRef<
       inkGesture.current = { kind: "draw", brush: props.mode, style, points: [point] };
       inkCanvas.current?.preview([point], style, new Set());
     }
+    return true;
   }
   function moveInk(points: InkPoint[]) {
     const gesture = inkGesture.current;
@@ -470,12 +524,15 @@ export const BookWorkspace = forwardRef<
     if (!ids.length || !props.onQuestionMaterials || materialBusy) return false;
     setMaterialBusy(true); setInkError("");
     try {
+      if (!(await props.notes.flush())) throw new Error("笔记尚未保存，请重试加入材料");
       if (!(await state.flush())) throw new Error("工作区尚未保存，请重试加入材料");
       const snapshot = state.value;
       const revision = state.revision();
       if (!snapshot || revision === undefined) throw new Error("工作区尚未加载");
       const targets = ids.map((id) => {
-        if (snapshot.cards.some((card) => card.id === id)) return { kind: "card" as const, id };
+        const card = snapshot.cards.find((card) => card.id === id);
+        if (card) return { kind: "card" as const, id, revision: card.noteId
+          ? props.notes.getSnapshot().notes.find((note) => note.id === card.noteId)?.revision : undefined };
         if (snapshot.objects.some((object) => object.id === id)) return { kind: "object" as const, id };
         if (snapshot.links.some((link) => link.id === id)) return { kind: "relation" as const, id };
         const annotation = props.annotations?.find((item) => item.id === id);
@@ -506,7 +563,10 @@ export const BookWorkspace = forwardRef<
     });
   }
   function startCanvas(point: InkPoint, shift: boolean, targetObjectId?: string) {
-    if (!state.value) return false;
+    if (!state.value) {
+      if (props.mode !== "pointer") setInkError("工作区尚未就绪，请等待加载完成后再编辑。");
+      return false;
+    }
     const mode = props.mode;
     if (mode === "pointer" || mode === "link") {
       const target = findTarget(point, targetObjectId);
@@ -605,13 +665,12 @@ export const BookWorkspace = forwardRef<
           annotationRects(annotation, pages.current).some((rect) => lassoHitsRect(polygon, rect)))
           .map((annotation) => annotation.id),
       ];
-      setStyleOpen(false);
       setSelectedIds(chosen); setSelected(chosen.find((id) => state.value!.cards.some((card) => card.id === id)));
       return;
     }
     if (gesture.kind === "shape") {
       if (Math.hypot(point[0] - gesture.start[0], point[1] - gesture.start[1]) * props.zoom < 5) return;
-      const shape = newShape(props.mode as "rectangle" | "ellipse" | "line" | "arrow",
+      const shape = newShape(crypto.randomUUID(), props.mode as "rectangle" | "ellipse" | "line" | "arrow",
         gesture.start, point, pages.current, props.book.fingerprint);
       state.change((current) => ({ ...current, objects: [...current.objects, shape] }));
       setSelectedIds([shape.id]);
@@ -631,11 +690,7 @@ export const BookWorkspace = forwardRef<
       state.change((current) => ({ ...current, objects: [...current.objects, object] }));
       setSelectedIds([object.id]); setEditingText(object.id);
     } else if (props.mode === "note-card") {
-      const card: WorkspaceCard = dockBesideDocument({ id: crypto.randomUUID(), kind: "note", title: "新笔记",
-        text: "", comment: "", x: Math.max(0, gesture.start[0] + 20), y: Math.max(0, gesture.start[1]),
-        width: 250, height: 170 }, documentWidth);
-      state.change((current) => ({ ...current, cards: [...current.cards, card] }));
-      setSelectedIds([card.id]); setSelected(card.id);
+      void placeNote(undefined, gesture.start).catch((error) => setInkError(String(error)));
     }
   }
   function cancelCanvas() { setCanvasGesture(undefined); }
@@ -688,8 +743,11 @@ export const BookWorkspace = forwardRef<
     pages.current = layout;
     viewport.current = el;
     if (!state.value) return null;
-    const styleObject = selectedIds.length === 1 ? state.value.objects.find((object) =>
-      object.id === selectedIds[0] && object.kind !== "ink") : undefined;
+    const styleObject = selectedIds.length === 1 ? state.value.objects.find(
+      (object): object is Exclude<WorkspaceObject, InkStroke> =>
+        object.id === selectedIds[0] && object.kind !== "ink",
+    ) : undefined;
+    const colorObject = state.value.objects.find((object) => selectedIds.includes(object.id));
     const cached = projectedCache.current;
     const strokes = cached && cached.objects === state.value.objects &&
       cached.pages === layout.length && cached.zoom === props.zoom &&
@@ -829,7 +887,7 @@ export const BookWorkspace = forwardRef<
           <path d={`M ${canvasGesture.points.map((point) => point.join(" ")).join(" L ")} Z`} />
         </svg>}
         {canvasGesture?.kind === "shape" && (() => {
-          const preview = newShape(props.mode as "rectangle" | "ellipse" | "line" | "arrow",
+          const preview = newShape("preview", props.mode as "rectangle" | "ellipse" | "line" | "arrow",
             canvasGesture.start, canvasGesture.current, layout, props.book.fingerprint);
           return <WorkspaceObjectView object={preview} pages={layout} zoom={props.zoom} selected={false} editing={false}
             onSelect={() => {}} onEdit={() => {}} onCommit={() => {}} onResize={() => {}} />;
@@ -852,6 +910,7 @@ export const BookWorkspace = forwardRef<
               height: card.height,
             }}
             onPointerDown={(event) => {
+              if ((event.target as HTMLElement).closest("input, textarea, [contenteditable=true]")) return;
               if (event.button === 0) select(card, event.shiftKey);
             }}
           >
@@ -923,7 +982,16 @@ export const BookWorkspace = forwardRef<
               </span>
             </header>
             <div className="workspace-card-body">
-              <input
+              {card.kind === "note" ? (card.noteId
+                ? <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
+                  state={props.notes} editing={selectedIds.length === 1 && selectedIds[0] === card.id} />
+                : <div className="workspace-legacy-note">
+                    <strong>{card.title || "未命名笔记"}</strong>
+                    <p>{[card.text, card.comment].filter(Boolean).join("\n") || "还没有内容"}</p>
+                    <button onClick={() => { void promoteCard(card).catch((error) => setInkError(String(error))); }}>
+                      编辑笔记
+                    </button>
+                  </div>) : <><input
                 aria-label="卡片标题"
                 value={card.title}
                 maxLength={200}
@@ -935,25 +1003,23 @@ export const BookWorkspace = forwardRef<
                   alt={`第 ${props.book.labels[card.region.page - 1] ?? card.region.page} 页图片摘录`} />
               ) : card.kind === "excerpt" ? (
                 <blockquote>{card.text}</blockquote>
-              ) : (
-                <textarea
-                  aria-label="个人笔记内容"
-                  placeholder="写下你的理解…"
-                  value={card.text}
-                  maxLength={20000}
-                  onChange={(e) => update(card.id, { text: e.target.value })}
-                />
-              )}
-              {(card.kind === "excerpt" || card.kind === "region") && (
-                <textarea
-                  aria-label="摘录个人评论"
-                  className="workspace-comment"
-                  placeholder="添加你的理解…"
-                  value={card.comment}
-                  maxLength={10000}
-                  onChange={(e) => update(card.id, { comment: e.target.value })}
-                />
-              )}
+              ) : null}
+              {card.noteId
+                ? <div className="workspace-comment"><small>个人评论 · 非书中原文</small>
+                    <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
+                      state={props.notes} editing={false} compact />
+                    <button onClick={() => {
+                      const note = props.notes.notes.find((item) => item.id === card.noteId);
+                      if (note) props.onExpandNote(note);
+                    }}>编辑评论</button>
+                  </div>
+                : <div className="workspace-comment">
+                    {card.comment && <p>{card.comment}</p>}
+                    <button onClick={() => { void promoteCard(card).catch((error) => setInkError(String(error))); }}>
+                      {card.comment ? "编辑评论" : "写评论"}
+                    </button>
+                  </div>}
+              </>}
             </div>
             <footer>
               {card.source || card.region ? (
@@ -971,6 +1037,10 @@ export const BookWorkspace = forwardRef<
                 <span className="workspace-personal">个人理解</span>
               )}
               <div className="workspace-card-actions">
+                {card.noteId && <button aria-label="展开卡片笔记" title="展开编辑笔记" onClick={() => {
+                  const note = props.notes.notes.find((note) => note.id === card.noteId);
+                  if (note) props.onExpandNote(note);
+                }}><Icon name="outward" /></button>}
                 <button
                   aria-label="连接卡片"
                   title="连接卡片"
@@ -982,8 +1052,8 @@ export const BookWorkspace = forwardRef<
                   <Icon name="link" />
                 </button>
                 <button
-                  aria-label="删除卡片"
-                  title="删除卡片"
+                  aria-label={card.noteId ? "移除卡片，保留笔记" : "删除卡片"}
+                  title={card.noteId ? "移除卡片，保留笔记" : "删除卡片"}
                   onClick={() => {
                     state.change({
                       ...state.value!,
@@ -1065,116 +1135,57 @@ export const BookWorkspace = forwardRef<
         viewport={el} zoom={props.zoom} />, el.parentElement)}
       {el?.parentElement && selectedBounds && selectedBounds.bottom * props.zoom >= el.scrollTop &&
         selectedBounds.y * props.zoom <= el.scrollTop + el.clientHeight && createPortal(
-          <div className="workspace-object-toolbar" role="toolbar" aria-label="对象操作"
+          <WorkspaceObjectActions
             style={{ left: Math.max(8, Math.min(el.clientWidth - 260,
               (selectedBounds.x + selectedBounds.right) / 2 * props.zoom - el.scrollLeft - 130)),
               top: Math.max(8, Math.min(el.clientHeight - 44,
-                selectedBounds.y * props.zoom - el.scrollTop - 44)) }}>
-            <span>{selectedIds.length > 1 ? `${selectedIds.length} 个对象` : "已选中"}</span>
-            {selectedIds.some((id) => props.annotations?.some((annotation) => annotation.id === id)) &&
-              <span className="workspace-fixed-source" title="源批注不能移动">原文固定</span>}
-            {selectedIds.length === 1 && (() => {
-              const annotation = props.annotations?.find((item) => item.id === selectedIds[0]);
-              if (!annotation) return null;
-              return <>
-                <button aria-label="回到批注原文" title="回到批注原文"
-                  onClick={() => sourceAnnotation(annotation)}><Icon name="outward" /></button>
-                <select aria-label="批注颜色" value={annotation.color}
-                  onChange={(event) => {
-                    const color = event.target.value as Annotation["color"];
-                    if (!props.onAnnotationColor || color === annotation.color) return;
-                    void props.onAnnotationColor(annotation, color).then(() => {
-                      state.recordExternal({ kind: "external",
-                        undo: () => props.onAnnotationColor!(annotation, annotation.color),
-                        redo: () => props.onAnnotationColor!(annotation, color),
-                      });
-                    }).catch((cause) => setInkError(`批注颜色修改失败：${String(cause)}`));
-                  }}>
-                  <option value="yellow">黄</option><option value="green">绿</option>
-                  <option value="blue">蓝</option><option value="pink">粉</option>
-                </select>
-              </>;
-            })()}
-            {selectedIds.some((id) => state.value!.objects.some((object) => object.id === id)) &&
-              <label title="修改选中对象颜色" aria-label="对象颜色">
-                <input type="color" aria-label="对象颜色" defaultValue="#345d84"
-                  onChange={(event) => {
-                    const color = event.target.value, ids = new Set(selectedIds);
-                    state.change((current) => ({ ...current,
-                      objects: current.objects.map((object) => ids.has(object.id) ? { ...object, color } : object),
-                    }));
-                  }} />
-              </label>}
-            {styleObject && <>
-              <button aria-label="对象格式" aria-expanded={styleOpen} title="对象格式"
-                onClick={() => setStyleOpen((open) => !open)}><Icon name="more" /></button>
-              {styleOpen && <div className="workspace-object-style reader-popover" role="group" aria-label="对象格式设置">
-                {styleObject.kind === "text" ? <>
-                  <label>字号<input aria-label="文字字号" type="number" min={8} max={120}
-                    value={styleObject.fontSize} onChange={(event) => {
-                      const fontSize = Number(event.target.value);
-                      if (fontSize >= 8 && fontSize <= 120) updateObjects((object) =>
-                        object.kind === "text" ? { ...object, fontSize } : object);
-                    }} /></label>
-                  <label><input aria-label="粗体文字" type="checkbox" checked={styleObject.bold}
-                    onChange={(event) => updateObjects((object) => object.kind === "text" ?
-                      { ...object, bold: event.target.checked } : object)} />粗体</label>
-                  <label>对齐<select aria-label="文字对齐" value={styleObject.align}
-                    onChange={(event) => updateObjects((object) => object.kind === "text" ?
-                      { ...object, align: event.target.value as "left" | "center" | "right" } : object)}>
-                    <option value="left">左</option><option value="center">中</option>
-                    <option value="right">右</option></select></label>
-                </> : styleObject.kind === "shape" ? <>
-                  <label>线宽<select aria-label="形状线宽" value={styleObject.strokeWidth}
-                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
-                      { ...object, strokeWidth: Number(event.target.value) } : object)}>
-                    {[1, 2, 4, 8].map((width) => <option key={width} value={width}>{width}</option>)}
-                  </select></label>
-                  <label><input aria-label="填充形状" type="checkbox" checked={!!styleObject.fill}
-                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
-                      { ...object, fill: event.target.checked ? object.color : undefined,
-                        fillOpacity: event.target.checked ? (object.fillOpacity ?? .2) : undefined } : object)} />填充</label>
-                  {styleObject.fill && <label>透明度<select aria-label="形状填充透明度"
-                    value={styleObject.fillOpacity ?? .2}
-                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
-                      { ...object, fillOpacity: Number(event.target.value) } : object)}>
-                    {[.15, .2, .3, .5, .75].map((opacity) => <option key={opacity} value={opacity}>
-                      {Math.round(opacity * 100)}%</option>)}
-                  </select></label>}
-                </> : null}
-              </div>}
-            </>}
-            <button aria-label="连接选中对象" title="点击另一个对象建立关系"
-              onClick={() => setLinkFrom(selectedIds[0])}><Icon name="link" /></button>
-            {props.onQuestionMaterials && <button aria-label="将选中对象加入提问" title="加入本轮材料，不会立即发送"
-              disabled={materialBusy} onClick={() => void addSelectedToQuestion(selectedIds)}>
-              <Icon name="chat" /></button>}
-            <button aria-label="删除选中对象" title="删除选中对象" onClick={() => void removeSelected()}>
-              <Icon name="trash" /></button>
-          </div>, el.parentElement)}
+                selectedBounds.y * props.zoom - el.scrollTop - 44)) }}
+            count={selectedIds.length}
+            fixedSource={selectedIds.some((id) => props.annotations?.some((annotation) => annotation.id === id))}
+            annotation={selectedIds.length === 1 ? props.annotations?.find((item) => item.id === selectedIds[0]) : undefined}
+            colorObject={colorObject}
+            styleObject={styleObject}
+            materialBusy={materialBusy}
+            canAddToQuestion={Boolean(props.onQuestionMaterials)}
+            onSource={sourceAnnotation}
+            onAnnotationColor={(annotation, color) => {
+              if (!props.onAnnotationColor) return;
+              void props.onAnnotationColor(annotation, color).then(() => {
+                state.recordExternal({ kind: "external",
+                  undo: () => props.onAnnotationColor!(annotation, annotation.color),
+                  redo: () => props.onAnnotationColor!(annotation, color),
+                });
+              }).catch((cause) => setInkError(`批注颜色修改失败：${String(cause)}`));
+            }}
+            onObjectColor={(color) => {
+                const ids = new Set(selectedIds);
+                state.change((current) => ({ ...current,
+                  objects: current.objects.map((object) => ids.has(object.id) ? { ...object, color } : object),
+                }));
+            }}
+            onUpdateObjects={updateObjects}
+            onConnect={() => setLinkFrom(selectedIds[0])}
+            onAddToQuestion={() => void addSelectedToQuestion(selectedIds)}
+            onDelete={() => void removeSelected()}
+          />, el.parentElement)}
       {el?.parentElement && selectedLink && (() => {
         const link = state.value!.links.find((item) => item.id === selectedLink);
         if (!link) return null;
         const from = boundsFor(link.from), to = boundsFor(link.to);
         if (!from || !to) return null;
-        return createPortal(<div className="workspace-object-toolbar link-editor" role="toolbar" aria-label="关系操作"
+        return createPortal(<WorkspaceRelationActions link={link} materialBusy={materialBusy}
+          canAddToQuestion={Boolean(props.onQuestionMaterials)}
           style={{ left: Math.max(8, Math.min(el.clientWidth - 240,
             ((from.x + from.width / 2 + to.x + to.width / 2) / 2) * props.zoom - el.scrollLeft - 120)),
             top: Math.max(8, Math.min(el.clientHeight - 44,
-              ((from.y + from.height / 2 + to.y + to.height / 2) / 2) * props.zoom - el.scrollTop - 44)) }}>
-          <input key={link.id} aria-label="关系名称" defaultValue={link.label} maxLength={200}
-            placeholder="关系名称" onBlur={(event) => {
-              const label = event.target.value;
-              if (label !== link.label) state.change((current) => ({ ...current,
-                links: current.links.map((item) => item.id === link.id ? { ...item, label } : item) }));
-            }} />
-          <label><input type="checkbox" aria-label="关系方向" checked={link.directed ?? false}
-            onChange={(event) => state.change((current) => ({ ...current,
-              links: current.links.map((item) => item.id === link.id ? { ...item, directed: event.target.checked } : item) }))} />方向</label>
-          <button aria-label="删除关系" onClick={removeSelected}><Icon name="trash" /></button>
-          {props.onQuestionMaterials && <button aria-label="将关系加入提问" disabled={materialBusy}
-            onClick={() => void addSelectedToQuestion([link.id])}><Icon name="chat" /></button>}
-        </div>, el.parentElement);
+              ((from.y + from.height / 2 + to.y + to.height / 2) / 2) * props.zoom - el.scrollTop - 44)) }}
+          onLabel={(label) => state.change((current) => ({ ...current,
+            links: current.links.map((item) => item.id === link.id ? { ...item, label } : item) }))}
+          onDirected={(directed) => state.change((current) => ({ ...current,
+            links: current.links.map((item) => item.id === link.id ? { ...item, directed } : item) }))}
+          onDelete={() => void removeSelected()}
+          onAddToQuestion={() => void addSelectedToQuestion([link.id])}
+        />, el.parentElement);
       })()}
     </>;
   }
@@ -1266,42 +1277,20 @@ export const BookWorkspace = forwardRef<
           onAnnotationTarget: (id) => selectTarget(id),
         }}
       />
-      {props.toolbarHost && createPortal(<div className="workspace-menu" ref={toolbarMenu}>
-        <button
-          ref={toolbarTrigger}
-          aria-label={`工作区操作，${state.status}`}
-          aria-haspopup="menu"
-          aria-expanded={toolbarOpen}
-          title="工作区操作"
-          onClick={() => {
-            setToolbarOpen(!toolbarOpen);
-            if (!toolbarOpen) requestAnimationFrame(() => toolbarMenu.current
-              ?.querySelector<HTMLButtonElement>(".workspace-menu-popover button:not(:disabled)")
-              ?.focus({ preventScroll: true }));
-          }}
-        >
+      {props.toolbarHost && createPortal(<div className="workspace-menu">
+        <Popover label="工作区操作" triggerLabel={`工作区操作，${state.status}`} className="workspace-menu-popover" width={200} role="menu" autoFocusFirst trigger={<>
           <Icon name="workspace" />
           {state.status !== "已保存" && <span
             className={`workspace-save-indicator ${state.status.includes("失败") ? "is-error" : ""}`}
             aria-hidden="true"
           />}
-        </button>
-        {toolbarOpen && <div className="workspace-menu-popover" role="menu" aria-label="工作区操作"
-          onKeyDown={(event) => {
-            const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
-            const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-            const next = event.key === "ArrowDown" ? (current + 1) % buttons.length
-              : event.key === "ArrowUp" ? (current + buttons.length - 1) % buttons.length
-              : event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : -1;
-            if (next < 0 || !buttons.length) return;
-            event.preventDefault();
-            buttons[next].focus({ preventScroll: true });
-          }}>
+        </>}>
+        {(close) => <>
         <button
           aria-label="＋ 笔记卡片"
           disabled={!state.value}
           role="menuitem"
-          onClick={() => { add(); setToolbarOpen(false); }}
+          onClick={() => { add(); close(); }}
         >
           <Icon name="plus" /> 笔记
         </button>
@@ -1309,7 +1298,7 @@ export const BookWorkspace = forwardRef<
           aria-label="撤销工作区修改"
           disabled={!state.canUndo}
           role="menuitem"
-          onClick={() => { state.undo(); setToolbarOpen(false); }}
+          onClick={() => { state.undo(); close(); }}
         >
           <Icon name="undo" /> 撤销
         </button>
@@ -1317,16 +1306,16 @@ export const BookWorkspace = forwardRef<
           aria-label="重做工作区修改"
           disabled={!state.canRedo}
           role="menuitem"
-          onClick={() => { state.redo(); setToolbarOpen(false); }}
+          onClick={() => { state.redo(); close(); }}
         >
           <Icon name="redo" /> 重做
         </button>
         <i className="workspace-menu-divider" />
-        <button role="menuitem" onClick={() => { locateDocument(); setToolbarOpen(false); }} title="回到当前阅读页">
+        <button role="menuitem" onClick={() => { locateDocument(); close(); }} title="回到当前阅读页">
           <Icon name="book" />
           定位正文
         </button>
-        <button role="menuitem" onClick={() => { overview(); setToolbarOpen(false); }} title="缩小并查看画布内容">
+        <button role="menuitem" onClick={() => { overview(); close(); }} title="缩小并查看画布内容">
           <Icon name="fit" />
           查看全部
         </button>
@@ -1335,7 +1324,7 @@ export const BookWorkspace = forwardRef<
           title="淡化笔记，聚焦正文"
           role="menuitemcheckbox"
           aria-checked={focus}
-          onClick={() => { setFocus(!focus); setToolbarOpen(false); }}
+          onClick={() => { setFocus(!focus); close(); }}
         >
           <Icon name="focus" /> 聚焦正文
         </button>
@@ -1349,7 +1338,7 @@ export const BookWorkspace = forwardRef<
               });
               setReturnPosition(undefined);
               setSourceFocus(undefined);
-              setToolbarOpen(false);
+              close();
             }}
           >
             返回卡片位置
@@ -1361,14 +1350,15 @@ export const BookWorkspace = forwardRef<
           title="打包 PDF、笔记、连线及附件"
           disabled={exporting || !state.value}
           role="menuitem"
-          onClick={() => { void exportWorkspace(); setToolbarOpen(false); }}
+          onClick={() => { void exportWorkspace(); close(); }}
         >
           <Icon name="download" /> 打包工作区
         </button>
         <span role="status" aria-label="工作区保存状态">
           {state.status}
         </span>
-        </div>}
+        </>}
+        </Popover>
       </div>, props.toolbarHost)}
       {showOverview && (
         <aside className="workspace-overview" aria-label="工作区总览">
@@ -1403,7 +1393,7 @@ export const BookWorkspace = forwardRef<
             >
               <Icon name={card.kind === "note" ? "note" : "book"} />
               <span>
-                {card.title || "未命名笔记"}
+                {(card.noteId ? props.notes.notes.find((note) => note.id === card.noteId)?.title : card.title) || "未命名笔记"}
                 <small>
                   {card.source || card.region
                     ? `第 ${props.book.labels[(card.region?.page ?? card.source!.anchors[0].page) - 1] ?? (card.region?.page ?? card.source!.anchors[0].page)} 页摘录`
@@ -1414,23 +1404,6 @@ export const BookWorkspace = forwardRef<
           ))}
           {!state.value?.cards.length && <p>选中原文创建摘录，或添加笔记。</p>}
         </aside>
-      )}
-      {exportError && (
-        <div className="workspace-error" role="alert">
-          {exportError}
-          <button onClick={() => setExportError("")} aria-label="关闭打包错误">
-            <Icon name="close" />
-          </button>
-        </div>
-      )}
-      {inkError && <div className="workspace-error" role="alert">{inkError}
-        <button onClick={() => setInkError("")} aria-label="关闭笔迹错误"><Icon name="close" /></button>
-      </div>}
-      {linkFrom && (
-        <div className="workspace-notice">
-          点击另一张卡片建立连接{" "}
-          <button onClick={() => setLinkFrom(undefined)}>取消</button>
-        </div>
       )}
       {selected &&
         state.value?.links.some(
@@ -1473,46 +1446,58 @@ export const BookWorkspace = forwardRef<
               ))}
           </aside>
         )}
-      {state.error && (
-        <div className="workspace-error" role="alert">
-          {state.error}
-          {state.value ? (
-            <>
-              <button onClick={() => void state.flush()}>重试保存</button>
-              <button
-                onClick={() => {
-                  const url = URL.createObjectURL(
-                    new Blob([JSON.stringify(state.value, null, 2)], {
-                      type: "application/json",
-                    }),
-                  );
-                  const link = document.createElement("a");
-                  link.href = url;
-                  link.download = `AIReader-workspace-${props.book.id}-draft.json`;
-                  link.click();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                }}
-              >
-                下载草稿备份
-              </button>
-              <button
-                onClick={() => {
-                  if (
-                    confirm(
-                      "重新加载会替换当前未保存草稿。请先下载草稿备份。确定重新加载？",
-                    )
-                  )
-                    void state.reload();
-                }}
-              >
-                重新加载已保存版本
-              </button>
-            </>
-          ) : (
-            <button onClick={() => void state.reload()}>重试加载</button>
-          )}
-        </div>
-      )}
+      {props.feedbackHost && (exportError || inkError || linkFrom || state.error) &&
+        createPortal(<div className="workspace-feedback">
+            {exportError && <div className="workspace-error" role="alert">{exportError}
+              <button onClick={() => setExportError("")} aria-label="关闭打包错误"><Icon name="close" /></button>
+            </div>}
+            {inkError && <div className="workspace-error" role="alert">{inkError}
+              <button onClick={() => setInkError("")} aria-label="关闭笔迹错误"><Icon name="close" /></button>
+            </div>}
+            {linkFrom && <div className="workspace-notice">点击另一张卡片建立连接{" "}
+              <button onClick={() => setLinkFrom(undefined)}>取消</button>
+            </div>}
+            {state.error && (
+              <div className="workspace-error" role="alert">
+                {state.error}
+                {state.value ? (
+                  <>
+                    <button onClick={() => void state.flush()}>重试保存</button>
+                    <button
+                      onClick={() => {
+                        const url = URL.createObjectURL(
+                          new Blob([JSON.stringify(state.value, null, 2)], {
+                            type: "application/json",
+                          }),
+                        );
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = `AIReader-workspace-${props.book.id}-draft.json`;
+                        link.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                      }}
+                    >
+                      下载草稿备份
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (
+                          confirm(
+                            "重新加载会替换当前未保存草稿。请先下载草稿备份。确定重新加载？",
+                          )
+                        )
+                          void state.reload();
+                      }}
+                    >
+                      重新加载已保存版本
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => void state.reload()}>重试加载</button>
+                )}
+              </div>
+            )}
+          </div>, props.feedbackHost)}
     </>
   );
 });

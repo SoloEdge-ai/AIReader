@@ -1,0 +1,34 @@
+:root {
+  font-family:
+    "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  --bg: #fafafa;
+  --surface: #fff;
+  --paper: #e9eaec;
+  --text: #25272b;
+  --muted: #777b84;
+  --line: #e3e4e7;
+  --hover: #f0f1f3;
+  --accent: #365fe0;
+  --effort-accent: #8865ca;
+  --soft: #edf1ff;
+  --danger: #bd3545;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #191a1d;
+  --surface: #222327;
+  --paper: #111214;
+  --text: #e4e5e9;
+  --muted: #a0a3ad;
+  --line: #36373e;
+  --hover: #303137;
+  --accent: #94adff;
+  --effort-accent: #b99ae9;
+  --soft: #293451;
+  --danger: #ff9aa5;
+  color-scheme: dark;
+}

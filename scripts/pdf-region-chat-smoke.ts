@@ -11,6 +11,7 @@ async function dragCentralRegion(page: Page) {
     "data-render-ready",
     "true",
   );
+  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const box = (await page.locator("#page-1").boundingBox())!;
   await page.mouse.move(box.x + box.width / 4, box.y + box.height / 4);
   await page.mouse.down();

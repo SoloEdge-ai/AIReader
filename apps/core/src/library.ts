@@ -10,10 +10,14 @@ import type {
   CoreEvent,
 } from "../../../packages/protocol/src/index";
 import { Storage } from "./storage";
+import { ChatRepository } from "./chat-repository";
+import { IndexRepository } from "./index-repository";
 import { tokens } from "./tokenize";
 import type { ParseMessage } from "./pdf-worker";
 export class Library {
   readonly store: Storage;
+  readonly chat: ChatRepository;
+  readonly index: IndexRepository;
   private workers = new Map<string, ChildProcess>();
   private closed = false;
   constructor(
@@ -21,17 +25,15 @@ export class Library {
     readonly emit: (event: CoreEvent) => void = () => {},
   ) {
     this.store = new Storage(directory);
+    this.chat = new ChatRepository(this.store);
+    this.index = new IndexRepository(this.store);
   }
   resume() {
     for (const book of this.books()) {
       if (book.indexVersion < 2) {
         book.indexVersion = 2;
         book.status = "queued";
-        this.store.db
-          .prepare(
-            "DELETE FROM records WHERE book_id=? AND kind IN ('semantic','index','index-target','index-batch')",
-          )
-          .run(book.id);
+        this.index.discardStaleIndex(book.id);
         this.save(book);
       }
       if (["queued", "parsing"].includes(book.status)) this.parse(book);
@@ -49,6 +51,12 @@ export class Library {
   book(id: string) {
     const book = this.store.get<Book>("book", id);
     if (!book) throw new Error("书籍不存在");
+    return book;
+  }
+  open(id: string) {
+    const book = this.book(id);
+    book.lastOpenedAt = new Date().toISOString();
+    this.store.put("book", id, id, book);
     return book;
   }
   file(id: string) {
@@ -236,6 +244,10 @@ export class Library {
     const mark: Bookmark = { id: randomUUID(), bookId, page, note };
     this.store.put("bookmark", mark.id, bookId, mark);
     return mark;
+  }
+  removeBookmark(bookId: string, bookmarkId: string) {
+    const mark = this.bookmarks(bookId).find((item) => item.id === bookmarkId);
+    if (mark) this.store.remove("bookmark", mark.id);
   }
   close() {
     this.closed = true;
