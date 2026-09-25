@@ -10,7 +10,7 @@ const data = await mkdtemp(resolve(".local/attachments-acceptance-"));
 const pdf = await PDFDocument.create();
 pdf
   .addPage()
-  .drawText("Screenshot and resizable chat acceptance", { x: 30, y: 700 });
+  .drawText("Screenshot and floating chat acceptance", { x: 30, y: 700 });
 const file = resolve(data, "fixture.pdf");
 await writeFile(file, await pdf.save());
 const core = createCore(data, resolve("dist/web"), {
@@ -35,18 +35,27 @@ try {
     .setInputFiles(file);
   await page.locator('[data-book-status="ready"]').waitFor();
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
-  const panel = page.locator(".side-panel");
-  const splitter = page.getByRole("separator", { name: "调整侧栏宽度" });
+  const panel = page.locator(".floating-chat");
+  const header = panel.getByLabel("拖动移动问答浮窗");
+  const leftEdge = panel.getByRole("separator", { name: "调整问答浮窗左边缘" });
   const initial = (await panel.boundingBox())!;
-  const handle = (await splitter.boundingBox())!;
+  const handle = (await header.boundingBox())!;
   await page.mouse.move(
-    handle.x + handle.width / 2,
+    handle.x + 90,
     handle.y + handle.height / 2,
   );
   await page.mouse.down();
-  await page.mouse.move(handle.x - 380, handle.y + handle.height / 2, {
+  await page.mouse.move(handle.x - 180, handle.y + 100, {
     steps: 12,
   });
+  await page.mouse.up();
+  const moved = (await panel.boundingBox())!;
+  expect(moved.x).toBeLessThan(initial.x - 100);
+  expect(moved.y).toBeGreaterThan(initial.y + 50);
+  const resize = (await leftEdge.boundingBox())!;
+  await page.mouse.move(resize.x + resize.width / 2, resize.y + resize.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resize.x - 300, resize.y + resize.height / 2, { steps: 12 });
   await page.mouse.up();
   await expect
     .poll(async () => (await panel.boundingBox())!.width)
@@ -55,31 +64,33 @@ try {
     .poll(async () => (await panel.boundingBox())!.width)
     .toBeGreaterThan(650);
   const wide = (await panel.boundingBox())!.width;
-  await splitter.focus();
+  await leftEdge.focus();
   await page.keyboard.press("ArrowLeft");
   await expect
     .poll(async () => (await panel.boundingBox())!.width)
-    .toBe(wide + 24);
+    .toBe(wide + 16);
   await page.reload();
   await page.locator(".book-card").first().click();
   await expect
     .poll(async () => (await panel.boundingBox())!.width)
-    .toBe(wide + 24);
+    .toBe(wide + 16);
+  const fullHeight = (await panel.boundingBox())!.height;
+  await page.setViewportSize({ width: 900, height: 500 });
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBeLessThan(fullHeight);
+  await header.focus();
+  await page.keyboard.press("ArrowLeft");
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBe(fullHeight);
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBe(wide + 16);
   await page.setViewportSize({ width: 900, height: 900 });
-  await expect(splitter).toBeVisible();
-  await splitter.focus();
-  await page.keyboard.press("Home");
-  await expect.poll(async () => (await panel.boundingBox())!.width).toBe(320);
-  const narrowHandle = (await splitter.boundingBox())!;
-  await page.mouse.move(narrowHandle.x + 4, narrowHandle.y + 200);
-  await page.mouse.down();
-  await page.mouse.move(narrowHandle.x - 280, narrowHandle.y + 200, {
-    steps: 10,
-  });
-  await page.mouse.up();
-  await expect
-    .poll(async () => (await panel.boundingBox())!.width)
-    .toBeGreaterThan(560);
+  await expect(panel).toBeInViewport();
+  const narrow = (await panel.boundingBox())!;
+  expect(narrow.x).toBeGreaterThanOrEqual(0);
+  expect(narrow.x + narrow.width).toBeLessThanOrEqual(900);
+  const bottomEdge = panel.getByRole("separator", { name: "调整问答浮窗下边缘" });
+  await bottomEdge.focus();
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBe(narrow.height - 16);
   await page.setViewportSize({ width: 1440, height: 960 });
   await context.request.post(base + "/api/ai/connect", {
     headers: { Origin: base },
@@ -108,7 +119,7 @@ try {
   await expect(page.getByRole("dialog", { name: "图片预览" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "图片预览" })).toHaveCount(0);
-  await page.getByRole("button", { name: "收起侧栏", exact: true }).click();
+  await page.getByRole("button", { name: "关闭问答浮窗", exact: true }).click();
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
   await expect(page.locator(".composer .image-attachment")).toHaveCount(1);
   const picker = page.getByLabel("选择图片", { exact: true });
@@ -202,8 +213,13 @@ try {
   );
   await expect(page.locator(".composer .image-attachment")).toHaveCount(4);
   await page.setViewportSize({ width: 900, height: 600 });
-  await splitter.focus();
-  await page.keyboard.press("Home");
+  await panel.getByRole("button", { name: "重置问答浮窗" }).click();
+  await expect(panel).toBeInViewport();
+  const compactBottom = panel.getByRole("separator", { name: "调整问答浮窗下边缘" });
+  await compactBottom.focus();
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowUp");
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBe(320);
+  await expect(panel.locator(".composer-hint")).toBeHidden();
   await page.getByRole("button", { name: "选择文字（T）" }).click();
   await page
     .locator(".textLayer span")
@@ -240,7 +256,7 @@ try {
   });
   await expect(page.locator(".composer .image-attachment")).toHaveCount(1);
   console.log(
-    "Real clipboard image/text paste, preview/removal, invalid-file recovery, draft/history persistence, actual model image input, desktop/drawer resize and width persistence passed.",
+    "Real clipboard image/text paste, preview/removal, invalid-file recovery, draft/history persistence, actual model image input, floating chat move/resize and persistence passed.",
   );
 } finally {
   await browser.close();

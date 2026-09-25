@@ -4,13 +4,13 @@
 
 基线d7fcbc2在规划时typecheck及23文件/40测试通过，不代表重构验收。verification记录每次真实命令、提交、环境、结果和限制。
 
-## 单分支与预发布
+## PR 检查与发布
 
-codex/architecture-refactor，一个Draft PR。PR更新自动检查/构建，不发Release。阶段完成后手动运行既有Windows desktop packages选择该分支，仅此手动分支允许预发布。main合入从合并提交重建正式版。
+PR #24 已合入 main；后续功能继续使用 `codex/*` 分支、PR 检查和 squash merge。PR 更新自动检查／构建并提供可下载安装包，不发正式 Release。main 合入从合并提交重建正式版。手动分支预发布工作流目前只允许 `codex/architecture-refactor`，新分支不可假定自动具备预发布权限。
 
 数字版本 `0.2.<run_number>`，同一安装身份；preview 设置 prerelease=true/latest=false。关于和包内 `dist/build-info.json` 显示 channel/SHA/实际数据和协议版本。产物为 Setup、Portable、SHA256SUMS.txt、build-info.json。当前数据库 v5／归档 v3；API 最高支持版本为 v2（工作区增量命令，其余仍为 v1），不代表所有接口迁移完成。标签绑定实际构建 SHA，不能覆盖其他提交的同版本。普通检查 contents:read，发布 job 单独 contents:write。
 
-阶段验收后执行 `gh workflow run windows-release.yml --ref codex/architecture-refactor`。检查生成的 Release 为预览、Latest 未改变、SHA 与阶段提交一致，之后再决定本机安装。工作流接入和本地测试不等于远端发版已验证。
+若仍需为允许的历史重构分支手动预发布，可执行 `gh workflow run windows-release.yml --ref codex/architecture-refactor`，并核对 prerelease、Latest 和 SHA；其他新分支需先明确扩展工作流规则。工作流接入和本地测试不等于远端发版已验证。
 
 构建格式元数据统一来自 `build/format-versions.json`，修改实际数据库／归档／API 格式时同时更新；本地和 CI 构建不得各自硬编码版本。
 

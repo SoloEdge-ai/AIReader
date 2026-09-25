@@ -97,7 +97,7 @@ try {
   await expect(page.locator(".question-attachment")).not.toContainText(
     "A selected passage",
   );
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "关闭问答浮窗" }).click();
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
   await expect(page.locator(".question-attachment")).toContainText(
     "reading actions",
@@ -113,7 +113,7 @@ try {
   await expect(page.getByLabel("问题", { exact: true })).toHaveValue(
     "换一个选区继续提问",
   );
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "关闭问答浮窗" }).click();
 
   await selectPassage();
   await toolbar.getByRole("button", { name: "AI 处理选区" }).click();
@@ -124,7 +124,7 @@ try {
   await expect(page.locator('option[value="selection"]')).toBeEnabled();
   await page.getByLabel("问题", { exact: true }).fill("解释这一段");
   await expect(page.locator('option[value="selection"]')).toBeEnabled();
-  await page.getByRole("button", { name: "收起侧栏" }).click();
+  await page.getByRole("button", { name: "关闭问答浮窗" }).click();
 
   await selectPassage();
   await toolbar.getByRole("button", { name: "标注颜色：黄色" }).click();

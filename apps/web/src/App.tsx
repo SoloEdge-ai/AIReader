@@ -24,6 +24,7 @@ import { useBookNotes } from "./features/notes/useBookNotes";
 import { useBookEditing } from "./features/book/useBookEditing";
 import { ExpandedNote } from "./features/notes/ExpandedNote";
 import { ChatPanel, type SelectionAction } from "./ChatPanel";
+import { FloatingChatWindow } from "./features/chat/FloatingChatWindow";
 import type { ObservedTurn } from "./features/chat/turn-sync";
 import { QuestionDraftStore } from "./QuestionDrafts";
 import { PanelResizer } from "./PanelResizer";
@@ -68,23 +69,12 @@ export function App() {
     sessionId: string;
   }>();
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   useEffect(() => {
-    const resize = () => setViewportWidth(window.innerWidth);
+    const resize = () => { setViewportWidth(window.innerWidth); setViewportHeight(window.innerHeight); };
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
-  const maxPanelWidth = Math.round(
-    Math.max(
-      320,
-      Math.min(
-        1600,
-        viewportWidth <= 1180
-          ? viewportWidth * 0.9
-          : viewportWidth - 408 - (layout.navigation ? layout.navigationWidth : 0),
-      ),
-    ),
-  );
-  const panelWidth = Math.min(layout.panelWidth, maxPanelWidth);
   const clearSelection = useCallback(() => {
     setSelection(undefined);
     getSelection()?.removeAllRanges();
@@ -119,7 +109,12 @@ export function App() {
   const readerTools = useReaderToolController({
     bookId: active,
     clearSelection,
-    cancelExternal: () => setQuestionCapture(undefined),
+    cancelExternal: () => {
+      if (questionCapture) {
+        setQuestionCapture(undefined);
+        void openChatPanel();
+      }
+    },
     onEscape: (event) => {
       if (document.querySelector('dialog[open],[aria-modal="true"]')) return false;
       const popover = document.querySelector<HTMLElement>("[popover]:popover-open");
@@ -153,7 +148,7 @@ export function App() {
   function cancelQuestionCapture() {
     setQuestionCapture(undefined);
     readerTools.finish();
-    if (questionCapture?.bookId === active && viewportWidth <= 1180)
+    if (questionCapture?.bookId === active)
       void openChatPanel();
   }
   function updateToolPreferences(next: ToolPreferences) {
@@ -192,7 +187,8 @@ export function App() {
       fingerprint: book.fingerprint,
       sessionId,
     });
-    if (viewportWidth <= 1180) updateLayout({ ...layout, panel: "none" });
+    // Region capture is temporary; do not save a closed chat preference.
+    setLayout({ ...layout, panel: "none" });
     requestAnimationFrame(() =>
       document
         .querySelector<HTMLElement>(".pdf-scroll")
@@ -442,19 +438,16 @@ export function App() {
     if (nav === "材料" && (next !== "材料" || !visible) && !(await notes.flush())) return;
     if (current.current !== bookId) return;
     setNav(next);
-    persistLayout({ ...layout, navigation: visible,
-      panel: visible && viewportWidth <= 1180 ? "none" : layout.panel === "notes" ? "chat" : layout.panel });
+    persistLayout({ ...layout, navigation: visible });
   };
   function openMaterials() {
     setNav("材料");
-    persistLayout({ ...layout, navigation: true,
-      panel: viewportWidth <= 1180 ? "none" : layout.panel === "notes" ? "chat" : layout.panel });
+    persistLayout({ ...layout, navigation: true });
   }
   async function openChatPanel() {
     const bookId = active;
-    if (viewportWidth <= 1180 && nav === "材料" && layout.navigation && !(await notes.flush())) return;
     if (current.current !== bookId) return;
-    updateLayout({ ...layout, panel: "chat", navigation: viewportWidth <= 1180 ? false : layout.navigation });
+    updateLayout({ ...layout, panel: "chat" });
   }
   const updatePrefs = (p: ReaderPreferences) => {
     setPrefs(p);
@@ -467,9 +460,10 @@ export function App() {
       if (!(await flushCurrentBook())) return;
       const p = await api<ReaderPreferences>(`books/${b.id}/preferences`);
       if (request !== openSequence.current) return;
+      setQuestionCapture(undefined);
       if (p.panel === "notes") {
         setNav("材料");
-        setLayout({ ...p, panel: viewportWidth <= 1180 ? "none" : "chat", navigation: true });
+        setLayout({ ...p, panel: "chat", navigation: true });
       } else setLayout(p);
       setPage(b.progress);
       setActive(b.id);
@@ -814,12 +808,7 @@ export function App() {
           </header>
           <div
             className="reader-body"
-            style={
-              {
-                "--panel-width": panelWidth + "px",
-                "--navigation-width": layout.navigationWidth + "px",
-              } as React.CSSProperties
-            }
+            style={{ "--navigation-width": layout.navigationWidth + "px" } as React.CSSProperties}
           >
             {layout.navigation && (
               <>
@@ -1052,25 +1041,12 @@ export function App() {
                 setExpandedNote(undefined); readerTools.finish();
               }} />}
             </section>
-            {layout.panel !== "none" && (
-              <>
-                <PanelResizer
-                  width={panelWidth}
-                  maximum={maxPanelWidth}
-                  onChange={(panelWidth) =>
-                    setLayout((old) => ({ ...old, panelWidth }))
-                  }
-                  onCommit={(panelWidth) =>
-                    updateLayout({ ...layout, panelWidth })
-                  }
-                />
-                <div className="side-panel">
-                  <header className="panel-header">
-                    <strong>问答</strong>
-                    <button aria-label="收起侧栏" onClick={togglePanel}>
-                      <Icon name="close" />
-                    </button>
-                  </header>
+          </div>
+          {layout.panel !== "none" && (
+            <FloatingChatWindow key={book.id} rect={layout.chatWindow}
+              bounds={{ width: viewportWidth, height: viewportHeight }}
+              onCommit={(chatWindow) => updateLayout({ ...layout, chatWindow })}
+              onClose={togglePanel}>
                     <ChatPanel
                       key={active}
                       book={book}
@@ -1103,15 +1079,12 @@ export function App() {
                       }}
                       onMaterialLocate={(anchors) => {
                         workspace.current?.locate(anchors);
-                        if (viewportWidth <= 1180) updateLayout({ ...layout, panel: "none" });
                       }}
                       turnEvents={turnEvents}
                       streamRevision={streamRevision}
                     />
-                </div>
-              </>
-            )}
-          </div>
+            </FloatingChatWindow>
+          )}
           {book.status !== "ready" && (
             <div className="document-status" role="status">
               {book.status === "error"

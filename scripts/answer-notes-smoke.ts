@@ -98,7 +98,7 @@ try {
     throw new Error(`Note save did not settle: ${JSON.stringify(statuses)}`, { cause: error });
   }
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
-  await expect(page.locator(".side-panel .chat")).toBeVisible();
+  await expect(page.locator(".floating-chat .chat")).toBeVisible();
   const [reopen] = await Promise.all([
     page.waitForResponse(
       (response) =>

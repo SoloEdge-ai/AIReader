@@ -314,7 +314,7 @@ try {
         await input.fill("另一会话的草稿");
       } else {
         await page
-          .getByRole("button", { name: "收起侧栏", exact: true })
+          .getByRole("button", { name: "关闭问答浮窗", exact: true })
           .click();
         await page
           .getByRole("button", { name: "问答", exact: true })

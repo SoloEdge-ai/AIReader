@@ -436,7 +436,7 @@
   transform: translateX(-50%);
   width: min(620px, calc(100% - 40px));
   max-height: calc(100% - 70px);
-  z-index: 12;
+  z-index: 40;
   display: grid;
   justify-items: center;
   gap: 8px;

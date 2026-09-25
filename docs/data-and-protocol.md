@@ -4,7 +4,7 @@
 
 SQLite records 仍保存笔记、批注等独立 JSON 实体，passages/FTS5 保存索引；工作区不再写整份 JSON。笔记仍有独立 revision／保存接口。
 
-`ReaderPreferences` 新增 `navigationWidth`（220–320，默认 240），按书籍保存；旧偏好缺省时由协议补默认值。历史 `panel: "notes"` 仍可读取，renderer 打开该书时把笔记入口显示在左侧材料栏、问答放右侧，不在 Core 中破坏性改写旧记录。
+`ReaderPreferences` 包含 `navigationWidth`（220–320，默认 240）及可选 `chatWindow`（浮窗的 CSS 像素 x/y/宽/高），按书籍保存；旧偏好缺省时由协议和 renderer 补默认值。浮窗尺寸和位置在窗口缩小时仅做显示约束，拖动或缩放结束后才保存。旧 `panelWidth` 仍可读取但新浮窗不使用。历史 `panel: "notes"` 仍可读取，renderer 打开该书时把笔记入口显示在左侧材料栏、问答改为浮窗，不在 Core 中破坏性改写旧记录。
 
 ## v5 工作区存储
 
