@@ -10,10 +10,12 @@ import type {
   CoreEvent,
 } from "../../../packages/protocol/src/index";
 import { Storage } from "./storage";
+import { ChatRepository } from "./chat-repository";
 import { tokens } from "./tokenize";
 import type { ParseMessage } from "./pdf-worker";
 export class Library {
   readonly store: Storage;
+  readonly chat: ChatRepository;
   private workers = new Map<string, ChildProcess>();
   private closed = false;
   constructor(
@@ -21,6 +23,7 @@ export class Library {
     readonly emit: (event: CoreEvent) => void = () => {},
   ) {
     this.store = new Storage(directory);
+    this.chat = new ChatRepository(this.store);
   }
   resume() {
     for (const book of this.books()) {

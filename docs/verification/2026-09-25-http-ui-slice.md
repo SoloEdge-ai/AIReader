@@ -14,6 +14,7 @@
 - 对象／关系条采用选区条的浮层表面与 36px 按钮命中区；批注与画布对象复用颜色弹层，对象支持自定义色。对象测试验证颜色实际写入工作区，截图仅保存在忽略的 `.local/screenshots`。
 - 同一 Note 的卡片、笔记面板与展开编辑器使用共享草稿；正在输入的编辑器不会被旧快照覆盖，聚焦但干净的编辑器仍可接收真实的新版本。
 - 关闭、切书、返回书库和编辑退出使用同一当前书籍保存入口；Note 先于可能引用它的画布提交。当前仍是两套草稿状态加保存屏障，不把它称为完整 `BookEditingSession`。
+- 聊天会话、轮次和学习记忆经 `ChatRepository` 按书籍存取；创建轮次与提交冻结材料保持同一 SQLite 事务，失败时一起回滚。上下文不再自行拼接聊天记录键。
 
 ## 已执行
 
@@ -21,6 +22,7 @@
 - 本机打包版：`node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe` 通过；旧构建连续重复五次未复现 CI 曾出现的笔记同步时序失败。改进焦点同步后同一整段验收通过。
 - 本机 UI：`node --import tsx scripts/objects-smoke.ts`、`node scripts/selection-smoke.mjs` 通过；Playwright 的“双视图编辑一份笔记”和“聚焦干净编辑器接收服务端新版本”定向测试通过。
 - 保存屏障修改后 `node scripts/close-save-smoke.mjs` 以真实 Core 版本冲突／SQLite 写锁验证保留草稿、重试和重开；`node scripts/desktop-smoke.mjs .` 验证正常关闭，均通过。
+- 聊天仓储修改后 `pnpm typecheck`、`tests/chat-repository.test.ts`、`tests/chat-http.test.ts` 和 `tests/context.test.ts` 通过；仓储测试验证跨书隔离及材料回调失败时轮次回滚。
 - Windows CI：`36116023139` 和 `36117038716` 均通过，包含便携 EXE、当前用户安装包、SHA256、阅读／画布／聊天／笔记 UI 及安装更新回归。更早的 `36114328034` 在笔记同步处发生一次时序失败，随后已增加焦点保护和更精确断言。
 
 ## 未完成

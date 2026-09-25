@@ -24,11 +24,7 @@ export class ChatService {
         title: map.get(turn.sessionId)?.title ?? turn.question.slice(0, 60),
         updatedAt: turn.createdAt,
       });
-    for (const session of this.library.store.list<{
-      id: string;
-      title: string;
-      updatedAt: string;
-    }>("session", bookId)) {
+    for (const session of this.library.chat.sessions(bookId)) {
       const previous = map.get(session.id);
       map.set(session.id, {
         ...session,
@@ -46,24 +42,19 @@ export class ChatService {
       title: "新会话",
       updatedAt: new Date().toISOString(),
     };
-    this.library.store.put(
-      "session",
-      bookId + ":" + session.id,
-      bookId,
-      session,
-    );
+    this.library.chat.saveSession(bookId, session);
     return session;
   }
   renameSession(bookId: string, id: string, title: string) {
     const session = this.sessions(bookId).find((s) => s.id === id);
     if (!session) throw new Error("会话不存在");
     session.title = title;
-    this.library.store.put("session", bookId + ":" + id, bookId, session);
+    this.library.chat.saveSession(bookId, session);
     return session;
   }
   setGoal(bookId: string, sessionId: string, goal: string) {
     this.library.book(bookId);
-    this.library.store.put("memory", bookId + ":" + sessionId, bookId, {
+    this.library.chat.saveMemory(bookId, sessionId, {
       goal,
       text: "用户学习目标：" + goal,
     });
@@ -76,19 +67,15 @@ export class ChatService {
     readonly materials: QuestionMaterials,
   ) {
     this.images = new ChatImages(library);
-    for (const turn of library.store.list<ChatTurn>("turn"))
-      if (turn.status === "running") {
-        turn.status = "error";
-        turn.error = "应用重启，上一轮已中断。";
-        this.save(turn);
-      }
+    for (const turn of library.chat.interruptedTurns()) {
+      turn.status = "error";
+      turn.error = "应用重启，上一轮已中断。";
+      this.save(turn);
+    }
   }
   list(bookId: string, sessionId?: string) {
     this.library.book(bookId);
-    return this.library.store
-      .list<ChatTurn>("turn", bookId)
-      .filter((t) => !sessionId || t.sessionId === sessionId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return this.library.chat.turns(bookId, sessionId);
   }
   start(
     reading: ReadingSnapshot,
@@ -149,8 +136,7 @@ export class ChatService {
     const control = new AbortController();
     this.running.set(turn.id, control);
     try {
-      this.library.store.transaction(() => {
-        this.library.store.put("turn", turn.id, turn.bookId, turn);
+      this.library.chat.createTurn(turn, () => {
         this.materials.commit(turn.bookId, sessionId, materialIds, turn.id);
       });
       this.library.emit({ type: "turn", bookId: turn.bookId, taskId: turn.id, data: turn });
@@ -188,11 +174,7 @@ export class ChatService {
           usage: result.usage,
           reasoning: result.reasoning,
         });
-        const key = turn.bookId + ":" + sessionId;
-        const previous = this.library.store.get<{ goal?: string }>(
-          "memory",
-          key,
-        );
+        const previous = this.library.chat.memory(turn.bookId, sessionId);
         const recentQuestions = [
           ...this.list(turn.bookId, sessionId)
             .filter((t) => t.status === "complete")
@@ -200,7 +182,7 @@ export class ChatService {
             .map((t) => t.question),
           question,
         ];
-        this.library.store.put("memory", key, turn.bookId, {
+        this.library.chat.saveMemory(turn.bookId, sessionId, {
           goal: previous?.goal ?? "",
           text: `学习目标：${previous?.goal ?? "尚未指定"}\n最近关注的问题（不代表已验证事实）：\n${recentQuestions.map((q) => q.slice(0, 180)).join("\n")}`.slice(
             0,
@@ -220,7 +202,7 @@ export class ChatService {
   }
   private save(turn: ChatTurn) {
     if (this.closed) return;
-    this.library.store.put("turn", turn.id, turn.bookId, turn);
+    this.library.chat.saveTurn(turn);
     this.library.emit({
       type: "turn",
       bookId: turn.bookId,

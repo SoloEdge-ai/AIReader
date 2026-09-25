@@ -40,7 +40,7 @@ Core 笔记／批注接口：`apps/core/src/note-routes.ts` 拥有这些路由�
 
 Core 工作区接口：`apps/core/src/workspace-routes.ts` 拥有命令、相机、区域图片、资源、归档和问题材料的 HTTP 方法与请求限制；`server.ts` 仍负责会话／来源鉴权、普通书籍路由的存在性检查及服务生命周期。较早分派的 `/api/v2` 命令由工作区服务检查书籍存在性。修改此边界时运行工作区、归档、区域图片及问题材料的真实 HTTP 测试；不能仅用路由 mock 代替 Core/SQLite 行为。
 
-Core 聊天接口：`apps/core/src/chat-routes.ts` 拥有会话、轮次、冻结阅读请求、图片资源、学习目标与回答转笔记的 HTTP 契约；模型能力检查由 `server.ts` 提供的选择函数执行，实际请求和持久化归 `ChatService` 等 Core 服务。修改时运行 `tests/chat-http.test.ts`、`tests/images-http.test.ts`、`tests/answer-notes.test.ts`、`tests/region-images-http.test.ts` 及材料上下文测试。
+Core 聊天接口：`apps/core/src/chat-routes.ts` 拥有会话、轮次、冻结阅读请求、图片资源、学习目标与回答转笔记的 HTTP 契约；模型能力检查由 `server.ts` 提供的选择函数执行，实际请求归 `ChatService`，会话、轮次和学习记忆由 `ChatRepository` 按书籍存取。创建轮次和提交冻结材料共用一个 SQLite 事务。修改时运行 `tests/chat-repository.test.ts`、`tests/chat-http.test.ts`、`tests/context.test.ts`、`tests/images-http.test.ts`、`tests/answer-notes.test.ts`、`tests/region-images-http.test.ts` 及材料上下文测试。
 
 书库与阅读接口：`apps/core/src/book-routes.ts` 处理导入、打开、PDF 文件、搜索、进度、每书偏好和书签的 HTTP 契约；`Library` 负责书籍存在性、来源文件路径和书库写入，`Preferences` 负责全局阅读、工具盘与每书布局偏好的校验、隔离和持久化，`preferences-routes.ts` 负责全局 HTTP。`server.ts` 在分派前统一做会话与来源检查。修改时运行 `tests/http.test.ts` 和 `tests/library.test.ts`；全局偏好与每书布局不得串写，跨书删除书签不得影响原书。
 
