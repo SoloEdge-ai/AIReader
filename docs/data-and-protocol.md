@@ -26,7 +26,7 @@ v2 变更集合最多 13000 条，覆盖两个最大工作区之间的差量，�
 
 导入副本在books；图片在annotations/workspace-assets/chat-images/question-materials。账号在control/codex-home，组件在runtimes。
 
-持久位置为PDF原生或世界坐标，不保存CSS/设备像素。跨页笔迹按逻辑stroke分段。原始点是事实来源。材料绑定book/session/版本与冻结内容；前端预览是用户视觉材料，不代表Core已验证像素。个人材料与原文evidence分离。
+持久位置为PDF原生或世界坐标，不保存CSS/设备像素。跨页笔迹按逻辑stroke分段。原始点是事实来源。材料绑定book/session/版本与冻结内容；前端预览是用户视觉材料，不代表Core已验证像素。个人材料与原文evidence分离。冻结材料及请求回执由 QuestionMaterialRepository 按书籍读取并原子提交；同一 requestId 与同一载荷并发重试返回首份快照，载荷不同则拒绝，新尝试生成的临时图片不留下额外资源目录。材料与聊天轮次的最终提交仍共用外层 SQLite 事务。
 
 一次编辑应原子修改实体及关系。重试不能重复资源；临时资源验证后登记，失败只清理本次新文件。冲突保留草稿。
 
