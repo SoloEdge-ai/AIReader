@@ -256,7 +256,10 @@ try {
   await page
     .getByLabel("选择工作区包", { exact: true })
     .setInputFiles(archiveFile);
-  await expect(page.locator(".reader")).toBeVisible();
+  await expect.poll(async () => {
+    if (await page.locator(".reader").isVisible()) return "reader";
+    return (await page.locator(".error-toast").allTextContents()).join(" ") || "restoring";
+  }, { timeout: 30_000 }).toBe("reader");
   await expect(card.locator(".workspace-note-preview")).toHaveText("A durable personal interpretation.");
   expect(
     await (await context.request.get(origin + "/api/books")).json(),
