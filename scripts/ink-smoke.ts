@@ -21,10 +21,16 @@ const browser = await chromium.launch({ channel: "msedge", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors: string[] = [];
+  const commandResponses: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("response", (response) => {
+    if (response.url().includes("/workspace/commands"))
+      commandResponses.push(`${response.status()} ${response.request().method()}`);
+  });
   await page.goto(origin);
   await page.getByRole("button", { name: /Ink acceptance/ }).click();
   await expect(page.locator("#page-2")).toHaveAttribute("data-render-ready", "true");
+  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const first = (await page.locator("#page-1").boundingBox())!;
   const second = (await page.locator("#page-2").boundingBox())!;
   await page.getByRole("button", { name: "画笔（P）" }).click();
@@ -34,7 +40,18 @@ try {
   await page.mouse.move(second.x + 100, second.y + 70, { steps: 30 });
   await page.mouse.up();
   const endpoint = `${origin}/api/books/${book.id}/workspace`;
-  await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(1);
+  try {
+    await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length,
+      { timeout: 10_000 }).toBe(1);
+  } catch (cause) {
+    const snapshot = await (await page.request.get(endpoint)).json();
+    throw new Error(`First ink stroke was not saved: ${JSON.stringify({
+      revision: snapshot.revision, objects: snapshot.objects.length,
+      workspaceReady: await page.locator(".pdf-scroll").getAttribute("data-workspace-ready"),
+      feedback: await page.locator(".workspace-feedback").allTextContents(),
+      commandResponses, pageErrors: errors,
+    })}`, { cause });
+  }
   const stored = await (await page.request.get(endpoint)).json();
   expect(stored.objects[0].segments.map((segment: { surface: { kind: string; page?: number } }) =>
     segment.surface.kind === "pdf" ? segment.surface.page : "board")).toEqual([1, "board", 2]);
@@ -67,6 +84,7 @@ try {
   await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(2);
   await page.reload();
   await page.getByRole("button", { name: /Ink acceptance/ }).click();
+  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   expect((await (await page.request.get(endpoint)).json()).objects).toHaveLength(2);
   await page.getByRole("button", { name: "画笔（P）" }).click();

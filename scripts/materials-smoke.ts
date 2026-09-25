@@ -24,6 +24,7 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: /Material acceptance/ }).click();
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const source = (await page.locator("#page-1").boundingBox())!;
   await page.getByRole("button", { name: "添加形状" }).click();
   await page.getByRole("menuitem", { name: "矩形" }).click();

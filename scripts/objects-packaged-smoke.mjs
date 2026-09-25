@@ -19,6 +19,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.locator('input[type=file][accept="application/pdf"]').setInputFiles(fixture);
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const first = await page.locator("#page-1").boundingBox();
   await page.getByRole("button", { name: "添加文本或卡片" }).click();
   await page.getByRole("menuitem", { name: "文本" }).click();

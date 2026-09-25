@@ -37,6 +37,7 @@ try {
     "data-render-ready",
     "true",
   );
+  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const palette = page.getByRole("toolbar", { name: "阅读工具盘" });
   await page.screenshot({ path: ".local/screenshots/tool-palette-default.png" });
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");

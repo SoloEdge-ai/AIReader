@@ -77,6 +77,7 @@ try {
   await reopened.getByRole("button", { name: /关闭前提交测试/ }).click();
   await expect(reopened.locator(".tiptap")).toContainText("这份草稿必须在窗口关闭前写入本机数据库。");
   await expect(reopened.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  await expect(reopened.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   await reopened.locator("#page-1").evaluate((page) => page.scrollIntoView({ block: "start", inline: "center" }));
   const firstPage = (await reopened.locator("#page-1").boundingBox());
   expect(firstPage).toBeTruthy();

@@ -442,7 +442,10 @@ export const BookWorkspace = forwardRef<
     inkCanvas.current?.preview([], undefined, gesture.ids);
   }
   function startInk(point: InkPoint) {
-    if (!state.value) return;
+    if (!state.value) {
+      setInkError("工作区尚未就绪，请等待加载完成后再绘画。");
+      return false;
+    }
     setInkError("");
     if (props.mode === "eraser") {
       inkGesture.current = { kind: "erase", ids: new Set() };
@@ -452,6 +455,7 @@ export const BookWorkspace = forwardRef<
       inkGesture.current = { kind: "draw", brush: props.mode, style, points: [point] };
       inkCanvas.current?.preview([point], style, new Set());
     }
+    return true;
   }
   function moveInk(points: InkPoint[]) {
     const gesture = inkGesture.current;
@@ -559,7 +563,10 @@ export const BookWorkspace = forwardRef<
     });
   }
   function startCanvas(point: InkPoint, shift: boolean, targetObjectId?: string) {
-    if (!state.value) return false;
+    if (!state.value) {
+      if (props.mode !== "pointer") setInkError("工作区尚未就绪，请等待加载完成后再编辑。");
+      return false;
+    }
     const mode = props.mode;
     if (mode === "pointer" || mode === "link") {
       const target = findTarget(point, targetObjectId);

@@ -567,7 +567,7 @@ export interface PdfReaderProps {
     sourceFocus?: PdfAnchor[];
     ink?: InkStroke[];
     marks?: Exclude<WorkspaceObject, InkStroke>[];
-    onInkStart?: (point: InkPoint) => void;
+    onInkStart?: (point: InkPoint) => boolean;
     onInkMove?: (points: InkPoint[]) => void;
     onInkEnd?: (point: InkPoint) => void;
     onInkCancel?: () => void;
@@ -935,6 +935,7 @@ export function PdfReader({
     <div
       ref={scroll}
       className={`pdf-scroll${workspace ? " workspace-scroll" : ""}${mode === "pointer" ? " pointer-tool" : ""}${panReady ? " pan-ready" : ""}${panning ? " panning" : ""}`}
+      data-workspace-ready={workspace?.ready ? "true" : "false"}
       tabIndex={-1}
       onPointerDownCapture={(event) => {
         if (!workspace) return;
@@ -955,10 +956,10 @@ export function PdfReader({
           event.preventDefault();
           event.stopPropagation();
           const point = worldPoint(event);
+          if (!workspace.onInkStart(point)) return;
           inkPointer.current = event.pointerId;
           inkLast.current = { x: event.clientX, y: event.clientY, point };
           scroll.current!.setPointerCapture(event.pointerId);
-          workspace.onInkStart(point);
           return;
         }
         if (event.button === 0 && !space.current && workspace.onCanvasStart &&
