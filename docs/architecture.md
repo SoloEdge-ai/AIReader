@@ -26,6 +26,8 @@ Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node�
 
 ## 不变量
 
+工作区旧命令回执、区域图片登记和 PDF 页面边界缓存仍物理存放在 records，但业务代码通过 `WorkspaceRepository` 的按书籍接口访问。区域图片文件的异步创建与失败清理由 `WorkspaceAssets` 负责；仓储仅在工作区事务内登记元数据。归档恢复复用同一登记入口，避免另有一套写法。
+
 个人笔记卡片通过 noteId 引用 Note，`NoteCardContent` 复用会话和 NoteEditor；未选中卡片只渲染只读文本预览，不挂载富文本编辑器。摘录卡片保留只读原文或区域图及定位，以 noteId 指向个人评论 Note；Note 的 sourceCard 是创建时冻结的来源投影，删除卡片后仍可在笔记面板和导出中查看。`note-placements.ts` 在 Note 删除／恢复的外层事务内协调位置及关系；源摘录只解除／恢复评论绑定，不随 Note 删除。仓储保存使用嵌套 SAVEPOINT。创建笔记再放置是两步操作，放置失败时笔记仍在列表，不宣称跨请求原子创建。旧独立个人卡片首次编辑时通过同一 Core 用例迁入 Note，未被打开的旧卡片继续可读；不进行启动时批量迁移。
 
 工作区刷新在响应返回时复查请求序号、内容编辑代次和已提交基线；读取期间产生编辑则保留草稿并提示，不用旧响应覆盖。视野与内容版本独立，刷新不回退本地新视野。

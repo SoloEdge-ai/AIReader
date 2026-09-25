@@ -552,7 +552,7 @@ export class WorkspaceArchives {
         for (const originalId of workspaceAssets) {
             const image = decoded.get(originalId)!;
             const assetId = mapped(originalId);
-            this.library.store.put("workspace-asset", assetId, bookId, {
+            this.library.store.workspaces.saveAsset({
               id: assetId, bookId, width: image.width, height: image.height,
               bytes: image.buffer.length, sha256: sha(image.buffer),
             });

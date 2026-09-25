@@ -23,7 +23,7 @@ export class Workspaces {
   constructor(private readonly library: Library) {}
   commandReceipt(bookId: string, commandId: string): { version: number; payloadHash?: string } | undefined {
     this.library.book(bookId);
-    return this.library.store.getForBook("workspace-command", `${bookId}:${commandId}`, bookId);
+    return this.library.store.workspaces.legacyReceipt(bookId, commandId);
   }
   get(bookId: string): BookWorkspace {
     this.library.book(bookId);
@@ -104,7 +104,7 @@ export class Workspaces {
       });
       this.validate(bookId, next, current, Boolean(prepare));
       this.library.store.workspaces.saveValidated(next);
-      this.library.store.put("workspace-command", `${bookId}:${batch.commandId}`, bookId, {
+      this.library.store.workspaces.saveLegacyReceipt(bookId, batch.commandId, {
         version: next.revision, payloadHash: hash,
       });
       result = next;
@@ -169,8 +169,8 @@ export class Workspaces {
         if (card.region.fingerprint !== book.fingerprint || card.region.page > book.pages ||
             card.region.rect[2] <= card.region.rect[0] || card.region.rect[3] <= card.region.rect[1])
           throw new Error("图片摘录位置无效");
-        const asset = this.library.store.get<{ bookId: string }>("workspace-asset", card.region.assetId);
-        if (asset?.bookId !== bookId) throw new Error("图片摘录资源不属于本书");
+        if (!this.library.store.workspaces.asset(bookId, card.region.assetId))
+          throw new Error("图片摘录资源不属于本书");
       }
       if (
         previous &&

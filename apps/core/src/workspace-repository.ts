@@ -28,9 +28,54 @@ CREATE TABLE workspace_receipts(
   command_id TEXT NOT NULL,payload_hash TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(book_id,command_id));
 `;
 
+export interface WorkspaceAssetRecord {
+  id: string;
+  bookId: string;
+  width: number;
+  height: number;
+  bytes: number;
+  sha256: string;
+}
+
+export interface LegacyWorkspaceReceipt {
+  version: number;
+  payloadHash?: string;
+}
+
 /** Owns workspace SQL. Public snapshots are projections, never a persisted whole-book JSON. */
 export class WorkspaceRepository {
   constructor(private readonly db: DatabaseSync) {}
+
+  /** The pre-v2 command and immutable asset metadata still live in records. */
+  private record<T>(kind: string, id: string, bookId: string): T | undefined {
+    const row = this.db.prepare("SELECT value FROM records WHERE kind=? AND id=? AND book_id=?")
+      .get(kind, id, bookId) as { value: string } | undefined;
+    return row ? JSON.parse(row.value) as T : undefined;
+  }
+  private saveRecord(kind: string, id: string, bookId: string, value: unknown) {
+    this.db.prepare("INSERT OR REPLACE INTO records VALUES(?,?,?,?)")
+      .run(kind, id, bookId, JSON.stringify(value));
+  }
+  legacyReceipt(bookId: string, commandId: string): LegacyWorkspaceReceipt | undefined {
+    return this.record("workspace-command", `${bookId}:${commandId}`, bookId);
+  }
+  saveLegacyReceipt(bookId: string, commandId: string, receipt: LegacyWorkspaceReceipt) {
+    this.saveRecord("workspace-command", `${bookId}:${commandId}`, bookId, receipt);
+  }
+  asset(bookId: string, assetId: string): WorkspaceAssetRecord | undefined {
+    return this.record("workspace-asset", assetId, bookId);
+  }
+  saveAsset(record: WorkspaceAssetRecord) {
+    // Resource IDs are immutable and globally unique; never replace another book's registration.
+    this.db.prepare("INSERT INTO records VALUES(?,?,?,?)")
+      .run("workspace-asset", record.id, record.bookId, JSON.stringify(record));
+  }
+  pageBounds(bookId: string, page: number): [number, number, number, number] | undefined {
+    return this.record("pdf-page-bounds", `${bookId}:${page}`, bookId);
+  }
+  savePageBounds(bookId: string, page: number, bounds: [number, number, number, number]) {
+    this.saveRecord("pdf-page-bounds", `${bookId}:${page}`, bookId, bounds);
+  }
 
   get(bookId: string): BookWorkspace | undefined {
     const meta = this.db
