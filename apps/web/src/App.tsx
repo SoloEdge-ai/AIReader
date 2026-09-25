@@ -109,7 +109,12 @@ export function App() {
   const readerTools = useReaderToolController({
     bookId: active,
     clearSelection,
-    cancelExternal: () => setQuestionCapture(undefined),
+    cancelExternal: () => {
+      if (questionCapture) {
+        setQuestionCapture(undefined);
+        void openChatPanel();
+      }
+    },
     onEscape: (event) => {
       if (document.querySelector('dialog[open],[aria-modal="true"]')) return false;
       const popover = document.querySelector<HTMLElement>("[popover]:popover-open");
@@ -1074,7 +1079,6 @@ export function App() {
                       }}
                       onMaterialLocate={(anchors) => {
                         workspace.current?.locate(anchors);
-                        if (viewportWidth <= 1180) updateLayout({ ...layout, panel: "none" });
                       }}
                       turnEvents={turnEvents}
                       streamRevision={streamRevision}

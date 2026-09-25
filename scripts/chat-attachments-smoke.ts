@@ -74,6 +74,14 @@ try {
   await expect
     .poll(async () => (await panel.boundingBox())!.width)
     .toBe(wide + 16);
+  const fullHeight = (await panel.boundingBox())!.height;
+  await page.setViewportSize({ width: 900, height: 500 });
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBeLessThan(fullHeight);
+  await header.focus();
+  await page.keyboard.press("ArrowLeft");
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBe(fullHeight);
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBe(wide + 16);
   await page.setViewportSize({ width: 900, height: 900 });
   await expect(panel).toBeInViewport();
   const narrow = (await panel.boundingBox())!;
@@ -211,6 +219,7 @@ try {
   await compactBottom.focus();
   for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowUp");
   await expect.poll(async () => (await panel.boundingBox())!.height).toBe(320);
+  await expect(panel.locator(".composer-hint")).toBeHidden();
   await page.getByRole("button", { name: "选择文字（T）" }).click();
   await page
     .locator(".textLayer span")

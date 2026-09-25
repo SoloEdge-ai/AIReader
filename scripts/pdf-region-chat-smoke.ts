@@ -198,6 +198,11 @@ try {
   await capture.click();
   await page.getByRole("button", { name: "取消框选", exact: true }).click();
   await expect(page.locator(".annotation-capture")).toHaveCount(0);
+  await expect(page.locator(".floating-chat")).toBeVisible();
+  await capture.click();
+  await page.getByRole("button", { name: "指针（V）", exact: true }).click();
+  await expect(page.locator(".annotation-capture")).toHaveCount(0);
+  await expect(page.locator(".floating-chat")).toBeVisible();
   await expect(page.locator(".composer .image-attachment")).toHaveCount(0);
   await capture.click();
   const cancelBox = (await page.locator("#page-1").boundingBox())!;

@@ -61,3 +61,17 @@ export function resizeChatWindow(rect: ChatWindowRect, edge: ResizeEdge, dx: num
   if (edge.includes("s")) bottom = between(bottom + dy, top + minHeight, bounds.height - inset);
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
+
+/** Keep axes unaffected by an interaction at their saved size when the viewport temporarily shrinks. */
+export function persistedChatWindow(display: ChatWindowRect, saved: ChatWindowRect, operation: "move" | "reset" | ResizeEdge): ChatWindowRect {
+  const next = operation === "move"
+    ? { ...display, width: saved.width, height: saved.height }
+    : operation === "reset" || (/[ew]/.test(operation) && /[ns]/.test(operation))
+      ? display
+      : /[ew]/.test(operation)
+        ? { ...display, y: saved.y, height: saved.height }
+        : { ...display, x: saved.x, width: saved.width };
+  // The native window is wide enough for this minimum. A narrow browser preview can
+  // display less, but must not persist a rectangle rejected by the Core schema.
+  return { ...next, width: Math.max(minimumWidth, next.width), height: Math.max(minimumHeight, next.height) };
+}

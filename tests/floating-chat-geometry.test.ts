@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { clampChatWindow, defaultChatWindow, moveChatWindow, resizeChatWindow } from "../apps/web/src/features/chat/floating-geometry";
+import { clampChatWindow, defaultChatWindow, moveChatWindow, persistedChatWindow, resizeChatWindow } from "../apps/web/src/features/chat/floating-geometry";
 
 const bounds = { width: 1440, height: 900 };
 
@@ -30,4 +30,18 @@ test("all resize edges preserve the opposite side and enforce a usable minimum",
   expect(resizeChatWindow(initial, "w", 500, 0, bounds)).toEqual({
     x: 980, y: 150, width: 320, height: 500,
   });
+});
+
+test("temporary viewport clamping does not erase saved dimensions or untouched axes", () => {
+  const saved = { x: 1000, y: 100, width: 420, height: 680 };
+  const small = { width: 360, height: 400 };
+  const display = clampChatWindow(saved, small);
+  expect(persistedChatWindow(moveChatWindow(display, -20, 0, small), saved, "move"))
+    .toEqual({ x: 12, y: 60, width: 420, height: 680 });
+  expect(persistedChatWindow(resizeChatWindow(display, "s", 0, -16, small), saved, "s"))
+    .toMatchObject({ x: 1000, width: 420 });
+  expect(persistedChatWindow(resizeChatWindow(display, "e", -16, 0, small), saved, "e"))
+    .toMatchObject({ y: 100, height: 680 });
+  expect(persistedChatWindow(defaultChatWindow({ width: 280, height: 300 }), saved, "reset"))
+    .toMatchObject({ width: 320, height: 320 });
 });

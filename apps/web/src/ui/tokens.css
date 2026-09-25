@@ -16,6 +16,8 @@
   --effort-accent: #8865ca;
   --soft: #edf1ff;
   --danger: #bd3545;
+  --floating-panel-radius: 14px;
+  --floating-panel-shadow: 0 14px 42px #0003, 0 2px 9px #0001;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
@@ -30,5 +32,6 @@
   --effort-accent: #b99ae9;
   --soft: #293451;
   --danger: #ff9aa5;
+  --floating-panel-shadow: 0 14px 42px #0008, 0 2px 9px #0004;
   color-scheme: dark;
 }
