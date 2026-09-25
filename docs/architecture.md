@@ -4,11 +4,13 @@
 
 Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。聊天轮次优先用 WebSocket 更新；仅有进行中的轮次时按书籍／会话补读 HTTP 快照，以恢复可能丢失的终态事件，完成后停止轮询。
 
+问答浮窗由 renderer 的 `features/chat/FloatingChatWindow` 管理拖动和尺寸手势；纯几何运算在同目录 `floating-geometry`。浮窗仍复用原 `ChatPanel`、会话草稿和 Core 聊天接口，仅把按书籍保存的窗口矩形写入 `ReaderPreferences`。窗口变化不修改 PDF／工作区内容版本，也不通过独立系统窗口或 Node 权限实现。
+
 当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。`features/book/BookEditingSession` 按书籍持有 Note 和 Workspace 两个编辑会话，统一启动、停止、离开警告及先 Note 后画布的保存屏障。`features/workspace/WorkspaceEditingSession` 仍单独保存画板草稿、幂等命令队列与撤销历史；`features/notes/NoteEditingSession` 仍单独保存富文本笔记及其历史。两个领域的命令和撤销尚未统一为一个事务／历史。`WorkspaceState` 和 `useBookNotes` 只提供 React 订阅与操作映射。QuestionDrafts 按 book/session 保存问题草稿。Core 的 `book-routes` 拥有书库、阅读进度、书籍偏好、书签和 PDF 文件 HTTP 契约；Library 校验书籍、来源文件及书库写入，`Preferences` 统一全局阅读、工具盘和每书布局偏好的校验与持久化，`preferences-routes` 处理全局偏好 HTTP。`note-routes` 拥有按书籍隔离的笔记／批注 HTTP、导出与资源响应；`workspace-routes` 拥有工作区命令、归档、资源和冻结提问材料的 HTTP 契约；`chat-routes` 拥有会话、轮次、图片资源、学习目标和回答转笔记的 HTTP 契约。`AiService` 统一全局账号断连、组件准备与模型选择策略，`ai-routes` 处理其 HTTP 契约；`index-routes` 与 `book-tools-routes` 分别处理每书索引任务和受限工具接口，书籍、任务与文件路径由各自服务校验。普通书籍路由由 `server` 在分派前检查书籍存在性；`/api/v2` 命令经更早的全局入口分派，由工作区服务验证书籍。通用请求体和 JSON 响应位于 `http`；Library 仍公开通用 Storage，其他领域尚未完成全部后端职责收拢。
 
 笔记会话按书籍创建，拥有已提交版本、实时草稿、串行保存、响应丢失核对和批注操作撤销；`useBookNotes` 仅处理 React 订阅与操作映射；离开保护由书籍会话统一负责。`client/notes.ts` 捕获 bookId 并提供类型化笔记操作。列表与展开编辑使用同一 `NoteEditor` 和会话快照，不再各自缓存标题／正文。普通刷新保留脏草稿的原始 revision；只有明确的“用此草稿覆盖最新版本”才重取冲突基线。较早请求的响应不能清除较新的输入。
 
-工作区保存错误、笔迹／导出错误与连线提示通过阅读容器中的反馈层显示，而不作为 PDF 滚动内容；反馈层高于窄窗导航／问答抽屉，并限制高度、允许内部滚动，使高缩放和矮窗口仍可触达按钮，且不随 PDF 滚动消失。草稿错误仍提供重试、下载备份和明确确认后的重新加载。
+工作区保存错误、笔迹／导出错误与连线提示通过阅读容器中的反馈层显示，而不作为 PDF 滚动内容；反馈层高于导航，但问答浮窗可以遮住画布局部，用户可移动或关闭它。反馈层限制高度、允许内部滚动，使高缩放和矮窗口仍可触达按钮，且不随 PDF 滚动消失。草稿错误仍提供重试、下载备份和明确确认后的重新加载。
 
 桌面窗口关闭先通过固定的 renderer 保存入口等待当前书籍的 Note 与工作区草稿提交，再经 utility process 消息等待 Core 完成关闭并回执，最后不可取消地销毁窗口，避免已停库后被 `beforeunload` 留在编辑界面。App 的当前书籍保存入口直接调用 BookEditingSession，先提交 Note、再提交可能引用它的画布；不依赖画布 React 组件是否挂载，切书和返回书库复用同一入口，避免重复并发保存。草稿确认保存后，Core 拒绝新请求、取消下载和长时工具／索引／聊天／Codex 任务，再断开卡住的 HTTP 连接；已进入异步处理的请求仍须完成文件／事务收尾，才关闭数据库，避免孤儿文件或库关闭后的写入。关闭中的服务拒绝新任务，防止遗留处理器重启任务。renderer 的 `features/desktop/useDesktopCloseHandshake` 拥有重复关窗合并、输入锁定、保存超时和失败恢复；App 只提供当前书籍的保存操作与错误提示。缺少入口、保存失败或超时时取消关闭、解除界面锁定并保留草稿。等待保存上限 12 秒，主进程另有 15 秒保护；超时不假定后台保存已失败，需重新确认后再关闭。Core 停止超时或失败时保持界面锁定；超时继续监听迟到回执，明确失败则不能假定可重试。原生“保留窗口／退出应用”选择在再次尝试关窗时可重新打开，不能在 Core 状态不明时重新允许编辑。这个关闭握手不等于跨实体命令已统一；浏览器开发模式由 BookEditingSession 的 `beforeunload` 脏草稿保护。
 

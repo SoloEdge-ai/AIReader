@@ -130,7 +130,7 @@ try {
     ).toBeVisible();
   }
   await page.screenshot({ path: ".local/screenshots/desktop.png" });
-  const collapseSidebar = page.getByRole("button", { name: "收起侧栏" });
+  const collapseSidebar = page.getByRole("button", { name: "关闭问答浮窗" });
   for (let attempt = 0; attempt < 3 && !(await collapseSidebar.isVisible()); attempt++) {
     await page.getByRole("button", { name: "问答", exact: true }).click();
     await collapseSidebar.waitFor({ state: "visible", timeout: 3000 }).catch(() => {});

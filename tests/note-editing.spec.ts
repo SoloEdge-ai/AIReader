@@ -36,7 +36,7 @@ test("material navigation and chat remain visible beside the same PDF", async ({
   const chatButton = page.getByRole("button", { name: "问答", exact: true }).first();
   if ((await chatButton.getAttribute("aria-pressed")) !== "true") await chatButton.click();
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
-  await expect(page.locator(".side-panel .chat")).toBeVisible();
+  await expect(page.locator(".floating-chat .chat")).toBeVisible();
   await expect(page.locator(".reading .pdf-page").first()).toBeVisible();
   await page.screenshot({ path: "test-results/materials-and-chat.png" });
   await page.evaluate(async (id) => {
@@ -49,7 +49,7 @@ test("material navigation and chat remain visible beside the same PDF", async ({
   await page.reload();
   await page.locator(".book-card").first().click();
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
-  await expect(page.locator(".side-panel .chat")).toBeVisible();
+  await expect(page.locator(".floating-chat .chat")).toBeVisible();
 });
 
 test("material navigation lists canvas cards and locates the selected placement", async ({ page }) => {
@@ -70,7 +70,7 @@ test("material navigation lists canvas cards and locates the selected placement"
   await expect(catalog.getByRole("alert")).toContainText("画布材料尚未准备好");
   await page.unroute("**/api/books/*/question-materials");
   await catalog.getByRole("button", { name: /加入提问/ }).click();
-  await expect(page.locator(".side-panel .question-material-list .question-material-item"))
+  await expect(page.locator(".floating-chat .question-material-list .question-material-item"))
     .toHaveCount(1);
   await page.reload();
   await page.locator(".book-card").first().click();
@@ -79,17 +79,17 @@ test("material navigation lists canvas cards and locates the selected placement"
     .getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
 });
 
-test("narrow reader opens materials and chat as alternating drawers", async ({ page }) => {
+test("narrow reader keeps materials and floating chat available together", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 720 });
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
   const notesButton = page.getByRole("button", { name: "笔记", exact: true }).first();
   if ((await notesButton.getAttribute("aria-pressed")) !== "true") await notesButton.click();
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
-  await expect(page.locator(".side-panel")).toHaveCount(0);
-  await page.getByRole("button", { name: "问答", exact: true }).first().click();
-  await expect(page.locator(".navigation")).toHaveCount(0);
-  await expect(page.locator(".side-panel .chat")).toBeVisible();
+  const chatButton = page.getByRole("button", { name: "问答", exact: true }).first();
+  if ((await chatButton.getAttribute("aria-pressed")) !== "true") await chatButton.click();
+  await expect(page.locator(".navigation .notes-panel")).toBeVisible();
+  await expect(page.locator(".floating-chat .chat")).toBeVisible();
 });
 
 test("left navigation width is draggable and persists per book", async ({ page }) => {
@@ -485,7 +485,7 @@ test("expanded note stays editable beside chat and keeps the material draft sync
   const chatButton = page.getByRole("button", { name: "问答", exact: true }).first();
   if ((await chatButton.getAttribute("aria-pressed")) !== "true") await chatButton.click();
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
-  await expect(page.locator(".side-panel .chat")).toBeVisible();
+  await expect(page.locator(".floating-chat .chat")).toBeVisible();
   await expect(expanded).toBeVisible();
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("问答打开时仍可写笔记");
   await expanded.getByTitle("链接", { exact: true }).click();

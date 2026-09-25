@@ -238,6 +238,8 @@ try {
   });
   // A session change cancels the unfinished capture, not the already attached draft.
   await capture.click();
+  await expect(page.locator(".floating-chat")).toHaveCount(0);
+  await page.getByRole("button", { name: "问答", exact: true }).first().click();
   await page.getByRole("button", { name: "新建会话", exact: true }).click();
   await expect(page.locator(".annotation-capture")).toHaveCount(0);
   await expect(page.locator(".composer .image-attachment")).toHaveCount(0);
@@ -306,7 +308,7 @@ try {
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 860, height: 760 });
   await capture.click();
-  await expect(page.locator(".side-panel")).toHaveCount(0);
+  await expect(page.locator(".floating-chat")).toHaveCount(0);
   await dragCentralRegion(page);
   await expectImageQuadrants(page, clockwiseColors);
   await expect(
@@ -328,7 +330,7 @@ try {
   ).toEqual([]);
   expect(errors).toEqual([]);
   console.log(
-    `PDF region chat: crop pixels, coordinates, model input, cancellation, rotation, zoom, session/book isolation, history and narrow drawer passed at ${dpi}x DPI.`,
+    `PDF region chat: crop pixels, coordinates, model input, cancellation, rotation, zoom, session/book isolation, history and narrow floating chat passed at ${dpi}x DPI.`,
   );
 } catch (error) {
   await page
