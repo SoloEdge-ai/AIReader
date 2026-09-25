@@ -38,6 +38,7 @@ import { WorkspaceRestore } from "./WorkspaceRestore";
 import { ReaderToolPalette } from "./ReaderToolPalette";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { useReaderToolController } from "./ReaderToolController";
+type CloseAwareWindow = Window & { aiReaderFlushBeforeClose?: () => Promise<boolean> };
 export function App() {
   const workspace = useRef<BookWorkspaceHandle>(null);
   const [workspaceToolbarHost, setWorkspaceToolbarHost] = useState<HTMLDivElement | null>(null);
@@ -96,6 +97,31 @@ export function App() {
   current.current = active;
   const book = books.find((b) => b.id === active);
   const notes = useBookNotes(active);
+  const closeFlush = useRef<() => Promise<boolean>>(async () => true);
+  const closePending = useRef<Promise<boolean> | undefined>(undefined);
+  closeFlush.current = async () => {
+    if (closePending.current) return closePending.current;
+    document.body.inert = true;
+    const attempt = (async () => {
+      try {
+        const saved = workspace.current ? await workspace.current.flush() : await notes.flush();
+        if (!saved) throw new Error("仍有未保存的草稿");
+        return true;
+      } catch (cause) {
+        document.body.inert = false;
+        setError(`关闭前保存失败，窗口和草稿已保留：${String(cause)}`);
+        return false;
+      }
+    })();
+    closePending.current = attempt;
+    try { return await attempt; }
+    finally { closePending.current = undefined; }
+  };
+  useEffect(() => {
+    const desktop = window as CloseAwareWindow;
+    desktop.aiReaderFlushBeforeClose = () => closeFlush.current();
+    return () => { delete desktop.aiReaderFlushBeforeClose; };
+  }, []);
   const [expandedNote, setExpandedNote] = useState<{ bookId: string; id: string }>();
   const expanded = expandedNote && expandedNote.bookId === active ? notes.notes.find((note) => note.id === expandedNote.id) : undefined;
   const [annotationColor, setAnnotationColor] =

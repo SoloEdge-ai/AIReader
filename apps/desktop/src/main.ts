@@ -43,6 +43,30 @@ app.whenReady().then(() => {
         sandbox: true,
       },
     });
+    let allowingClose = false;
+    let checkingClose = false;
+    window.on("close", (event) => {
+      if (allowingClose) return;
+      event.preventDefault();
+      if (checkingClose) return;
+      checkingClose = true;
+      void window.webContents.executeJavaScript("window.aiReaderFlushBeforeClose?.() ?? true")
+        .then((saved: boolean) => {
+          checkingClose = false;
+          if (saved && !window.isDestroyed()) {
+            allowingClose = true;
+            window.close();
+          }
+        })
+        .catch((error: unknown) => {
+          checkingClose = false;
+          if (!window.isDestroyed()) dialog.showMessageBoxSync(window, {
+            type: "warning", title: "无法安全退出",
+            message: "未能确认笔记和画板草稿已保存，窗口保持打开。",
+            detail: String(error), buttons: ["返回编辑"],
+          });
+        });
+    });
     window.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const target = new URL(url);
@@ -66,6 +90,10 @@ app.whenReady().then(() => {
         cancelId: 0,
       });
       if (discard === 1) event.preventDefault();
+      else if (allowingClose) {
+        allowingClose = false;
+        void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
+      }
     });
     void window.loadURL(`http://127.0.0.1:${message.port}`);
   });

@@ -8,6 +8,8 @@ Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node�
 
 笔记会话按书籍创建，拥有已提交版本、实时草稿、串行保存、响应丢失核对和批注操作撤销；`useBookNotes` 仅处理 React 订阅与离开保护。`client/notes.ts` 捕获 bookId 并提供类型化笔记操作。列表与展开编辑使用同一 `NoteEditor` 和会话快照，不再各自缓存标题／正文。普通刷新保留脏草稿的原始 revision；只有明确的“用此草稿覆盖最新版本”才重取冲突基线。较早请求的响应不能清除较新的输入。
 
+桌面窗口关闭先通过固定的 renderer 保存入口等待当前书籍的 Note 与工作区草稿提交；保存失败时取消关闭、解除界面锁定并保留草稿。确认保存后才允许窗口关闭及 Core 停止。这个关闭握手不等于全工作区统一编辑会话；浏览器开发模式仍由各自的 `beforeunload` 脏草稿保护。
+
 会话区分选中的标注与选中的 Note；显式 comment 操作通过书籍客户端请求 Core 原子建立关联。标注和评论可独立删除，Note 的来源引用不等于标注的活跃评论指针。只读来源投影用于展示已删除标注，不能回写为用户可编辑来源。
 
 已拆出的 `packages/workspace-engine/src` 包含跨页笔迹、形状／套索／移动和视野缩放的纯计算。PDF 组件提供 `WorkspacePage` 坐标变换；引擎不再回引 PDF React 组件。创建形状的 ID 由调用者提供，渲染预览不生成随机实体。

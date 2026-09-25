@@ -349,7 +349,10 @@ export const BookWorkspace = forwardRef<
     setSelected(result.cardId);
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
-  useImperativeHandle(ref, () => ({ flush: async () => await props.notes.flush() && await state.flush(), excerpt: add,
+  useImperativeHandle(ref, () => ({ flush: async () => {
+    const [notesSaved, workspaceSaved] = await Promise.all([props.notes.flush(), state.flush()]);
+    return notesSaved && workspaceSaved;
+  }, excerpt: add,
     placeNote,
     addToQuestion: addSelectedToQuestion,
     locate: locateAnchors,

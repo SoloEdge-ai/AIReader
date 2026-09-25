@@ -12,6 +12,7 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 | pnpm build | 桌面/Core/web构建与Core smoke |
 | pnpm desktop:windows | Setup和Portable |
 | pnpm test:e2e | 桌面smoke |
+| node scripts/close-save-smoke.mjs | 隔离 Electron 关闭／保存失败恢复与重开持久化验收 |
 
 开发默认数据位置与桌面相同；隔离时显式设置AIREADER_DATA为临时目录。测试不得使用用户数据库。`pnpm test:e2e` 现在默认创建并清理独立临时数据库，避免旧测试库版本阻止窗口启动；安装连续性测试通过 `AIREADER_SMOKE_USE_DEFAULT=1` 明确选择受控的安装测试目录，不能对用户默认目录运行。工作前读索引/规范、检查分支/用户改动；按可观察流程实现、验证、同步文档，再提交。
 

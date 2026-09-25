@@ -82,6 +82,8 @@ jobs:
           node scripts/desktop-smoke.mjs $portable.FullName
         env:
           AIREADER_CI: "1"
+      - name: Desktop close and draft-save acceptance
+        run: node scripts/close-save-smoke.mjs
       - name: Installer, update, and uninstall acceptance
         timeout-minutes: 15
         shell: pwsh
