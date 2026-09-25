@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { positionPopover, type PopoverPlacement } from "./positionPopover";
 
 /** Shared native top-layer surface, bounded to the viewport rather than a feature panel. */
@@ -50,6 +50,9 @@ export function Popover({
       window.removeEventListener("scroll", position, true);
     };
   }, [open, placement, width]);
+  useLayoutEffect(() => {
+    if (open) position();
+  });
   useEffect(() => {
     if (disabled) panel.current?.hidePopover();
   }, [disabled]);
@@ -94,7 +97,9 @@ export function Popover({
           if (e.newState === "open") requestAnimationFrame(position);
           if (e.newState === "open" && autoFocusFirst)
             requestAnimationFrame(() => panel.current
-              ?.querySelector<HTMLElement>('[role^="menuitem"]:not([disabled])')
+              ?.querySelector<HTMLElement>(role === "menu"
+                ? '[role^="menuitem"]:not([disabled])'
+                : 'input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]),[tabindex]:not([tabindex="-1"])')
               ?.focus({ preventScroll: true }));
           if (e.newState === "closed" &&
               (document.activeElement === document.body || panel.current?.contains(document.activeElement)))

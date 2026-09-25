@@ -1168,7 +1168,7 @@ export const BookWorkspace = forwardRef<
             {styleObject && <>
               <Popover key={selectedIds[0]} label="对象格式设置" triggerLabel="对象格式"
                 trigger={<Icon name="more" />} placement="bottom" width={180}
-                className="workspace-object-style">
+                className="workspace-object-style" autoFocusFirst>
                 {() => <div role="group" aria-label="对象格式设置">
                 {styleObject.kind === "text" ? <>
                   <label>字号<input aria-label="文字字号" type="number" min={8} max={120}

@@ -38,6 +38,7 @@ try {
   const text = (await workspace()).objects[0];
   expect(text).toMatchObject({ kind: "text", text: "中文想法：比较两个概念", surface: { kind: "pdf", page: 1 } });
   await page.getByRole("button", { name: "对象格式" }).click();
+  await expect(page.getByLabel("文字字号")).toBeFocused();
   await page.getByLabel("文字字号").fill("20");
   await page.getByLabel("粗体文字").check();
   await page.getByLabel("文字对齐").selectOption("center");
@@ -60,6 +61,7 @@ try {
   await page.mouse.up();
   await expect.poll(async () => (await workspace()).objects[1].width).toBeGreaterThan(originalWidth);
   await page.getByRole("button", { name: "对象格式" }).click();
+  await expect(page.getByLabel("形状线宽")).toBeFocused();
   await page.getByLabel("形状线宽").selectOption("4");
   await page.getByLabel("填充形状").check();
   await page.getByLabel("形状填充透明度").selectOption("0.3");
@@ -190,6 +192,25 @@ try {
   await expect.poll(async () => (await workspace()).links.length).toBe(1);
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await workspace()).links.length).toBe(2);
+  await page.getByRole("button", { name: "指针（V）" }).click();
+  await page.locator(`[data-object-id="${text.id}"]`).click();
+  const formatTrigger = page.getByRole("button", { name: "对象格式" });
+  await formatTrigger.click();
+  const formatPanel = page.getByRole("dialog", { name: "对象格式设置" });
+  await expect(formatPanel).toBeVisible();
+  const horizontalOffset = async () => {
+    const trigger = (await formatTrigger.boundingBox())!;
+    const panel = (await formatPanel.boundingBox())!;
+    return panel.x - trigger.x;
+  };
+  const initialOffset = await horizontalOffset();
+  const pageBox = (await page.locator("#page-1").boundingBox())!;
+  await page.mouse.move(pageBox.x + pageBox.width / 2, pageBox.y + pageBox.height / 2);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -160);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => Math.abs((await horizontalOffset()) - initialOffset)).toBeLessThan(5);
+  await page.keyboard.press("Escape");
   expect(errors).toEqual([]);
   console.log("Text, shape, card link, lasso, object move, and restart passed.");
 } finally {
