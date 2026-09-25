@@ -4,7 +4,7 @@
 
 Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。
 
-当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。WorkspaceState 保存画板编辑，`features/notes/NoteEditingSession` 保存富文本笔记编辑；两者尚未合并为最终 BookEditingSession。QuestionDrafts 按 book/session 保存问题草稿。Core 的 `book-routes` 拥有书库、阅读进度、偏好、书签和 PDF 文件 HTTP 契约，相关写入由 Library 校验书籍后完成；`note-routes` 拥有按书籍隔离的笔记／批注 HTTP、导出与资源响应；`workspace-routes` 拥有工作区命令、归档、资源和冻结提问材料的 HTTP 契约；`chat-routes` 拥有会话、轮次、图片资源、学习目标和回答转笔记的 HTTP 契约。`AiService` 统一全局账号断连、组件准备与模型选择策略，`ai-routes` 处理其 HTTP 契约；书籍索引与工具仍独立。普通书籍路由由 `server` 在分派前检查书籍存在性；`/api/v2` 命令经更早的全局入口分派，由工作区服务验证书籍。通用请求体和 JSON 响应位于 `http`；Library 仍公开通用 Storage，server 仍含索引和工具路由，这些不是已完成的目标架构。
+当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。WorkspaceState 保存画板编辑，`features/notes/NoteEditingSession` 保存富文本笔记编辑；两者尚未合并为最终 BookEditingSession。QuestionDrafts 按 book/session 保存问题草稿。Core 的 `book-routes` 拥有书库、阅读进度、偏好、书签和 PDF 文件 HTTP 契约，相关写入由 Library 校验书籍后完成；`note-routes` 拥有按书籍隔离的笔记／批注 HTTP、导出与资源响应；`workspace-routes` 拥有工作区命令、归档、资源和冻结提问材料的 HTTP 契约；`chat-routes` 拥有会话、轮次、图片资源、学习目标和回答转笔记的 HTTP 契约。`AiService` 统一全局账号断连、组件准备与模型选择策略，`ai-routes` 处理其 HTTP 契约；`index-routes` 与 `book-tools-routes` 分别处理每书索引任务和受限工具接口，书籍、任务与文件路径由各自服务校验。普通书籍路由由 `server` 在分派前检查书籍存在性；`/api/v2` 命令经更早的全局入口分派，由工作区服务验证书籍。通用请求体和 JSON 响应位于 `http`；Library 仍公开通用 Storage，server 仍有全局偏好和分派逻辑，这些不是已完成的目标架构。
 
 笔记会话按书籍创建，拥有已提交版本、实时草稿、串行保存、响应丢失核对和批注操作撤销；`useBookNotes` 仅处理 React 订阅与离开保护。`client/notes.ts` 捕获 bookId 并提供类型化笔记操作。列表与展开编辑使用同一 `NoteEditor` 和会话快照，不再各自缓存标题／正文。普通刷新保留脏草稿的原始 revision；只有明确的“用此草稿覆盖最新版本”才重取冲突基线。较早请求的响应不能清除较新的输入。
 

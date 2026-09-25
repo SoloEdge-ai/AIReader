@@ -46,6 +46,8 @@ Core 聊天接口：`apps/core/src/chat-routes.ts` 拥有会话、轮次、冻�
 
 全局 AI 接口：`apps/core/src/ai-routes.ts` 只处理 HTTP 方法与协议形状；`AiService` 负责账号断连／退出前暂停书籍任务、组件准备切换和模型可用性校验。问答和索引通过同一个 `selectModel` 入口冻结实际配置。修改时运行 `tests/ai-http.test.ts`、`tests/chat-http.test.ts`、`tests/indexer.test.ts` 和 Codex 进程协议测试，确保断连不删本应用模型选择，而退出账号会清除选择。
 
+书籍索引／工具接口：`apps/core/src/index-routes.ts` 和 `book-tools-routes.ts` 拥有 HTTP 形状与方法，`IndexService` 负责任务状态，`BookTools` 负责书籍工作区、沙盒验证、同书轮次取消与生成文件路径。工具执行先验证真实轮次属于当前书，再检查沙盒可用性；新增能力不得绕过后者。更改路由时运行 `tests/http.test.ts` 中真实外书轮次的停止／运行拒绝、`tests/indexer.test.ts` 和 Windows 工具验收。
+
 桌面关闭验收：`tests/core-shutdown-http.test.ts` 用未完成的真实请求验证草稿保存后的 Core 停止不会被卡住的 HTTP 连接无限阻塞。关闭顺序必须先拒绝新请求、断开连接、等待已进入处理的异步请求完成，再关闭 SQLite；不能把连接断开等同于文件／事务处理已经结束。`scripts/close-save-smoke.mjs` 在窄窗口及 200% 网页缩放下验证冲突／写锁失败时窗口和草稿仍在、重试按钮不被导航遮挡或裁切、重试后可以关闭和重开。不要用简单增加等待时间来掩盖关闭阶段卡住。
 
 个人卡片通过 noteId 引用笔记会话；只为选中卡片挂载编辑器，其他卡片使用轻量预览。卡片容器不得接管编辑控件内部的 Shift＋点击等文本操作。工作区刷新也必须覆盖 GET 挂起期间继续编辑的回归。浏览器开发的 CORS 预检允许现有 PUT 保存接口，来源和会话验证不变。

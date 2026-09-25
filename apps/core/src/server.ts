@@ -1,10 +1,8 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { createReadStream } from "node:fs";
 import { resolve, extname, relative, isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { z } from "zod";
 import { Library } from "./library";
 import { CodexAdapter } from "./codex";
 import { ChatService } from "./chat";
@@ -13,7 +11,6 @@ import { BookTools } from "./tools";
 import {
   ToolPreferencesSchema,
   ReaderPreferencesSchema,
-  ModelSelectionSchema,
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { AiService } from "./ai-service";
@@ -23,6 +20,8 @@ import { jsonBody, send } from "./http";
 import { handleNoteRoutes } from "./note-routes";
 import { handleBookChatRoutes } from "./chat-routes";
 import { handleBookCollectionRoutes, handleBookReaderRoutes } from "./book-routes";
+import { handleBookToolRoutes } from "./book-tools-routes";
+import { handleBookIndexRoutes } from "./index-routes";
 import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
 import { WorkspaceAssets } from "./workspace-assets";
 import { QuestionMaterials } from "./question-materials";
@@ -176,115 +175,8 @@ export function createCore(
           if (await handleBookWorkspaceRoutes(req, res, id, parts, url, workspaceRoutes)) return;
           if (await handleNoteRoutes(req, res, id, parts, notes)) return;
           if (await handleBookReaderRoutes(req, res, book, parts, url, library)) return;
-          if (parts[3] === "tools") {
-            if (req.method === "GET") {
-              send(res, {
-                ...bookTools.status(id),
-                files: await bookTools.files(id),
-              });
-              return;
-            }
-            if (req.method === "POST" && parts[4] === "verify") {
-              send(res, await bookTools.verify(id));
-              return;
-            }
-            if (req.method === "POST" && parts[4] === "run") {
-              const value = z
-                .object({
-                  turnId: z.string(),
-                  script: z.string().min(1).max(12000),
-                })
-                .parse(await jsonBody(req));
-              send(res, await bookTools.run(id, value.turnId, value.script));
-              return;
-            }
-            if (req.method === "POST" && parts[4] === "stop") {
-              const value = z
-                .object({ turnId: z.string() })
-                .parse(await jsonBody(req));
-              const turn = library.store.get<
-                import("../../../packages/protocol/src").ChatTurn
-              >("turn", value.turnId);
-              if (turn?.bookId !== id) throw new Error("会话与书籍不匹配");
-              await bookTools.cancel(value.turnId);
-              send(res, { ok: true });
-              return;
-            }
-            if (req.method === "POST" && parts[4] === "draft") {
-              const value = z
-                .object({ task: z.string().min(1).max(2000) })
-                .parse(await jsonBody(req));
-              const result = await codex.answer(
-                "生成一段完成用户任务的 PowerShell 脚本，只返回代码，不执行。工作区仅有 evidence.txt，输出文件必须写在当前目录。禁止联网、读取工作区以外文件和安装依赖。用户任务：" +
-                  value.task,
-              );
-              send(res, {
-                script: result.text
-                  .replace(/^```(?:powershell|ps1)?\s*/, "")
-                  .replace(/\s*```$/, ""),
-              });
-              return;
-            }
-          }
-          if (parts[3] === "generated" && req.method === "GET") {
-            const file = await bookTools.file(
-              id,
-              url.searchParams.get("name") ?? "",
-            );
-            res.setHeader("Content-Type", "application/octet-stream");
-            res.setHeader(
-              "Content-Disposition",
-              "attachment; filename*=UTF-8''" +
-                encodeURIComponent(url.searchParams.get("name") ?? "file"),
-            );
-            createReadStream(file)
-              .on("error", () => res.destroy())
-              .pipe(res);
-            return;
-          }
-          if (parts[3] === "index") {
-            if (req.method === "GET") {
-              send(res, { jobs: indexer.list(id), nodes: indexer.nodes(id) });
-              return;
-            }
-            if (req.method === "POST" && parts[4]) {
-              const value = z
-                .object({ action: z.enum(["pause", "cancel", "resume"]) })
-                .parse(await jsonBody(req));
-              if (value.action === "resume") {
-                const job = indexer.list(id).find((j) => j.id === parts[4]);
-                if (!job?.model || !job.effort)
-                  throw new Error("旧索引任务未记录模型，请创建新的索引任务");
-                await ai.selectModel({ model: job.model, effort: job.effort });
-              }
-              send(res, indexer.control(id, parts[4], value.action));
-              return;
-            }
-            if (req.method === "POST") {
-              const value = z
-                .object({
-                  page: z.number().int().positive(),
-                  full: z.boolean().default(false),
-                  model: z.string().max(100).optional(),
-                  effort: z.string().max(30).optional(),
-                })
-                .parse(await jsonBody(req));
-              const chosen = await ai.selectModel(
-                value.model ? ModelSelectionSchema.parse(value) : undefined,
-              );
-              send(
-                res,
-                indexer.start(
-                  id,
-                  value.page,
-                  value.full,
-                  chosen.model,
-                  chosen.effort,
-                ),
-              );
-              return;
-            }
-          }
+          if (await handleBookToolRoutes(req, res, id, parts, url, bookTools)) return;
+          if (await handleBookIndexRoutes(req, res, id, parts, indexer, ai)) return;
           if (await handleBookChatRoutes(req, res, id, book.pages, parts, url, chatRoutes)) return;
         }
         send(res, { error: "接口不存在" }, 404);
