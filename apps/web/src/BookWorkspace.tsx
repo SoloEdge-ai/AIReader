@@ -91,7 +91,6 @@ export const BookWorkspace = forwardRef<
   const [selected, setSelected] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedLink, setSelectedLink] = useState<string>();
-  const [styleOpen, setStyleOpen] = useState(false);
   const [editingText, setEditingText] = useState<string>();
   const [canvasGesture, setCanvasGesture] = useState<
     | { kind: "shape"; start: InkPoint; current: InkPoint }
@@ -375,7 +374,7 @@ export const BookWorkspace = forwardRef<
       setFocus(false);
     },
     escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
-      setSelectedLink(undefined); setStyleOpen(false); setLinkFrom(undefined); setEditingText(undefined); },
+      setSelectedLink(undefined); setLinkFrom(undefined); setEditingText(undefined); },
   }));
   function update(id: string, change: Partial<WorkspaceCard>) {
     if (state.value)
@@ -396,7 +395,6 @@ export const BookWorkspace = forwardRef<
     props.onExpandNote(note);
   }
   function selectTarget(id: string, shift = false) {
-    setStyleOpen(false);
     const next = shift ? (selectedIds.includes(id) ? selectedIds.filter((value) => value !== id) : [...selectedIds, id]) :
       selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id];
     setSelectedIds(next);
@@ -660,7 +658,6 @@ export const BookWorkspace = forwardRef<
           annotationRects(annotation, pages.current).some((rect) => lassoHitsRect(polygon, rect)))
           .map((annotation) => annotation.id),
       ];
-      setStyleOpen(false);
       setSelectedIds(chosen); setSelected(chosen.find((id) => state.value!.cards.some((card) => card.id === id)));
       return;
     }
@@ -1169,9 +1166,10 @@ export const BookWorkspace = forwardRef<
                   }} />
               </label>}
             {styleObject && <>
-              <button aria-label="对象格式" aria-expanded={styleOpen} title="对象格式"
-                onClick={() => setStyleOpen((open) => !open)}><Icon name="more" /></button>
-              {styleOpen && <div className="workspace-object-style reader-popover" role="group" aria-label="对象格式设置">
+              <Popover key={selectedIds[0]} label="对象格式设置" triggerLabel="对象格式"
+                trigger={<Icon name="more" />} placement="bottom" width={180}
+                className="workspace-object-style">
+                {() => <div role="group" aria-label="对象格式设置">
                 {styleObject.kind === "text" ? <>
                   <label>字号<input aria-label="文字字号" type="number" min={8} max={120}
                     value={styleObject.fontSize} onChange={(event) => {
@@ -1205,7 +1203,8 @@ export const BookWorkspace = forwardRef<
                       {Math.round(opacity * 100)}%</option>)}
                   </select></label>}
                 </> : null}
-              </div>}
+                </div>}
+              </Popover>
             </>}
             <button aria-label="连接选中对象" title="点击另一个对象建立关系"
               onClick={() => setLinkFrom(selectedIds[0])}><Icon name="link" /></button>

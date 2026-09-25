@@ -123,6 +123,8 @@ try {
   await expect(page.getByRole("dialog", { name: "标注方式" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "标注方式" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "选择文字（T）" })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "选择文字（T）" }).click();
   await expect(page.getByRole("button", { name: "选择文字（T）" })).toHaveAttribute("aria-pressed", "true");

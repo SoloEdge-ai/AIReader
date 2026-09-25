@@ -108,20 +108,14 @@
 .workspace-object-toolbar button { border: 0; background: transparent; border-radius: 6px; padding: 5px; color: inherit; }
 .workspace-object-toolbar button:hover { background: #66869a22; }
 .workspace-object-style {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 1;
-  display: grid;
+  display: none;
   gap: 8px;
   min-width: 158px;
   padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  box-shadow: 0 8px 24px #0002;
   font-size: 12px;
 }
+.workspace-object-style:popover-open { display: grid; }
+.workspace-object-style [role="group"] { display: grid; gap: 8px; }
 .workspace-object-style label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .workspace-object-style input[type="number"] { width: 58px; }
 .workspace-object-style select, .workspace-object-style input[type="number"] {
