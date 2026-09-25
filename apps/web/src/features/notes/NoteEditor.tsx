@@ -51,7 +51,10 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
     },
   });
   useEffect(() => {
-    if (!editor || composition.current) return;
+    // A local input dispatches to the shared session before React commits its
+    // snapshot. An older passive snapshot must not replace the focused editor
+    // (and its selection) while the user is typing. Passive views still sync.
+    if (!editor || composition.current || editor.isFocused) return;
     if (canonicalDocument(editor.getJSON()) !== canonicalDocument(note.document))
       editor.chain().setContent(note.document, { emitUpdate: false })
         .setMeta("addToHistory", false).run();

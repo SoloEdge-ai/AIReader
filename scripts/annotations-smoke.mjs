@@ -113,7 +113,9 @@ try {
   await noteCard.getByRole("textbox", { name: "笔记正文" }).click({ modifiers: ["Shift"] });
   await expect(noteCard.getByRole("textbox", { name: "笔记正文" })).toBeVisible();
   await noteCard.getByRole("textbox", { name: "笔记正文" }).fill("The same note from its card.");
+  await expect(noteCard.getByRole("textbox", { name: "笔记正文" })).toHaveText("The same note from its card.");
   await expect(page.locator(".notes-panel .tiptap")).toHaveText("The same note from its card.");
+  await expect(page.locator(".notes-panel").getByText("已保存", { exact: true })).toBeVisible();
   await noteCard.getByRole("button", { name: "展开卡片笔记" }).click();
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("Draft retained after failure.");
