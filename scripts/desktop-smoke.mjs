@@ -156,11 +156,14 @@ try {
   let closeError;
   if (app) {
     let watchdog;
+    let requestTimer;
     try {
       const closed = app.waitForEvent("close", { timeout: 20000 });
-      await app.evaluate(({ BrowserWindow }) => {
+      await Promise.race([app.evaluate(({ BrowserWindow }) => {
         for (const window of BrowserWindow.getAllWindows()) window.close();
-      });
+      }), new Promise((_, reject) => {
+        requestTimer = setTimeout(() => reject(new Error("Desktop close request timed out")), 5000);
+      })]).finally(() => clearTimeout(requestTimer));
       await Promise.race([
         closed,
         new Promise((_, reject) => {
@@ -180,6 +183,7 @@ try {
       closeError = error;
     } finally {
       clearTimeout(watchdog);
+      clearTimeout(requestTimer);
     }
   }
   if (browser) {

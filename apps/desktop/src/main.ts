@@ -91,9 +91,25 @@ app.whenReady().then(() => {
     });
     let checkingClose = false;
     let coreStopUncertain = false;
+    let coreStopError = "";
+    let coreWarningOpen = false;
+    const showCoreWarning = () => {
+      if (coreWarningOpen || window.isDestroyed()) return;
+      coreWarningOpen = true;
+      void dialog.showMessageBox(window, {
+        type: "warning", title: "Core 未能安全停止",
+        message: "草稿已保存，但 Core 停止状态未确认。窗口保持锁定，以免继续写入。",
+        detail: coreStopError,
+        buttons: ["保留窗口", "退出应用（停止未确认）"],
+        defaultId: 0, cancelId: 0,
+      }).then(({ response }) => {
+        if (response === 1 && !window.isDestroyed()) window.destroy();
+      }).catch(() => {}).finally(() => { coreWarningOpen = false; });
+    };
     window.on("close", (event) => {
       event.preventDefault();
-      if (checkingClose || coreStopUncertain) return;
+      if (coreStopUncertain) { showCoreWarning(); return; }
+      if (checkingClose) return;
       checkingClose = true;
       let stoppingCore = false;
       void withDeadline(window.webContents.executeJavaScript(`(async () => {
@@ -112,21 +128,19 @@ app.whenReady().then(() => {
         })
         .catch((error: unknown) => {
           if (!window.isDestroyed()) {
-            if (!stoppingCore)
-              void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
-            else coreStopUncertain = true;
             console.error("AIReader close handshake failed:", error);
-            void dialog.showMessageBox(window, {
-            type: "warning", title: "无法安全退出",
-            message: stoppingCore
-              ? "草稿已保存，但 Core 停止状态未确认。为避免继续写入，窗口保持锁定。"
-              : "保存未得到确认，窗口保持打开。",
-            detail: String(error),
-            buttons: stoppingCore ? ["继续等待", "退出应用（停止未确认）"] : ["返回编辑"],
-            defaultId: 0, cancelId: 0,
-            }).then(({ response }) => {
-              if (stoppingCore && response === 1 && !window.isDestroyed()) window.destroy();
-            }).catch(() => {});
+            if (!stoppingCore) {
+              void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
+              void dialog.showMessageBox(window, {
+                type: "warning", title: "无法安全退出",
+                message: "保存未得到确认，窗口保持打开。",
+                detail: String(error), buttons: ["返回编辑"],
+              });
+            } else {
+              coreStopUncertain = true;
+              coreStopError = String(error);
+              showCoreWarning();
+            }
           }
         }).finally(() => { checkingClose = false; });
     });
