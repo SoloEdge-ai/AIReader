@@ -822,6 +822,19 @@ export function createCore(
     server,
     library,
     emit,
+    async shutdown() {
+      closed = true;
+      await runtime.cancel();
+      bookTools.close();
+      indexer.close();
+      chat.close();
+      await codex.disconnect();
+      for (const client of sockets.clients) client.terminate();
+      sockets.close();
+      await new Promise<void>((resolve, reject) => server.close((error) =>
+        error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve()));
+      library.close();
+    },
     close() {
       closed = true;
       void runtime.cancel();

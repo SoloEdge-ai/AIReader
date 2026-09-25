@@ -1,7 +1,40 @@
 import { app, BrowserWindow, dialog, utilityProcess, shell } from "electron";
 import { join } from "node:path";
 import { release } from "node:os";
+import { randomUUID } from "node:crypto";
 let core: Electron.UtilityProcess | undefined;
+function withDeadline<T>(work: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([work, new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`等待超过 ${milliseconds / 1000} 秒`)), milliseconds);
+  })]).finally(() => clearTimeout(timer));
+}
+function stopCore(): Promise<void> {
+  const child = core;
+  if (!child) return Promise.reject(new Error("Core 尚未就绪"));
+  const requestId = randomUUID();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => finish(new Error("Core 停止超时")), 15000);
+    const onMessage = (value: unknown) => {
+      if (!value || typeof value !== "object" || (value as { requestId?: unknown }).requestId !== requestId) return;
+      const message = value as { type?: string; error?: string };
+      if (message.type === "shutdown-complete") finish();
+      else if (message.type === "shutdown-failed") finish(new Error(message.error ?? "Core 停止失败"));
+    };
+    const onExit = () => finish(new Error("Core 未确认关闭便退出"));
+    function finish(error?: Error) {
+      clearTimeout(timer);
+      child!.off("message", onMessage);
+      child!.off("exit", onExit);
+      if (error) reject(error);
+      else { core = undefined; resolve(); }
+    }
+    child.on("message", onMessage);
+    child.once("exit", onExit);
+    try { child.postMessage({ type: "shutdown", requestId }); }
+    catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+  });
+}
 app.setPath(
   "userData",
   process.env.AIREADER_DATA ??
@@ -28,7 +61,9 @@ app.whenReady().then(() => {
     },
     serviceName: "AIReader Core",
   });
-  core.on("message", (message: { port: number }) => {
+  core.on("message", (message: unknown) => {
+    if (!message || typeof message !== "object" || typeof (message as { port?: unknown }).port !== "number") return;
+    const port = (message as { port: number }).port;
     const window = new BrowserWindow({
       width: 1440,
       height: 960,
@@ -50,22 +85,31 @@ app.whenReady().then(() => {
       event.preventDefault();
       if (checkingClose) return;
       checkingClose = true;
-      void window.webContents.executeJavaScript("window.aiReaderFlushBeforeClose?.() ?? true")
-        .then((saved: boolean) => {
-          checkingClose = false;
-          if (saved && !window.isDestroyed()) {
+      void withDeadline(window.webContents.executeJavaScript(`(async () => {
+        if (typeof window.aiReaderFlushBeforeClose !== "function") throw new Error("未找到保存入口");
+        const saved = await window.aiReaderFlushBeforeClose();
+        if (typeof saved !== "boolean") throw new Error("保存结果无效");
+        return saved;
+      })()`), 15000)
+        .then(async (saved: boolean) => {
+          if (!saved || window.isDestroyed()) return;
+          await stopCore();
+          if (!window.isDestroyed()) {
             allowingClose = true;
             window.close();
           }
         })
         .catch((error: unknown) => {
-          checkingClose = false;
-          if (!window.isDestroyed()) dialog.showMessageBoxSync(window, {
+          if (!window.isDestroyed()) {
+            void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
+            console.error("AIReader close handshake failed:", error);
+            void dialog.showMessageBox(window, {
             type: "warning", title: "无法安全退出",
-            message: "未能确认笔记和画板草稿已保存，窗口保持打开。",
+            message: "保存或 Core 停止未得到确认，窗口保持打开。",
             detail: String(error), buttons: ["返回编辑"],
-          });
-        });
+            });
+          }
+        }).finally(() => { checkingClose = false; });
     });
     window.webContents.setWindowOpenHandler(({ url }) => {
       try {
@@ -76,7 +120,7 @@ app.whenReady().then(() => {
       return { action: "deny" };
     });
     window.webContents.on("will-navigate", (event, url) => {
-      if (!url.startsWith(`http://127.0.0.1:${message.port}/`))
+      if (!url.startsWith(`http://127.0.0.1:${port}/`))
         event.preventDefault();
     });
     window.webContents.on("will-prevent-unload", (event) => {
@@ -95,7 +139,7 @@ app.whenReady().then(() => {
         void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
       }
     });
-    void window.loadURL(`http://127.0.0.1:${message.port}`);
+    void window.loadURL(`http://127.0.0.1:${port}`);
   });
   core.on("exit", () => {
     if (!app.isPackaged) console.log("Core stopped");

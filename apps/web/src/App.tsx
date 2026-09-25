@@ -104,7 +104,14 @@ export function App() {
     document.body.inert = true;
     const attempt = (async () => {
       try {
-        const saved = workspace.current ? await workspace.current.flush() : await notes.flush();
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const save = workspace.current ? workspace.current.flush() : notes.flush();
+        const saved = await Promise.race([
+          save,
+          new Promise<never>((_resolve, reject) => {
+            timeout = setTimeout(() => reject(new Error("保存等待超过 12 秒，请检查 Core 后重试")), 12000);
+          }),
+        ]).finally(() => clearTimeout(timeout));
         if (!saved) throw new Error("仍有未保存的草稿");
         return true;
       } catch (cause) {

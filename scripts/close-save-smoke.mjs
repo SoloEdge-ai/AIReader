@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import { once } from "node:events";
+import { DatabaseSync } from "node:sqlite";
 
 const tempRoot = resolve(tmpdir());
 const directory = await mkdtemp(join(tempRoot, "aireader-close-save-"));
@@ -18,6 +19,7 @@ async function within(promise, milliseconds, message) {
   } finally { clearTimeout(timer); }
 }
 let desktop;
+let blocker;
 let completed = false;
 try {
   desktop = await electron.launch({ args: ["."], env });
@@ -31,8 +33,17 @@ try {
   await page.locator('[data-book-status="ready"]').waitFor();
   await page.getByRole("button", { name: "笔记", exact: true }).first().click();
   await page.getByRole("button", { name: "新建笔记" }).click();
-  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
-    ? route.fulfill({ status: 503, json: { error: "Injected save failure" } }) : route.continue());
+  const bookId = await page.evaluate(async () => (await (await fetch("/api/books")).json())[0].id);
+  const conflict = await page.evaluate(async (id) => {
+    const notes = await (await fetch(`/api/books/${id}/notes`)).json();
+    const note = notes[0];
+    const response = await fetch(`/api/books/${id}/notes/${note.id}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: note.revision, title: "另一编辑端的版本", document: note.document }),
+    });
+    return response.status;
+  }, bookId);
+  expect(conflict).toBe(200);
   await page.getByLabel("笔记标题", { exact: true }).fill("关闭前提交测试");
   await page.locator(".tiptap").fill("这份草稿必须在窗口关闭前写入本机数据库。");
   expect(await page.evaluate(() => typeof window.aiReaderFlushBeforeClose)).toBe("function");
@@ -40,7 +51,10 @@ try {
   await expect(page.getByText(/关闭前保存失败，窗口和草稿已保留/)).toBeVisible();
   expect(await page.evaluate(() => document.body.inert)).toBe(false);
   await expect(page.locator(".tiptap")).toContainText("这份草稿必须在窗口关闭前写入本机数据库。");
-  await page.unroute("**/api/books/*/notes/*");
+  await page.getByRole("button", { name: "用此草稿覆盖最新版本" }).click();
+  await expect.poll(async () => page.evaluate(async (id) =>
+    (await (await fetch(`/api/books/${id}/notes`)).json())[0].title, bookId))
+    .toBe("关闭前提交测试");
   const closed = desktop.waitForEvent("close", { timeout: 20000 });
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   await closed;
@@ -50,9 +64,39 @@ try {
   await reopened.getByRole("button", { name: "笔记", exact: true }).first().click();
   await reopened.getByRole("button", { name: /关闭前提交测试/ }).click();
   await expect(reopened.locator(".tiptap")).toContainText("这份草稿必须在窗口关闭前写入本机数据库。");
+  await expect(reopened.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  const firstPage = (await reopened.locator("#page-1").boundingBox());
+  expect(firstPage).toBeTruthy();
+  await reopened.getByRole("button", { name: "添加形状" }).click();
+  await reopened.getByRole("menuitem", { name: "矩形" }).click();
+  blocker = new DatabaseSync(join(directory, "library.sqlite"));
+  blocker.exec("BEGIN IMMEDIATE");
+  await reopened.mouse.move(firstPage.x + 40, firstPage.y + 90);
+  await reopened.mouse.down();
+  await reopened.mouse.move(firstPage.x + 150, firstPage.y + 160, { steps: 5 });
+  await reopened.mouse.up();
+  await expect(reopened.locator('[data-object-id]')).toHaveCount(1);
+  await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await expect(reopened.getByText(/关闭前保存失败，窗口和草稿已保留/)).toBeVisible({ timeout: 12000 });
+  expect(await reopened.evaluate(() => document.body.inert)).toBe(false);
+  expect((await (await reopened.request.get(`http://127.0.0.1:${new URL(reopened.url()).port}/api/books/${bookId}/workspace`)).json()).objects).toHaveLength(0);
+  blocker.exec("ROLLBACK");
+  blocker.close();
+  blocker = undefined;
+  await reopened.getByRole("button", { name: "重试保存" }).last().click();
+  await expect.poll(async () => reopened.evaluate(async (id) =>
+    (await (await fetch(`/api/books/${id}/workspace`)).json()).objects.length, bookId)).toBe(1);
+  const workspaceClosed = desktop.waitForEvent("close", { timeout: 20000 });
+  await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await workspaceClosed;
+  desktop = await electron.launch({ args: ["."], env });
+  const finalWindow = await desktop.firstWindow();
+  await finalWindow.locator(".book-card").first().click();
+  await expect(finalWindow.locator('[data-object-id]')).toHaveCount(1);
   completed = true;
-  console.log("Desktop close waited for note draft and reopen retained it.");
+  console.log("Desktop close retained note and workspace drafts through real Core conflicts, retries, and reopen.");
 } finally {
+  if (blocker) { blocker.exec("ROLLBACK"); blocker.close(); }
   if (desktop) {
     const process = desktop.process();
     if (!completed) {

@@ -20,7 +20,7 @@ codex/architecture-refactor，一个Draft PR。PR更新自动检查/构建，不
 
 浅深主题、1280×720/1440×900/1920×1080、100/150/200%DPI。516页/500卡片/1000关系/5000对象/250000点压力样本，记录机器/帧/长任务/内存/保存时间。
 
-桌面关闭回归运行 `node scripts/close-save-smoke.mjs`：在隔离数据目录中注入笔记保存失败，确认窗口和草稿仍在；恢复后关闭并重开，核对草稿已持久化。公共 CI 在构建后执行，不能代替真实安装版在 Windows 11 上的关闭验收。
+桌面关闭回归运行 `node scripts/close-save-smoke.mjs`：在隔离数据目录中通过真实 Core HTTP 制造笔记版本冲突，再用独立 SQLite 连接持有写锁使画板提交失败；每次确认窗口和草稿仍在，解除冲突／写锁并重试后关闭，重开核对笔记和对象都已持久化。没有拦截 Core 请求。公共 CI 在构建后执行，不能代替真实安装版在 Windows 11 上的关闭验收。
 
 满载合成样本可先执行 `node --expose-gc --import tsx scripts/workspace-performance.ts`，再将机器、样本构成、时间和局限记录到 verification。此脚本是手动压力测量，不代替真实复杂 PDF 或 Windows 11 安装验收；[初次记录](verification/2026-09-24-workspace-performance.md) 已明确留有内存和连续编辑问题。
 
