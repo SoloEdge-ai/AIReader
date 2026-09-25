@@ -12,7 +12,7 @@ function CatalogRow({ id, title, locateLabel = title, detail, onLocate, onAdd }:
   onAdd: (id: string) => Promise<void>;
 }) {
   const [error, setError] = useState("");
-  return <div className="material-card-row">
+  return <div className="material-card-row" data-material-id={id}>
     <button aria-label={`定位${locateLabel}`} onClick={() => onLocate(id)}>
       <span>{title}</span><small>{detail}</small>
     </button>
@@ -50,7 +50,7 @@ export function MaterialCatalog({ bookId, catalog, notes, query, onLocate, onAdd
         </select>
         <select aria-label="画布材料排序" value={sort}
           onChange={(event) => setSort(event.target.value as MaterialSort)}>
-          <option value="page">按原文位置</option><option value="type">按类型</option>
+          <option value="page">按页码</option><option value="type">按类型</option>
         </select>
       </div>
       {visible.slice(0, limit).map((entry) => <CatalogRow key={entry.id} id={entry.id}

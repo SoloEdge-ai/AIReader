@@ -13,6 +13,9 @@ const catalog: Pick<BookWorkspace, "cards" | "objects" | "links"> = {
       x: 1800, y: 200, width: 300, height: 200 },
   ],
   objects: [
+    { id: "same-page-shape", kind: "shape", shape: "ellipse",
+      surface: { kind: "pdf", fingerprint, page: 4 }, x: 30, y: 250,
+      width: 60, height: 50, color: "#345d84", strokeWidth: 2 },
     { id: "later-shape", kind: "shape", shape: "rectangle",
       surface: { kind: "pdf", fingerprint, page: 9 }, x: 30, y: 40,
       width: 60, height: 50, color: "#345d84", strokeWidth: 2 },
@@ -31,10 +34,21 @@ const notes: Note[] = [{ id: "note-1", bookId: "book-1", title: "缓存假设",
 test("canvas materials share deterministic position and type ordering without changing source records", () => {
   const entries = buildMaterialCatalog(catalog, notes);
   expect(selectMaterialCatalog(entries, { query: "", category: "all", sort: "page" }).map((item) => item.id))
-    .toEqual(["early-ink", "excerpt", "later-shape", "personal", "board-text", "relation"]);
+    .toEqual(["early-ink", "excerpt", "same-page-shape", "later-shape", "personal", "board-text", "relation"]);
   expect(selectMaterialCatalog(entries, { query: "", category: "all", sort: "type" }).map((item) => item.id))
-    .toEqual(["excerpt", "personal", "early-ink", "board-text", "later-shape", "relation"]);
+    .toEqual(["excerpt", "personal", "early-ink", "board-text", "same-page-shape", "later-shape", "relation"]);
   expect(catalog.cards[0].title).toBe("");
+});
+
+test("moving a sourced card does not change page ordering or use PDF-native y as a visual coordinate", () => {
+  const before = selectMaterialCatalog(buildMaterialCatalog(catalog, notes),
+    { query: "", category: "all", sort: "page" }).map((item) => item.id);
+  const moved = { ...catalog, cards: catalog.cards.map((card) => card.id === "excerpt"
+    ? { ...card, y: 100000 } : card),
+    objects: catalog.objects.map((object) => object.id === "same-page-shape" && object.kind === "shape"
+      ? { ...object, y: 1 } : object) };
+  expect(selectMaterialCatalog(buildMaterialCatalog(moved, notes),
+    { query: "", category: "all", sort: "page" }).map((item) => item.id)).toEqual(before);
 });
 
 test("canvas type filter and search include note draft text but do not include unrelated entries", () => {

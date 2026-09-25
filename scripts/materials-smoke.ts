@@ -57,6 +57,14 @@ try {
   await page.getByRole("button", { name: "加入提问", exact: true }).click();
   await expect(page.locator(".question-material-item")).toHaveCount(2);
   await expect(page.locator(".question-material-list")).toContainText("待验证的个人想法");
+  await page.getByRole("button", { name: "放到画布", exact: true }).click();
+  const materialList = page.getByRole("region", { name: "画布材料" }).locator(".material-card-row");
+  await page.getByRole("combobox", { name: "画布材料类型" }).selectOption("all");
+  await page.getByRole("combobox", { name: "画布材料排序" }).selectOption("page");
+  await expect(materialList).toHaveCount(2);
+  await expect(materialList.first()).toContainText("矩形");
+  await page.getByRole("combobox", { name: "画布材料排序" }).selectOption("type");
+  await expect(materialList.first()).toContainText("待验证的个人想法");
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
   await expect(page.locator(".question-material-item").first()).toBeVisible();

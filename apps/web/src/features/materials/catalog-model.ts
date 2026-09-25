@@ -10,7 +10,6 @@ export type MaterialEntry = {
   title: string;
   detail: string;
   page?: number;
-  position: number;
   searchText: string;
   sourceOrder: number;
 };
@@ -30,17 +29,10 @@ function objectTitle(object: WorkspaceObject): string {
   return shapeNames[object.shape];
 }
 
-function objectPosition(object: WorkspaceObject): { page?: number; position: number } {
-  if (object.kind !== "ink") return {
-    page: object.surface.kind === "pdf" ? object.surface.page : undefined,
-    position: object.y,
-  };
+function objectPage(object: WorkspaceObject): number | undefined {
+  if (object.kind !== "ink") return object.surface.kind === "pdf" ? object.surface.page : undefined;
   const pdfPages = object.segments.flatMap((segment) => segment.surface.kind === "pdf" ? [segment.surface.page] : []);
-  const page = pdfPages.length ? Math.min(...pdfPages) : undefined;
-  const positions = object.segments.filter((segment) => page === undefined ||
-    (segment.surface.kind === "pdf" && segment.surface.page === page))
-    .flatMap((segment) => segment.points.map((point) => point[1]));
-  return { page, position: Math.min(...positions) };
+  return pdfPages.length ? Math.min(...pdfPages) : undefined;
 }
 
 /** A read-only navigation projection. No sorting or filtering mutates persisted workspace arrays. */
@@ -54,23 +46,23 @@ export function buildMaterialCatalog(catalog: Catalog | undefined, notes: Note[]
     const page = card.region?.page ?? card.source?.anchors[0]?.page;
     const kind = card.kind === "note" ? "个人笔记" : card.kind === "region" ? "图片摘录" : "原文摘录";
     entries.push({ id: card.id, category: "card", title,
-      detail: `${page ? `第 ${page} 页 · ` : ""}${kind}`, page, position: card.y,
+      detail: `${page ? `第 ${page} 页 · ` : ""}${kind}`, page,
       searchText: `${title} ${card.text} ${note ? documentText(note.document) : card.comment}`,
       sourceOrder: entries.length });
   }
   for (const object of catalog.objects) {
-    const { page, position } = objectPosition(object);
+    const page = objectPage(object);
     const title = objectTitle(object);
     entries.push({ id: object.id, category: object.kind, title,
       detail: object.kind === "ink" ? `${page ? `第 ${page} 页 · ` : ""}个人笔迹`
         : page ? `第 ${page} 页` : "白板",
-      page, position, searchText: `${title} ${object.kind === "text" ? object.text : ""}`,
+      page, searchText: `${title} ${object.kind === "text" ? object.text : ""}`,
       sourceOrder: entries.length });
   }
   for (const link of catalog.links) {
     const title = link.label || "关系连线";
     entries.push({ id: link.id, category: "link", title, detail: "对象关系",
-      position: Number.POSITIVE_INFINITY, searchText: title, sourceOrder: entries.length });
+      searchText: title, sourceOrder: entries.length });
   }
   return entries;
 }
@@ -83,12 +75,9 @@ export function selectMaterialCatalog(entries: MaterialEntry[], selection: {
     entry.searchText.toLocaleLowerCase().includes(query))
     .sort((left, right) => {
       const type = categoryOrder[left.category] - categoryOrder[right.category];
-      const page = (left.page ?? Infinity) - (right.page ?? Infinity);
-      const position = left.position - right.position;
-      // Infinity - Infinity is NaN; the source order is the deterministic final key.
-      if (selection.sort === "type") return type || (Number.isNaN(page) ? 0 : page) ||
-        (Number.isNaN(position) ? 0 : position) || left.sourceOrder - right.sourceOrder;
-      return (Number.isNaN(page) ? 0 : page) || type ||
-        (Number.isNaN(position) ? 0 : position) || left.sourceOrder - right.sourceOrder;
+      const page = left.page === right.page ? 0 : left.page === undefined ? 1 :
+        right.page === undefined ? -1 : left.page - right.page;
+      return selection.sort === "type" ? type || page || left.sourceOrder - right.sourceOrder
+        : page || type || left.sourceOrder - right.sourceOrder;
     });
 }
