@@ -2,12 +2,13 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { Annotation, ReadingSelection } from "../../../packages/protocol/src";
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
+import { ColorPopover } from "./ui/ColorPopover";
 
 const colors = [
-  { id: "yellow", name: "黄色", hex: "#f5d549" },
-  { id: "green", name: "绿色", hex: "#60c88c" },
-  { id: "blue", name: "蓝色", hex: "#65a8ed" },
-  { id: "pink", name: "粉色", hex: "#eb88b4" },
+  { value: "yellow", name: "黄色", hex: "#f5d549" },
+  { value: "green", name: "绿色", hex: "#60c88c" },
+  { value: "blue", name: "蓝色", hex: "#65a8ed" },
+  { value: "pink", name: "粉色", hex: "#eb88b4" },
 ] as const;
 
 export function SelectionToolbar({
@@ -91,17 +92,10 @@ export function SelectionToolbar({
           ))}
         </div>}
       </Popover>
-      <Popover
-        label={`标注颜色：${colors.find((item) => item.id === color)?.name}`}
-        trigger={<span className="reader-color-dot" style={{ background: colors.find((item) => item.id === color)?.hex }} />}
-        width={180}
-      >
-        {(close) => <div className="reader-color-options">
-          {colors.map((item) => <button key={item.id} aria-label={item.name} aria-pressed={color === item.id} onClick={() => { onColor(item.id); close(); }}>
-            <span className="reader-color-dot" style={{ background: item.hex }} />{item.name}
-          </button>)}
-        </div>}
-      </Popover>
+      <ColorPopover label="标注颜色" value={color} options={colors} onChange={(value) => {
+        const option = colors.find((item) => item.value === value);
+        if (option) onColor(option.value);
+      }} />
       <Popover label="AI 处理选区" trigger={<><Icon name="bolt" /><span>AI</span></>} width={150}>
         {(close) => <div className="reader-context-menu">
           {["提问", "解释", "总结", "翻译"].map((name) => <button key={name} onClick={() => { onAi(name); close(); }}>{name}</button>)}

@@ -107,6 +107,10 @@ try {
   const connectButton = await objectToolbar.getByRole("button", { name: "连接选中对象" }).boundingBox();
   expect(connectButton!.width).toBeGreaterThanOrEqual(36);
   expect(connectButton!.height).toBeGreaterThanOrEqual(36);
+  await objectToolbar.getByRole("button", { name: /对象颜色/ }).click();
+  await page.screenshot({ path: ".local/screenshots/object-color-menu.png" });
+  await page.getByRole("dialog", { name: "对象颜色" }).getByRole("button", { name: "红色" }).click();
+  await expect.poll(async () => (await workspace()).objects[0].color).toBe("#d35e45");
   const cardHeader = (await page.locator(".workspace-card header").first().boundingBox())!;
   await page.mouse.move(cardHeader.x + 50, cardHeader.y + 12);
   await page.mouse.down();

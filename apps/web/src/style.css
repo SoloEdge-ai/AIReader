@@ -1790,6 +1790,10 @@ summary {
 .reader-context-menu { display: grid; gap: 2px; padding: 5px; }
 .reader-color-options button,
 .reader-context-menu button { justify-content: flex-start; width: 100%; }
+.reader-custom-color { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; color: var(--text); font-size: 12px; }
+.reader-custom-color input[type="color"] { width: 32px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: transparent; cursor: pointer; }
+.reader-custom-color input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+.reader-custom-color input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
 .reader-context-bar.is-compact .context-count,
 .reader-context-bar.is-compact button span:not(.reader-color-dot) { display: none; }
 .reader-tool-palette {

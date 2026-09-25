@@ -38,10 +38,19 @@ import { dockBesideDocument } from "./WorkspaceLayout";
 import { locateWorkspaceItem } from "../../../packages/workspace-engine/src/catalog";
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
+import { ColorPopover } from "./ui/ColorPopover";
 import { base, post } from "./api";
 import "./workspace.css";
 import type { BookNotes } from "./features/notes/useBookNotes";
 import { NoteCardContent } from "./features/notes/NoteCardContent";
+
+const objectColors = [
+  { value: "#345d84", name: "蓝灰", hex: "#345d84" },
+  { value: "#222222", name: "黑色", hex: "#222222" },
+  { value: "#d35e45", name: "红色", hex: "#d35e45" },
+  { value: "#e6b72d", name: "黄色", hex: "#e6b72d" },
+  { value: "#69b28d", name: "绿色", hex: "#69b28d" },
+] as const;
 
 export interface BookWorkspaceHandle {
   flush(): Promise<boolean>;
@@ -739,6 +748,7 @@ export const BookWorkspace = forwardRef<
     if (!state.value) return null;
     const styleObject = selectedIds.length === 1 ? state.value.objects.find((object) =>
       object.id === selectedIds[0] && object.kind !== "ink") : undefined;
+    const colorObject = state.value.objects.find((object) => selectedIds.includes(object.id));
     const cached = projectedCache.current;
     const strokes = cached && cached.objects === state.value.objects &&
       cached.pages === layout.length && cached.zoom === props.zoom &&
@@ -1156,16 +1166,13 @@ export const BookWorkspace = forwardRef<
                 </select>
               </>;
             })()}
-            {selectedIds.some((id) => state.value!.objects.some((object) => object.id === id)) &&
-              <label title="修改选中对象颜色" aria-label="对象颜色">
-                <input type="color" aria-label="对象颜色" defaultValue="#345d84"
-                  onChange={(event) => {
-                    const color = event.target.value, ids = new Set(selectedIds);
-                    state.change((current) => ({ ...current,
-                      objects: current.objects.map((object) => ids.has(object.id) ? { ...object, color } : object),
-                    }));
-                  }} />
-              </label>}
+            {colorObject && <ColorPopover label="对象颜色" value={colorObject.color}
+              options={objectColors} custom onChange={(color) => {
+                const ids = new Set(selectedIds);
+                state.change((current) => ({ ...current,
+                  objects: current.objects.map((object) => ids.has(object.id) ? { ...object, color } : object),
+                }));
+              }} />}
             {styleObject && <>
               <Popover key={selectedIds[0]} label="对象格式设置" triggerLabel="对象格式"
                 trigger={<Icon name="more" />} placement="bottom" width={180}

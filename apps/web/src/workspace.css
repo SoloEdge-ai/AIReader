@@ -113,7 +113,6 @@
 .workspace-object-style select, .workspace-object-style input[type="number"] {
   color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 5px;
 }
-.workspace-object-toolbar input[type="color"] { width: 22px; height: 22px; border: 0; background: transparent; }
 .workspace-object-toolbar.link-editor input[type="text"],
 .workspace-object-toolbar.link-editor input:not([type]) { width: 105px; min-width: 0; border: 0; background: transparent; color: inherit; }
 .workspace-object-toolbar.link-editor label { display: flex; align-items: center; gap: 2px; }
