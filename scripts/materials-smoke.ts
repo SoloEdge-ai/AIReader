@@ -41,9 +41,14 @@ try {
   await page.screenshot({ path: ".local/screenshots/question-materials.png" });
   await page.getByRole("button", { name: "笔记", exact: true }).first().click();
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
-  await expect(page.getByRole("region", { name: "画布对象" }).getByRole("button", { name: /定位.*矩形/ }))
+  await expect(page.getByRole("region", { name: "画布材料" }).getByRole("button", { name: /定位.*矩形/ }))
     .toHaveCount(1);
-  await page.getByRole("region", { name: "画布对象" }).getByRole("button", { name: /定位.*矩形/ }).click();
+  await page.getByRole("combobox", { name: "画布材料类型" }).selectOption("card");
+  await expect(page.getByRole("region", { name: "画布材料" }).getByRole("button", { name: /定位.*矩形/ }))
+    .toHaveCount(0);
+  await page.getByRole("combobox", { name: "画布材料类型" }).selectOption("shape");
+  await page.getByRole("combobox", { name: "画布材料排序" }).selectOption("type");
+  await page.getByRole("region", { name: "画布材料" }).getByRole("button", { name: /定位.*矩形/ }).click();
   await expect(page.locator(".workspace-object.selected")).toHaveCount(1);
   await page.screenshot({ path: ".local/screenshots/material-catalog.png" });
   await page.getByRole("button", { name: "新建笔记" }).click();

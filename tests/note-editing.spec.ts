@@ -60,7 +60,7 @@ test("material navigation lists canvas cards and locates the selected placement"
   await page.locator(".notes-list button").first().click();
   await page.getByRole("button", { name: "放到画布" }).click();
   await expect(page.locator(".workspace-card")).toHaveCount(1);
-  const catalog = page.getByRole("region", { name: "画布卡片" });
+  const catalog = page.getByRole("region", { name: "画布材料" });
   await expect(catalog.getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
   await catalog.getByRole("button", { name: /定位.*卡片/ }).click();
   await expect(page.locator(".workspace-card.selected")).toHaveCount(1);
@@ -75,7 +75,7 @@ test("material navigation lists canvas cards and locates the selected placement"
   await page.reload();
   await page.locator(".book-card").first().click();
   await page.locator(".nav-tabs").getByRole("button", { name: "材料" }).click();
-  await expect(page.getByRole("region", { name: "画布卡片" })
+  await expect(page.getByRole("region", { name: "画布材料" })
     .getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
 });
 
