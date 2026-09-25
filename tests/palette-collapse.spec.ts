@@ -1,10 +1,31 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function openPalette(page: Page, dock?: "bottom" | "left" | "right") {
+  const failures: string[] = [];
+  page.on("pageerror", (error) => failures.push(error.message));
+  page.on("response", (response) => {
+    if (response.status() >= 500) failures.push(`${response.status()} ${response.url()}`);
+  });
+  const url = `http://127.0.0.1:5173/tests/palette.html${dock ? `?dock=${dock}` : ""}`;
+  await page.goto(url);
+  const toolbar = page.getByRole("toolbar", { name: "阅读工具盘" });
+  try { await expect(toolbar).toBeVisible({ timeout: 5_000 }); }
+  catch {
+    // A Vite-only harness may navigate before its module is served on a busy
+    // Windows runner. Retry once; persistent failure retains diagnostics.
+    const firstBody = await page.locator("body").innerText().catch(() => "<unavailable>");
+    await page.reload();
+    try { await expect(toolbar).toBeVisible({ timeout: 10_000 }); }
+    catch { throw new Error(`Palette harness did not mount. First body: ${firstBody}; errors: ${failures.join(" | ")}`); }
+    console.warn(`Palette harness required one reload: ${url}; first body: ${firstBody}; errors: ${failures.join(" | ")}`);
+  }
+}
 
 for (const dock of ["bottom", "left", "right"] as const)
   test(`collapsed ${dock} palette stays at the click location`, async ({
     page,
   }) => {
-    await page.goto(`http://127.0.0.1:5173/tests/palette.html?dock=${dock}`);
+    await openPalette(page, dock);
     const collapse = page.getByRole("button", { name: "收起工具盘" });
     await collapse.scrollIntoViewIfNeeded();
     const before = await collapse.boundingBox();
@@ -33,7 +54,7 @@ for (const dock of ["bottom", "left", "right"] as const)
   });
 
 test("keyboard collapse stays beside the focused button", async ({ page }) => {
-  await page.goto("http://127.0.0.1:5173/tests/palette.html");
+  await openPalette(page);
   const collapse = page.getByRole("button", { name: "收起工具盘" });
   const before = await collapse.boundingBox();
   expect(before).not.toBeNull();
@@ -49,7 +70,7 @@ test("keyboard collapse stays beside the focused button", async ({ page }) => {
 });
 
 test("dragging the handle docks the palette at the nearest edge", async ({ page }) => {
-  await page.goto("http://127.0.0.1:5173/tests/palette.html");
+  await openPalette(page);
   const grip = page.getByRole("button", { name: "拖动工具盘" });
   const box = await grip.boundingBox();
   expect(box).not.toBeNull();
@@ -65,7 +86,7 @@ test("dragging the handle docks the palette at the nearest edge", async ({ page 
 
 for (const dock of ["bottom", "left", "right"] as const)
   test(`${dock} palette menu uses the shared bounded popover`, async ({ page }) => {
-    await page.goto(`http://127.0.0.1:5173/tests/palette.html?dock=${dock}`);
+    await openPalette(page, dock);
     const trigger = page.getByRole("button", { name: "添加形状" });
     const triggerBox = await trigger.boundingBox();
     expect(triggerBox).not.toBeNull();
@@ -94,7 +115,7 @@ for (const dock of ["bottom", "left", "right"] as const)
 
 for (const dock of ["bottom", "left", "right"] as const)
   test(`${dock} brush settings share bounded placement and keep two-click activation`, async ({ page }) => {
-    await page.goto(`http://127.0.0.1:5173/tests/palette.html?dock=${dock}`);
+    await openPalette(page, dock);
     const pen = page.getByRole("button", { name: "画笔（P）" });
     await pen.click();
     await expect(pen).toHaveAttribute("aria-pressed", "true");
