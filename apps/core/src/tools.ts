@@ -34,6 +34,7 @@ export class BookTools {
     );
   }
   async verify(bookId: string) {
+    if (this.closed) throw new Error("Core 正在关闭");
     const cwd = this.workspace(bookId);
     await mkdir(cwd, { recursive: true });
     const sentinel = join(
@@ -50,6 +51,7 @@ export class BookTools {
     try {
       const port = typeof address === "object" && address ? address.port : 0;
       const script = `$ErrorActionPreference='Stop'; Set-Content -LiteralPath './probe.txt' -Value 'ok'; if ((Get-Content -LiteralPath './probe.txt') -ne 'ok') { exit 11 }; try { Get-Content -LiteralPath ${quote(sentinel)} -ErrorAction Stop | Out-Null; exit 12 } catch {}; try { Set-Content -LiteralPath ${quote(sentinel)} -Value 'changed' -ErrorAction Stop; exit 13 } catch {}; try { $client=New-Object System.Net.Sockets.TcpClient; $task=$client.ConnectAsync('127.0.0.1',${port}); if ($task.Wait(2000) -and $client.Connected) { $client.Dispose(); exit 14 } } catch {}; Write-Output 'AIREADER_SANDBOX_OK'`;
+      if (this.closed) throw new Error("Core 正在关闭");
       const output = await this.codex.command(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         cwd,
@@ -86,6 +88,7 @@ export class BookTools {
     return result;
   }
   async run(bookId: string, turnId: string, script: string) {
+    if (this.closed) throw new Error("Core 正在关闭");
     if (!this.status(bookId).available)
       throw new Error(this.status(bookId).reason);
     if (this.active.has(turnId)) throw new Error("当前已有工具正在运行");
@@ -109,6 +112,7 @@ export class BookTools {
         join(cwd, "evidence.txt"),
         turn.context.evidence.map((p) => `[${p.id}]\n${p.text}`).join("\n"),
       );
+      if (this.closed) throw new Error("Core 正在关闭");
       const result = await this.codex.command(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         cwd,

@@ -55,6 +55,7 @@ test("public reasoning summaries stream, stay out of future prompts, and survive
       .poll(async () => (await api(`books/${book.id}`)).status)
       .toBe("ready");
     const session = await api(`books/${book.id}/sessions`, {});
+    await api(`books/${book.id}/memory`, { sessionId: session.id, goal: "理解缓存边界" });
     const path = `books/${book.id}/turns`;
     const readTurn = async (id: string): Promise<ChatTurn> =>
       (await api(path)).find((turn: ChatTurn) => turn.id === id);
@@ -76,6 +77,7 @@ test("public reasoning summaries stream, stay out of future prompts, and survive
       .poll(async () => (await readTurn(first.id)).status, { timeout: 5000 })
       .toBe("complete");
     const completed = await readTurn(first.id);
+    expect(JSON.stringify(completed.context)).toContain("理解缓存边界");
     expect(completed.reasoning).toBe(
       "已核对原文。\n\n补充说明与书中观点分开。\n\n保留可核验引用。",
     );

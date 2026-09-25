@@ -61,6 +61,13 @@ export class ChatService {
     this.library.store.put("session", bookId + ":" + id, bookId, session);
     return session;
   }
+  setGoal(bookId: string, sessionId: string, goal: string) {
+    this.library.book(bookId);
+    this.library.store.put("memory", bookId + ":" + sessionId, bookId, {
+      goal,
+      text: "用户学习目标：" + goal,
+    });
+  }
   private running = new Map<string, AbortController>();
   private closed = false;
   constructor(
@@ -92,6 +99,7 @@ export class ChatService {
     imageInputs: ChatImageInput[] = [],
     materialIds: string[] = [],
   ) {
+    if (this.closed) throw new Error("Core 正在关闭");
     if (
       this.list(reading.bookId, sessionId).some((t) => t.status === "running")
     )

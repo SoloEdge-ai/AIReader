@@ -55,9 +55,19 @@ try {
   await expect.poll(async () => page.evaluate(async (id) =>
     (await (await fetch(`/api/books/${id}/notes`)).json())[0].title, bookId))
     .toBe("关闭前提交测试");
+  await expect(page.locator(".notes-panel footer [role=status]")).toHaveText("已保存");
   const closed = desktop.waitForEvent("close", { timeout: 20000 });
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
-  await closed;
+  try { await closed; }
+  catch (error) {
+    console.error("Close retry diagnostics:", await page.evaluate(() => ({
+      inert: document.body.inert,
+      alerts: [...document.querySelectorAll('[role="alert"]')].map((item) => item.textContent),
+      noteStatus: [...document.querySelectorAll(".save-status")].map((item) => item.textContent),
+      body: document.body.innerText.slice(-600),
+    })).catch((cause) => String(cause)));
+    throw error;
+  }
   desktop = await electron.launch({ args: ["."], env });
   const reopened = await desktop.firstWindow();
   await reopened.locator(".book-card").first().click();
@@ -65,15 +75,19 @@ try {
   await reopened.getByRole("button", { name: /关闭前提交测试/ }).click();
   await expect(reopened.locator(".tiptap")).toContainText("这份草稿必须在窗口关闭前写入本机数据库。");
   await expect(reopened.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  await reopened.locator("#page-1").evaluate((page) => page.scrollIntoView({ block: "start", inline: "center" }));
   const firstPage = (await reopened.locator("#page-1").boundingBox());
   expect(firstPage).toBeTruthy();
   await reopened.getByRole("button", { name: "添加形状" }).click();
   await reopened.getByRole("menuitem", { name: "矩形" }).click();
+  await expect(reopened.getByRole("button", { name: "添加形状" })).toHaveAttribute("aria-pressed", "true");
+  expect(await reopened.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest("#page-1")),
+    { x: firstPage.x + 80, y: firstPage.y + 180 })).toBe(true);
   blocker = new DatabaseSync(join(directory, "library.sqlite"));
   blocker.exec("BEGIN IMMEDIATE");
-  await reopened.mouse.move(firstPage.x + 40, firstPage.y + 90);
+  await reopened.mouse.move(firstPage.x + 80, firstPage.y + 180);
   await reopened.mouse.down();
-  await reopened.mouse.move(firstPage.x + 150, firstPage.y + 160, { steps: 5 });
+  await reopened.mouse.move(firstPage.x + 190, firstPage.y + 250, { steps: 5 });
   await reopened.mouse.up();
   await expect(reopened.locator('[data-object-id]')).toHaveCount(1);
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());

@@ -1,4 +1,5 @@
 import { test, expect } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -56,5 +57,34 @@ test("stdio adapter starts fresh threads, interrupts a turn, and reconnects with
       maxRetries: 5,
       retryDelay: 100,
     });
+  }
+});
+
+test("terminal shutdown cancels a pending Codex startup and forbids late reconnect", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "aireader-codex-shutdown-"));
+  const marker = join(directory, "late-started.txt");
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const beforeSpawn = new Promise<void>((resolve) => { entered = resolve; });
+  const adapter = new CodexAdapter(directory, undefined, {
+    path: process.execPath,
+    version: "fixture",
+    args: [resolve("tests/fixtures/fake-codex.mjs"), `--startup-marker=${marker}`],
+    beforeSpawn: async () => { entered(); await gate; },
+  });
+  try {
+    const connecting = adapter.connect();
+    await beforeSpawn;
+    await adapter.shutdown();
+    await expect(connecting).rejects.toThrow("关闭");
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(existsSync(marker)).toBe(false);
+    await expect(adapter.connect()).rejects.toThrow("正在关闭");
+    expect(adapter.info.connected).toBe(false);
+  } finally {
+    release();
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

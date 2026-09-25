@@ -40,6 +40,7 @@ export class IndexService {
     model?: string,
     effort?: string,
   ) {
+    if (this.closed) throw new Error("Core 正在关闭");
     const book = this.library.book(bookId);
     if (book.status !== "ready")
       throw new Error("请等待文本解析完成后建立语义索引。");
@@ -72,6 +73,7 @@ export class IndexService {
     return job;
   }
   control(bookId: string, id: string, action: "pause" | "cancel" | "resume") {
+    if (this.closed) throw new Error("Core 正在关闭");
     const job = this.list(bookId).find((j) => j.id === id);
     if (!job) throw new Error("索引任务不存在");
     if (action === "resume") {

@@ -4,11 +4,11 @@
 
 Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。
 
-当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。WorkspaceState 保存画板编辑，`features/notes/NoteEditingSession` 保存富文本笔记编辑；两者尚未合并为最终 BookEditingSession。QuestionDrafts 按 book/session 保存问题草稿。Core 的 `note-routes` 拥有按书籍隔离的笔记／批注 HTTP、导出与资源响应；`workspace-routes` 拥有工作区命令、归档、资源和冻结提问材料的 HTTP 契约。普通书籍路由由 `server` 在分派前检查书籍存在性；`/api/v2` 命令经更早的全局入口分派，由工作区服务验证书籍。通用请求体和 JSON 响应位于 `http`；Library 仍公开通用 Storage，server 仍含其他路由和业务，这些不是已完成的目标架构。
+当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。WorkspaceState 保存画板编辑，`features/notes/NoteEditingSession` 保存富文本笔记编辑；两者尚未合并为最终 BookEditingSession。QuestionDrafts 按 book/session 保存问题草稿。Core 的 `note-routes` 拥有按书籍隔离的笔记／批注 HTTP、导出与资源响应；`workspace-routes` 拥有工作区命令、归档、资源和冻结提问材料的 HTTP 契约；`chat-routes` 拥有会话、轮次、图片资源、学习目标和回答转笔记的 HTTP 契约。普通书籍路由由 `server` 在分派前检查书籍存在性；`/api/v2` 命令经更早的全局入口分派，由工作区服务验证书籍。通用请求体和 JSON 响应位于 `http`；Library 仍公开通用 Storage，server 仍含其他路由和业务，这些不是已完成的目标架构。
 
 笔记会话按书籍创建，拥有已提交版本、实时草稿、串行保存、响应丢失核对和批注操作撤销；`useBookNotes` 仅处理 React 订阅与离开保护。`client/notes.ts` 捕获 bookId 并提供类型化笔记操作。列表与展开编辑使用同一 `NoteEditor` 和会话快照，不再各自缓存标题／正文。普通刷新保留脏草稿的原始 revision；只有明确的“用此草稿覆盖最新版本”才重取冲突基线。较早请求的响应不能清除较新的输入。
 
-桌面窗口关闭先通过固定的 renderer 保存入口等待当前书籍的 Note 与工作区草稿提交，再经 utility process 消息等待 Core 取消运行组件下载、停止书籍工具／索引／聊天与 Codex、关闭 HTTP 和数据库的回执，最后不可取消地销毁窗口，避免已停库后被 `beforeunload` 留在编辑界面。renderer 的 `features/desktop/useDesktopCloseHandshake` 拥有重复关窗合并、输入锁定、保存超时和失败恢复；App 只提供当前书籍的保存操作与错误提示。缺少入口、保存失败或超时时取消关闭、解除界面锁定并保留草稿。等待保存上限 12 秒，主进程另有 15 秒保护；超时不假定后台保存已失败，需重新确认后再关闭。Core 停止超时或失败时保持界面锁定；超时继续监听迟到回执，明确失败则不能假定可重试。原生“保留窗口／退出应用”选择在再次尝试关窗时可重新打开，不能在 Core 状态不明时重新允许编辑。这个关闭握手不等于全工作区统一编辑会话；浏览器开发模式仍由各自的 `beforeunload` 脏草稿保护。
+桌面窗口关闭先通过固定的 renderer 保存入口等待当前书籍的 Note 与工作区草稿提交，再经 utility process 消息等待 Core 完成关闭并回执，最后不可取消地销毁窗口，避免已停库后被 `beforeunload` 留在编辑界面。草稿确认保存后，Core 拒绝新请求、取消下载和长时工具／索引／聊天／Codex 任务，再断开卡住的 HTTP 连接；已进入异步处理的请求仍须完成文件／事务收尾，才关闭数据库，避免孤儿文件或库关闭后的写入。关闭中的服务拒绝新任务，防止遗留处理器重启任务。renderer 的 `features/desktop/useDesktopCloseHandshake` 拥有重复关窗合并、输入锁定、保存超时和失败恢复；App 只提供当前书籍的保存操作与错误提示。缺少入口、保存失败或超时时取消关闭、解除界面锁定并保留草稿。等待保存上限 12 秒，主进程另有 15 秒保护；超时不假定后台保存已失败，需重新确认后再关闭。Core 停止超时或失败时保持界面锁定；超时继续监听迟到回执，明确失败则不能假定可重试。原生“保留窗口／退出应用”选择在再次尝试关窗时可重新打开，不能在 Core 状态不明时重新允许编辑。这个关闭握手不等于全工作区统一编辑会话；浏览器开发模式仍由各自的 `beforeunload` 脏草稿保护。
 
 会话区分选中的标注与选中的 Note；显式 comment 操作通过书籍客户端请求 Core 原子建立关联。标注和评论可独立删除，Note 的来源引用不等于标注的活跃评论指针。只读来源投影用于展示已删除标注，不能回写为用户可编辑来源。
 

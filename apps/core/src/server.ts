@@ -12,18 +12,15 @@ import { IndexService } from "./indexer";
 import { BookTools } from "./tools";
 import {
   ToolPreferencesSchema,
-  ReadingSnapshotSchema,
   ReaderPreferencesSchema,
   ModelSelectionSchema,
-  ChatImageInputSchema,
-  MAX_CHAT_IMAGES,
-  MAX_CHAT_IMAGE_BYTES,
   type ModelSelection,
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
 import { body, jsonBody, send } from "./http";
 import { handleNoteRoutes } from "./note-routes";
+import { handleBookChatRoutes } from "./chat-routes";
 import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
 import { WorkspaceAssets } from "./workspace-assets";
 import { QuestionMaterials } from "./question-materials";
@@ -72,7 +69,9 @@ export function createCore(
       void codex.connect().catch(() => {});
   });
   async function selection(value?: ModelSelection) {
+    if (closed) throw new Error("Core 正在关闭");
     await codex.connect();
+    if (closed) throw new Error("Core 正在关闭");
     if (!codex.info.account) throw new Error("请先登录 ChatGPT");
     const chosen =
       value ?? library.store.get<ModelSelection>("setting", "model");
@@ -88,6 +87,7 @@ export function createCore(
       throw new Error("所选模型或思考强度已不可用，请重新选择");
     return chosen;
   }
+  const chatRoutes = { chat, notes, selectModel: selection };
   const authenticated = (req: IncomingMessage) =>
     req.headers.cookie
       ?.split(";")
@@ -96,7 +96,8 @@ export function createCore(
     req.headers.origin === `http://${req.headers.host}` ||
     (!process.env.AIREADER_WEB &&
       req.headers.origin === "http://127.0.0.1:5173");
-  const server = createServer(async (req, res) => {
+  const activeRequests = new Set<Promise<void>>();
+  async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       if (!req.headers.host?.match(/^127\.0\.0\.1:\d+$/)) {
         send(res, { error: "Invalid host" }, 403);
@@ -197,6 +198,7 @@ export function createCore(
               indexer.pauseAll();
               bookTools.stopAll();
               await codex.disconnect();
+              if (closed) throw new Error("Core 正在关闭");
               void runtime.prepare();
             }
             send(res, runtime.state);
@@ -283,18 +285,6 @@ export function createCore(
                 library.store.get("reader", id) ?? {},
               ),
             );
-            return;
-          }
-          if (parts[3] === "chat-images" && parts[4] && req.method === "GET") {
-            const file = chat.images.asset(id, parts[4]);
-            res.writeHead(200, {
-              "Content-Type": "image/png",
-              "X-Content-Type-Options": "nosniff",
-              "Cache-Control": "private, max-age=3600",
-            });
-            createReadStream(file)
-              .on("error", () => res.destroy())
-              .pipe(res);
             return;
           }
           if (parts[3] === "open" && req.method === "POST") {
@@ -416,108 +406,7 @@ export function createCore(
               return;
             }
           }
-          if (parts[3] === "memory" && req.method === "POST") {
-            const value = z
-              .object({
-                sessionId: z.string().max(100),
-                goal: z.string().max(600),
-              })
-              .parse(await jsonBody(req));
-            library.store.put("memory", id + ":" + value.sessionId, id, {
-              goal: value.goal,
-              text: "用户学习目标：" + value.goal,
-            });
-            send(res, { ok: true });
-            return;
-          }
-          if (parts[3] === "turns") {
-            if (
-              req.method === "POST" &&
-              parts[4] &&
-              parts[5] === "note" &&
-              parts.length === 6
-            ) {
-              z.object({})
-                .strict()
-                .parse(await jsonBody(req));
-              const saved = notes.fromAnswer(id, parts[4]);
-              send(res, saved, saved.created ? 201 : 200);
-              return;
-            }
-            if (req.method === "POST" && parts[5] === "cancel") {
-              chat.cancel(id, parts[4]);
-              send(res, { ok: true });
-              return;
-            }
-            if (req.method === "POST") {
-              const value = z
-                .object({
-                  reading: ReadingSnapshotSchema,
-                  question: z.string().min(1).max(6000),
-                  images: ChatImageInputSchema.array()
-                    .max(MAX_CHAT_IMAGES)
-                    .default([]),
-                  materialIds: z.array(z.string().uuid()).max(20).default([]),
-                  sessionId: z.string().min(1).max(100),
-                  model: z.string().max(100).optional(),
-                  effort: z.string().max(30).optional(),
-                })
-                .parse(
-                  await jsonBody(
-                    req,
-                    MAX_CHAT_IMAGES * Math.ceil(MAX_CHAT_IMAGE_BYTES / 3) * 4 +
-                      1024 * 1024,
-                  ),
-                );
-              if (
-                value.reading.bookId !== id ||
-                value.reading.page > book.pages
-              )
-                throw new Error("阅读位置与书籍不匹配");
-              const chosen = await selection(
-                ModelSelectionSchema.parse({
-                  model: value.model,
-                  effort: value.effort,
-                }),
-              );
-              send(
-                res,
-                chat.start(
-                  value.reading,
-                  value.question,
-                  value.sessionId,
-                  chosen.model,
-                  chosen.effort,
-                  value.images,
-                  value.materialIds,
-                ),
-                202,
-              );
-              return;
-            }
-            send(
-              res,
-              chat.list(id, url.searchParams.get("session") ?? undefined),
-            );
-            return;
-          }
-          if (parts[3] === "sessions") {
-            if (req.method === "POST") {
-              if (parts[4])
-                send(
-                  res,
-                  chat.renameSession(
-                    id,
-                    parts[4],
-                    z
-                      .object({ title: z.string().trim().min(1).max(100) })
-                      .parse(await jsonBody(req)).title,
-                  ),
-                );
-              else send(res, chat.createSession(id));
-            } else send(res, chat.sessions(id));
-            return;
-          }
+          if (await handleBookChatRoutes(req, res, id, book.pages, parts, url, chatRoutes)) return;
           if (parts[3] === "file" && req.method === "GET") {
             const file = library.file(id);
             const size = (await stat(file)).size;
@@ -630,9 +519,21 @@ export function createCore(
         );
       else res.destroy();
     }
+  }
+  const server = createServer((req, res) => {
+    if (closed) {
+      send(res, { error: "Core 正在关闭" }, 503);
+      return;
+    }
+    const request = handleRequest(req, res);
+    activeRequests.add(request);
+    void request.then(
+      () => activeRequests.delete(request),
+      () => activeRequests.delete(request),
+    );
   });
   server.on("upgrade", (req, socket, head) => {
-    if (req.url !== "/events" || !allowedOrigin(req) || !authenticated(req)) {
+    if (closed || req.url !== "/events" || !allowedOrigin(req) || !authenticated(req)) {
       socket.destroy();
       return;
     }
@@ -650,11 +551,16 @@ export function createCore(
       bookTools.close();
       indexer.close();
       chat.close();
-      await codex.disconnect();
+      await codex.shutdown();
       for (const client of sockets.clients) client.terminate();
       sockets.close();
-      await new Promise<void>((resolve, reject) => server.close((error) =>
+      const stopped = new Promise<void>((resolve, reject) => server.close((error) =>
         error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve()));
+      // Renderer drafts are already saved. Break stalled transports, but allow
+      // handlers that reached file/transaction work to finish before closing SQLite.
+      server.closeAllConnections();
+      await stopped;
+      while (activeRequests.size) await Promise.allSettled([...activeRequests]);
       library.close();
     },
     close() {
@@ -663,7 +569,7 @@ export function createCore(
       bookTools.close();
       indexer.close();
       chat.close();
-      codex.disconnect();
+      void codex.shutdown();
       for (const client of sockets.clients) client.terminate();
       sockets.close();
       server.close();
