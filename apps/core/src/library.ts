@@ -11,11 +11,13 @@ import type {
 } from "../../../packages/protocol/src/index";
 import { Storage } from "./storage";
 import { ChatRepository } from "./chat-repository";
+import { IndexRepository } from "./index-repository";
 import { tokens } from "./tokenize";
 import type { ParseMessage } from "./pdf-worker";
 export class Library {
   readonly store: Storage;
   readonly chat: ChatRepository;
+  readonly index: IndexRepository;
   private workers = new Map<string, ChildProcess>();
   private closed = false;
   constructor(
@@ -24,17 +26,14 @@ export class Library {
   ) {
     this.store = new Storage(directory);
     this.chat = new ChatRepository(this.store);
+    this.index = new IndexRepository(this.store);
   }
   resume() {
     for (const book of this.books()) {
       if (book.indexVersion < 2) {
         book.indexVersion = 2;
         book.status = "queued";
-        this.store.db
-          .prepare(
-            "DELETE FROM records WHERE book_id=? AND kind IN ('semantic','index','index-target','index-batch')",
-          )
-          .run(book.id);
+        this.index.discardStaleIndex(book.id);
         this.save(book);
       }
       if (["queued", "parsing"].includes(book.status)) this.parse(book);

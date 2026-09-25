@@ -54,6 +54,13 @@ export class Storage {
       .get(kind, id) as { value: string } | undefined;
     return row ? JSON.parse(row.value) : undefined;
   }
+  getForBook<T>(kind: string, id: string, bookId: string): T | undefined {
+    this.genericKind(kind);
+    const row = this.db
+      .prepare("SELECT value FROM records WHERE kind=? AND id=? AND book_id=?")
+      .get(kind, id, bookId) as { value: string } | undefined;
+    return row ? JSON.parse(row.value) : undefined;
+  }
   list<T>(kind: string, bookId?: string): T[] {
     this.genericKind(kind);
     const rows = (

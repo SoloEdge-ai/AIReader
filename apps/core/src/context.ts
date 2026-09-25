@@ -2,7 +2,6 @@ import type {
   ContextManifest,
   ReadingSnapshot,
   SourceAnchor,
-  SemanticNode,
   Passage,
   ChatImage,
   QuestionMaterialSnapshot,
@@ -48,9 +47,7 @@ export function buildContext(
     .find((c) => c.page <= snapshot.page && c.endPage >= snapshot.page);
   const turns = library.chat.turns(book.id, sessionId)
     .filter((t) => t.status === "complete");
-  const nodes = library.store
-    .list<SemanticNode>("semantic", book.id)
-    .filter((n) => n.indexVersion === book.indexVersion);
+  const nodes = library.index.nodes(book.id, book.indexVersion);
   const global =
     snapshot.scope === "book" || /整本|全书|核心观点/.test(question);
   const candidates: Passage[] = [];

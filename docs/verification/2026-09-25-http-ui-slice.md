@@ -16,6 +16,7 @@
 - 关闭、切书、返回书库和编辑退出使用同一当前书籍保存入口；Note 先于可能引用它的画布提交。当前仍是两套草稿状态加保存屏障，不把它称为完整 `BookEditingSession`。
 - 聊天会话、轮次和学习记忆经 `ChatRepository` 按书籍存取；创建轮次与提交冻结材料保持同一 SQLite 事务，失败时一起回滚。上下文不再自行拼接聊天记录键。
 - 画布对象操作条从 `BookWorkspace` 分离，文字选区与源批注共用颜色选项；聊天只在轮次进行中补读，丢失终态 WebSocket 事件时从 Core HTTP 恢复，完成后停止轮询。
+- 索引任务、目标章节、批次摘要与语义节点经 `IndexRepository` 按书籍存取；创建任务和目标章节同事务提交，目标及批次读取增加书籍条件。
 
 ## 已执行
 
@@ -25,6 +26,7 @@
 - 保存屏障修改后 `node scripts/close-save-smoke.mjs` 以真实 Core 版本冲突／SQLite 写锁验证保留草稿、重试和重开；`node scripts/desktop-smoke.mjs .` 验证正常关闭，均通过。
 - 聊天仓储修改后 `pnpm typecheck`、`tests/chat-repository.test.ts`、`tests/chat-http.test.ts` 和 `tests/context.test.ts` 通过；仓储测试验证跨书隔离及材料回调失败时轮次回滚。
 - `node --import tsx scripts/objects-smoke.ts` 验证批注色点弹层实际改色、撤销／重做、对象关系和重启恢复；截图保存在忽略的 `.local/screenshots/annotation-object-color-menu.png`。`node --import tsx scripts/chat-smoke.ts` 在浏览器侧主动丢弃首轮 turn 事件后仍得到完整回答；定向 Playwright 测试验证终态事件缺失可补读且完成后停止轮询。
+- 索引仓储修改后 typecheck 与 `tests/index-repository.test.ts`、`tests/indexer.test.ts`、`tests/context.test.ts`、`tests/chat-http.test.ts` 通过；测试用 SQLite trigger 强制任务写入失败，确认目标章节随事务回滚。
 - Windows CI：`36116023139` 和 `36117038716` 均通过，包含便携 EXE、当前用户安装包、SHA256、阅读／画布／聊天／笔记 UI 及安装更新回归。更早的 `36114328034` 在笔记同步处发生一次时序失败，随后已增加焦点保护和更精确断言。
 
 ## 未完成
