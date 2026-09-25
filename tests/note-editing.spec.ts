@@ -142,7 +142,7 @@ test("leaving material navigation keeps an unsaved note draft visible", async ({
   await expect(page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true })).toHaveClass(/chosen/);
 });
 
-test("chat receives book-scoped turn events without polling the complete session", async ({ page }) => {
+test("chat receives book-scoped events, recovers a missed final event and stops polling completed turns", async ({ page }) => {
   let turnReads = 0;
   page.on("request", (request) => {
     if (request.method() === "GET" && /\/books\/[^/]+\/turns\?session=/.test(request.url())) turnReads++;
@@ -157,7 +157,6 @@ test("chat receives book-scoped turn events without polling the complete session
     return (await response.json() as { id: string }[])[0].id;
   }, bookId);
   await expect.poll(() => turnReads).toBeGreaterThan(0);
-  const initialReads = turnReads;
   const turn = {
     id: "stream-test-turn",
     bookId,
@@ -179,8 +178,19 @@ test("chat receives book-scoped turn events without polling the complete session
   core.library.store.put("turn", turn.id, bookId, updated);
   core.library.emit({ type: "turn", bookId, taskId: turn.id, data: updated });
   await expect(page.locator(".turn").filter({ hasText: "事件同步测试" })).toContainText("继续由事件更新");
+  await page.waitForTimeout(400);
+  const readsAfterCompletion = turnReads;
   await page.waitForTimeout(2200);
-  expect(turnReads).toBe(initialReads);
+  expect(turnReads).toBe(readsAfterCompletion);
+  const lostFinal = { ...turn, id: "lost-final-event", question: "丢失终态测试", answer: "" };
+  core.library.store.put("turn", lostFinal.id, bookId, lostFinal);
+  core.library.emit({ type: "turn", bookId, taskId: lostFinal.id, data: lostFinal });
+  await expect(page.locator(".turn").filter({ hasText: "丢失终态测试" }))
+    .toContainText("正在等待模型回答");
+  core.library.store.put("turn", lostFinal.id, bookId,
+    { ...lostFinal, answer: "轮询补读成功", status: "complete" });
+  await expect(page.locator(".turn").filter({ hasText: "丢失终态测试" }))
+    .toContainText("轮询补读成功", { timeout: 7000 });
   await page.context().setOffline(true);
   await page.waitForTimeout(500);
   const missed = { ...updated, answer: "断线期间保存的最终答案" };

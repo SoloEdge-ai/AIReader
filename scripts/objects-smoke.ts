@@ -178,7 +178,10 @@ try {
   await page.mouse.up();
   const selectedSource = page.getByRole("toolbar", { name: "对象操作" });
   await expect(selectedSource).toContainText("原文固定");
-  await selectedSource.getByLabel("批注颜色").selectOption("blue");
+  await selectedSource.getByRole("button", { name: "批注颜色：黄色" }).click();
+  await page.screenshot({ path: ".local/screenshots/annotation-object-color-menu.png" });
+  await page.getByRole("dialog", { name: "批注颜色" })
+    .getByRole("button", { name: "蓝色" }).click();
   await expect.poll(async () => page.evaluate(async (id) =>
     (await (await fetch(`/api/books/${id}/annotations`)).json())[0].color, book.id))
     .toBe("blue");

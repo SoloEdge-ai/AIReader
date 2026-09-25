@@ -38,19 +38,11 @@ import { dockBesideDocument } from "./WorkspaceLayout";
 import { locateWorkspaceItem } from "../../../packages/workspace-engine/src/catalog";
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
-import { ColorPopover } from "./ui/ColorPopover";
+import { WorkspaceObjectActions } from "./WorkspaceObjectActions";
 import { base, post } from "./api";
 import "./workspace.css";
 import type { BookNotes } from "./features/notes/useBookNotes";
 import { NoteCardContent } from "./features/notes/NoteCardContent";
-
-const objectColors = [
-  { value: "#345d84", name: "蓝灰", hex: "#345d84" },
-  { value: "#222222", name: "黑色", hex: "#222222" },
-  { value: "#d35e45", name: "红色", hex: "#d35e45" },
-  { value: "#e6b72d", name: "黄色", hex: "#e6b72d" },
-  { value: "#69b28d", name: "绿色", hex: "#69b28d" },
-] as const;
 
 export interface BookWorkspaceHandle {
   flush(): Promise<boolean>;
@@ -747,8 +739,10 @@ export const BookWorkspace = forwardRef<
     pages.current = layout;
     viewport.current = el;
     if (!state.value) return null;
-    const styleObject = selectedIds.length === 1 ? state.value.objects.find((object) =>
-      object.id === selectedIds[0] && object.kind !== "ink") : undefined;
+    const styleObject = selectedIds.length === 1 ? state.value.objects.find(
+      (object): object is Exclude<WorkspaceObject, InkStroke> =>
+        object.id === selectedIds[0] && object.kind !== "ink",
+    ) : undefined;
     const colorObject = state.value.objects.find((object) => selectedIds.includes(object.id));
     const cached = projectedCache.current;
     const strokes = cached && cached.objects === state.value.objects &&
@@ -1137,92 +1131,39 @@ export const BookWorkspace = forwardRef<
         viewport={el} zoom={props.zoom} />, el.parentElement)}
       {el?.parentElement && selectedBounds && selectedBounds.bottom * props.zoom >= el.scrollTop &&
         selectedBounds.y * props.zoom <= el.scrollTop + el.clientHeight && createPortal(
-          <div className="reader-context-bar workspace-object-toolbar" role="toolbar" aria-label="对象操作"
+          <WorkspaceObjectActions
             style={{ left: Math.max(8, Math.min(el.clientWidth - 260,
               (selectedBounds.x + selectedBounds.right) / 2 * props.zoom - el.scrollLeft - 130)),
               top: Math.max(8, Math.min(el.clientHeight - 44,
-                selectedBounds.y * props.zoom - el.scrollTop - 44)) }}>
-            <span>{selectedIds.length > 1 ? `${selectedIds.length} 个对象` : "已选中"}</span>
-            {selectedIds.some((id) => props.annotations?.some((annotation) => annotation.id === id)) &&
-              <span className="workspace-fixed-source" title="源批注不能移动">原文固定</span>}
-            {selectedIds.length === 1 && (() => {
-              const annotation = props.annotations?.find((item) => item.id === selectedIds[0]);
-              if (!annotation) return null;
-              return <>
-                <button aria-label="回到批注原文" title="回到批注原文"
-                  onClick={() => sourceAnnotation(annotation)}><Icon name="outward" /></button>
-                <select aria-label="批注颜色" value={annotation.color}
-                  onChange={(event) => {
-                    const color = event.target.value as Annotation["color"];
-                    if (!props.onAnnotationColor || color === annotation.color) return;
-                    void props.onAnnotationColor(annotation, color).then(() => {
-                      state.recordExternal({ kind: "external",
-                        undo: () => props.onAnnotationColor!(annotation, annotation.color),
-                        redo: () => props.onAnnotationColor!(annotation, color),
-                      });
-                    }).catch((cause) => setInkError(`批注颜色修改失败：${String(cause)}`));
-                  }}>
-                  <option value="yellow">黄</option><option value="green">绿</option>
-                  <option value="blue">蓝</option><option value="pink">粉</option>
-                </select>
-              </>;
-            })()}
-            {colorObject && <ColorPopover label="对象颜色" value={colorObject.color}
-              options={objectColors} custom onChange={(color) => {
+                selectedBounds.y * props.zoom - el.scrollTop - 44)) }}
+            count={selectedIds.length}
+            fixedSource={selectedIds.some((id) => props.annotations?.some((annotation) => annotation.id === id))}
+            annotation={selectedIds.length === 1 ? props.annotations?.find((item) => item.id === selectedIds[0]) : undefined}
+            colorObject={colorObject}
+            styleObject={styleObject}
+            materialBusy={materialBusy}
+            canAddToQuestion={Boolean(props.onQuestionMaterials)}
+            onSource={sourceAnnotation}
+            onAnnotationColor={(annotation, color) => {
+              if (!props.onAnnotationColor) return;
+              void props.onAnnotationColor(annotation, color).then(() => {
+                state.recordExternal({ kind: "external",
+                  undo: () => props.onAnnotationColor!(annotation, annotation.color),
+                  redo: () => props.onAnnotationColor!(annotation, color),
+                });
+              }).catch((cause) => setInkError(`批注颜色修改失败：${String(cause)}`));
+            }}
+            onObjectColor={(color) => {
                 const ids = new Set(selectedIds);
                 state.change((current) => ({ ...current,
                   objects: current.objects.map((object) => ids.has(object.id) ? { ...object, color } : object),
                 }));
-              }} />}
-            {styleObject && <>
-              <Popover key={selectedIds[0]} label="对象格式设置" triggerLabel="对象格式"
-                trigger={<Icon name="more" />} placement="bottom" width={180}
-                className="workspace-object-style" autoFocusFirst>
-                {() => <div role="group" aria-label="对象格式设置">
-                {styleObject.kind === "text" ? <>
-                  <label>字号<input aria-label="文字字号" type="number" min={8} max={120}
-                    value={styleObject.fontSize} onChange={(event) => {
-                      const fontSize = Number(event.target.value);
-                      if (fontSize >= 8 && fontSize <= 120) updateObjects((object) =>
-                        object.kind === "text" ? { ...object, fontSize } : object);
-                    }} /></label>
-                  <label><input aria-label="粗体文字" type="checkbox" checked={styleObject.bold}
-                    onChange={(event) => updateObjects((object) => object.kind === "text" ?
-                      { ...object, bold: event.target.checked } : object)} />粗体</label>
-                  <label>对齐<select aria-label="文字对齐" value={styleObject.align}
-                    onChange={(event) => updateObjects((object) => object.kind === "text" ?
-                      { ...object, align: event.target.value as "left" | "center" | "right" } : object)}>
-                    <option value="left">左</option><option value="center">中</option>
-                    <option value="right">右</option></select></label>
-                </> : styleObject.kind === "shape" ? <>
-                  <label>线宽<select aria-label="形状线宽" value={styleObject.strokeWidth}
-                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
-                      { ...object, strokeWidth: Number(event.target.value) } : object)}>
-                    {[1, 2, 4, 8].map((width) => <option key={width} value={width}>{width}</option>)}
-                  </select></label>
-                  <label><input aria-label="填充形状" type="checkbox" checked={!!styleObject.fill}
-                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
-                      { ...object, fill: event.target.checked ? object.color : undefined,
-                        fillOpacity: event.target.checked ? (object.fillOpacity ?? .2) : undefined } : object)} />填充</label>
-                  {styleObject.fill && <label>透明度<select aria-label="形状填充透明度"
-                    value={styleObject.fillOpacity ?? .2}
-                    onChange={(event) => updateObjects((object) => object.kind === "shape" ?
-                      { ...object, fillOpacity: Number(event.target.value) } : object)}>
-                    {[.15, .2, .3, .5, .75].map((opacity) => <option key={opacity} value={opacity}>
-                      {Math.round(opacity * 100)}%</option>)}
-                  </select></label>}
-                </> : null}
-                </div>}
-              </Popover>
-            </>}
-            <button aria-label="连接选中对象" title="点击另一个对象建立关系"
-              onClick={() => setLinkFrom(selectedIds[0])}><Icon name="link" /></button>
-            {props.onQuestionMaterials && <button aria-label="将选中对象加入提问" title="加入本轮材料，不会立即发送"
-              disabled={materialBusy} onClick={() => void addSelectedToQuestion(selectedIds)}>
-              <Icon name="chat" /></button>}
-            <button aria-label="删除选中对象" title="删除选中对象" onClick={() => void removeSelected()}>
-              <Icon name="trash" /></button>
-          </div>, el.parentElement)}
+            }}
+            onUpdateObjects={updateObjects}
+            onConnect={() => setLinkFrom(selectedIds[0])}
+            onAddToQuestion={() => void addSelectedToQuestion(selectedIds)}
+            onDelete={() => void removeSelected()}
+          />, el.parentElement)}
       {el?.parentElement && selectedLink && (() => {
         const link = state.value!.links.find((item) => item.id === selectedLink);
         if (!link) return null;

@@ -35,6 +35,22 @@ try {
     viewport: { width: 1440, height: 960 },
     permissions: ["clipboard-read", "clipboard-write"],
   });
+  // Fault-inject lost turn events in the browser, while keeping real Core HTTP
+  // and the actual event socket. The pending turn must still converge to Core.
+  await context.addInitScript(() => {
+    const native = window.WebSocket;
+    window.WebSocket = new Proxy(native, {
+      construct(target, args) {
+        const socket = Reflect.construct(target, args) as WebSocket;
+        socket.addEventListener("message", (event) => {
+          if (!(window as typeof window & { __dropTurnEvents?: boolean }).__dropTurnEvents) return;
+          if (typeof event.data === "string" && JSON.parse(event.data).type === "turn")
+            event.stopImmediatePropagation();
+        });
+        return socket;
+      },
+    });
+  });
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -109,6 +125,9 @@ try {
     page.getByRole("button", { name: "发送问题", exact: true }),
   ).toBeInViewport();
   await page.setViewportSize({ width: 1440, height: 960 });
+  await page.evaluate(() => {
+    (window as typeof window & { __dropTurnEvents?: boolean }).__dropTurnEvents = true;
+  });
   const selectedQuestion = page.waitForRequest(
     (request) =>
       request.method() === "POST" &&
@@ -134,6 +153,9 @@ try {
       `turn ${last?.status ?? "missing"}, answer chars ${last?.answer.length ?? 0}`, { cause });
   }
   await expect(page.locator(".turn .answer")).toContainText("未验证引用");
+  await page.evaluate(() => {
+    (window as typeof window & { __dropTurnEvents?: boolean }).__dropTurnEvents = false;
+  });
   await expect(page.locator(".turn .citation")).toHaveCount(1);
   await page.getByRole("button", { name: "思考摘要", exact: true }).click();
   await expect(page.locator(".reasoning-summary")).toContainText(

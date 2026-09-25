@@ -2,7 +2,7 @@
 
 状态：当前架构及目标依赖，进度见[计划](plans/architecture-refactor.md)。
 
-Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。
+Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。聊天轮次优先用 WebSocket 更新；仅有进行中的轮次时按书籍／会话补读 HTTP 快照，以恢复可能丢失的终态事件，完成后停止轮询。
 
 当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。WorkspaceState 保存画板编辑，`features/notes/NoteEditingSession` 保存富文本笔记编辑；两者尚未合并为最终 BookEditingSession。QuestionDrafts 按 book/session 保存问题草稿。Core 的 `book-routes` 拥有书库、阅读进度、书籍偏好、书签和 PDF 文件 HTTP 契约；Library 校验书籍、来源文件及书库写入，`Preferences` 统一全局阅读、工具盘和每书布局偏好的校验与持久化，`preferences-routes` 处理全局偏好 HTTP。`note-routes` 拥有按书籍隔离的笔记／批注 HTTP、导出与资源响应；`workspace-routes` 拥有工作区命令、归档、资源和冻结提问材料的 HTTP 契约；`chat-routes` 拥有会话、轮次、图片资源、学习目标和回答转笔记的 HTTP 契约。`AiService` 统一全局账号断连、组件准备与模型选择策略，`ai-routes` 处理其 HTTP 契约；`index-routes` 与 `book-tools-routes` 分别处理每书索引任务和受限工具接口，书籍、任务与文件路径由各自服务校验。普通书籍路由由 `server` 在分派前检查书籍存在性；`/api/v2` 命令经更早的全局入口分派，由工作区服务验证书籍。通用请求体和 JSON 响应位于 `http`；Library 仍公开通用 Storage，其他领域尚未完成全部后端职责收拢。
 

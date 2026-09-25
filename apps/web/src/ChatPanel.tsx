@@ -202,6 +202,27 @@ export function ChatPanel({
       messages.current.scrollTop = messages.current.scrollHeight;
   }, [latest?.id, latest?.answer, latest?.reasoning, latest?.status]);
   const running = turns.find((t) => t.status === "running");
+  useEffect(() => {
+    if (!session || !running?.id) return;
+    let live = true;
+    // WebSocket delivery is best-effort. A completed answer must not remain
+    // pending forever if its final event arrived before the socket opened.
+    const resync = async () => {
+      const startedAt = observedSequence.current;
+      try {
+        const snapshot = await api<ChatTurn[]>(
+          `books/${book.id}/turns?session=${encodeURIComponent(session)}`,
+        );
+        if (live) setTurns(mergeTurnSnapshot(snapshot, observedTurns.current,
+          startedAt, book.id, session));
+      } catch {
+        // Keep the in-memory answer; the next poll or event can recover.
+      }
+    };
+    void resync();
+    const timer = setInterval(() => void resync(), 1500);
+    return () => { live = false; clearInterval(timer); };
+  }, [book.id, session, running?.id]);
   const chosen = ai.models.find((m) => m.model === ai.choice?.model);
   const valid = chosen?.supportedReasoningEfforts.some(
     (e) => e.reasoningEffort === ai.choice?.effort,

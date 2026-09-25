@@ -3,13 +3,7 @@ import type { Annotation, ReadingSelection } from "../../../packages/protocol/sr
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
 import { ColorPopover } from "./ui/ColorPopover";
-
-const colors = [
-  { value: "yellow", name: "黄色", hex: "#f5d549" },
-  { value: "green", name: "绿色", hex: "#60c88c" },
-  { value: "blue", name: "蓝色", hex: "#65a8ed" },
-  { value: "pink", name: "粉色", hex: "#eb88b4" },
-] as const;
+import { annotationColors } from "./ui/annotationColors";
 
 export function SelectionToolbar({
   selection,
@@ -92,8 +86,8 @@ export function SelectionToolbar({
           ))}
         </div>}
       </Popover>
-      <ColorPopover label="标注颜色" value={color} options={colors} onChange={(value) => {
-        const option = colors.find((item) => item.value === value);
+      <ColorPopover label="标注颜色" value={color} options={annotationColors} onChange={(value) => {
+        const option = annotationColors.find((item) => item.value === value);
         if (option) onColor(option.value);
       }} />
       <Popover label="AI 处理选区" trigger={<><Icon name="bolt" /><span>AI</span></>} width={150}>
