@@ -28,9 +28,10 @@
 - 聊天仓储修改后 `pnpm typecheck`、`tests/chat-repository.test.ts`、`tests/chat-http.test.ts` 和 `tests/context.test.ts` 通过；仓储测试验证跨书隔离及材料回调失败时轮次回滚。
 - `node --import tsx scripts/objects-smoke.ts` 验证批注色点弹层实际改色、撤销／重做、对象关系和重启恢复；截图保存在忽略的 `.local/screenshots/annotation-object-color-menu.png`。`node --import tsx scripts/chat-smoke.ts` 在浏览器侧主动丢弃首轮 turn 事件后仍得到完整回答；定向 Playwright 测试验证终态事件缺失可补读且完成后停止轮询。
 - 索引仓储修改后 typecheck 与 `tests/index-repository.test.ts`、`tests/indexer.test.ts`、`tests/context.test.ts`、`tests/chat-http.test.ts` 通过；测试用 SQLite trigger 强制任务写入失败，确认目标章节随事务回滚。
-- 画布会话修改后 typecheck、34 项阅读 UI Playwright、`node --import tsx scripts/objects-smoke.ts`、`node scripts/close-save-smoke.mjs` 及本机构建／捆绑 Core 启动通过；其中真实 UI 覆盖旧回执重试、刷新竞态、卡片关系与桌面关闭失败恢复。
+- 画布会话修改后 typecheck、35 项阅读 UI Playwright、`node --import tsx scripts/objects-smoke.ts`、`node scripts/close-save-smoke.mjs` 及本机构建／捆绑 Core 启动通过；其中真实 UI 覆盖旧回执重试、刷新竞态、卡片关系与桌面关闭失败恢复。新增定向测试证明挂载时旧 GET 不会覆盖较新的显式刷新。
+- 最新 `b74b9bf` Windows CI `36121994924` 在打包版笔记验收中失败：恢复保存失败后，卡片替换正文时旧草稿偶尔被拼接回新文本。已为编辑器加入共享会话最新快照校验，并在聚焦编辑期间保留本地输入保护；新增真实 UI 回归模拟保存失败、重试、放置卡片及连续全文替换。类型检查、36 项完整阅读 UI、36 文件／57 项 Core 测试通过；新打包版 `annotations-smoke.mjs` 连续四次通过（1× DPI）；本机便携 EXE 和当前用户安装包构建通过。新 CI 尚待验证。
 - Windows CI：`36116023139` 和 `36117038716` 均通过，包含便携 EXE、当前用户安装包、SHA256、阅读／画布／聊天／笔记 UI 及安装更新回归。更早的 `36114328034` 在笔记同步处发生一次时序失败，随后已增加焦点保护和更精确断言。
-- Windows CI：`36120839503` 在 `2482aaf` 完整通过，覆盖修正后的聊天事件补读、回答笔记、PDF 区域缩放、桌面关闭和安装更新；新索引仓储／关系操作条提交 `b74b9bf` 的 CI 仍待结果。`36119339601` 暴露过 Core 完成而聊天 UI 停在等待的终态事件缺失，已通过进行中轮次补读和故障注入 UI 测试修复。
+- Windows CI：`36120839503` 在 `2482aaf` 完整通过，覆盖修正后的聊天事件补读、回答笔记、PDF 区域缩放、桌面关闭和安装更新；`b74b9bf` 的 `36121994924` 因上述笔记卡片同步竞态失败。`36119339601` 暴露过 Core 完成而聊天 UI 停在等待的终态事件缺失，已通过进行中轮次补读和故障注入 UI 测试修复。
 
 ## 未完成
 

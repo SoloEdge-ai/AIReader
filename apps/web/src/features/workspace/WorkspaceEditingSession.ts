@@ -70,6 +70,8 @@ export class WorkspaceEditingSession {
   };
 
   reload = async (preserveHistory = false) => {
+    // A newer explicit refresh supersedes the mount-time load as well.
+    this.loadRequest++;
     clearTimeout(this.timer);
     if (this.pending) await this.pending;
     if (this.generation !== this.saved) {

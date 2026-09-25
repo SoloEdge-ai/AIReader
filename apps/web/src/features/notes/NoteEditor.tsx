@@ -5,7 +5,7 @@ import type { Note, RichNode } from "../../../../../packages/protocol/src";
 import type { BookNotes } from "./useBookNotes";
 import { canonicalDocument } from "./NoteEditingSession";
 
-export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes, "edit"> }) {
+export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes, "edit" | "getSnapshot"> }) {
   const [link, setLink] = useState<string | undefined>();
   const titleRef = useRef(note.title),
     composition = useRef(false),
@@ -27,6 +27,19 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
         localDocument.current = canonicalDocument(document);
         latestState.current.edit(note.id, titleRef.current, document);
       }
+    },
+    onBlur: ({ editor }) => {
+      queueMicrotask(() => {
+        if (editor.isDestroyed || editor.isFocused || composition.current) return;
+        // A second editor may have changed this note while the active editor
+        // deliberately ignored incoming snapshots. Reconcile from the session,
+        // not from a prop captured before the blur.
+        const latest = latestState.current.getSnapshot().notes.find((item) => item.id === note.id);
+        if (latest && canonicalDocument(editor.getJSON()) !== canonicalDocument(latest.document))
+          editor.chain().setContent(latest.document, { emitUpdate: false })
+            .setMeta("addToHistory", false).run();
+        localDocument.current = undefined;
+      });
     },
     editorProps: {
       attributes: {
@@ -58,14 +71,22 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
     },
   });
   useEffect(() => {
-    // A local input can precede React's commit of that same draft. Ignore only
-    // the older snapshot for the active editor; a genuine remote refresh still
-    // updates a focused but clean editor.
+    // The shared session changes synchronously, but a React commit for an older
+    // snapshot can arrive while contenteditable is replacing its selection.
+    // Never reconcile against a prop that is already behind the session.
     if (!editor || composition.current) return;
     const current = canonicalDocument(editor.getJSON());
     const incoming = canonicalDocument(note.document);
-    if (current === incoming) { localDocument.current = undefined; return; }
-    if (editor.isFocused && localDocument.current === current) return;
+    const latest = latestState.current.getSnapshot().notes.find((item) => item.id === note.id);
+    if (!latest || incoming !== canonicalDocument(latest.document)) return;
+    if (current === incoming) {
+      // Keep the focus-local guard through the entire edit gesture. Clearing it
+      // at an intermediate empty document lets a delayed snapshot append the
+      // former text after a replacement fill.
+      if (!editor.isFocused) localDocument.current = undefined;
+      return;
+    }
+    if (editor.isFocused && localDocument.current !== undefined) return;
     editor.chain().setContent(note.document, { emitUpdate: false })
       .setMeta("addToHistory", false).run();
     localDocument.current = undefined;

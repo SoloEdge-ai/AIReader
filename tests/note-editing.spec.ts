@@ -300,6 +300,46 @@ test("card, sidebar and expanded editor share one note; removal preserves conten
   await expect(page.locator(".book-card").first()).toBeVisible();
 });
 
+test("replacing card text after a failed save never restores the previous draft", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  if (!(await page.locator(".notes-panel").isVisible()))
+    await page.getByLabel("笔记", { exact: true }).click();
+  await page.getByRole("button", { name: "新建笔记", exact: true }).click();
+  const panel = page.locator(".notes-panel");
+  await panel.getByLabel("笔记标题", { exact: true }).fill("卡片替换回归");
+  const panelEditor = panel.getByRole("textbox", { name: "笔记正文" });
+  await panelEditor.fill("Initial saved content.");
+  await expect(panel.getByRole("status")).toHaveText("已保存");
+  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+    ? route.fulfill({ status: 503, json: { error: "Simulated save failure" } }) : route.continue());
+  await panelEditor.fill("Draft retained after failure.");
+  await expect(panel.getByRole("status")).toContainText("保存失败");
+  await page.unroute("**/api/books/*/notes/*");
+  await panel.getByRole("button", { name: "重试保存" }).click();
+  await expect(panel.getByRole("status")).toHaveText("已保存");
+  await panel.getByRole("button", { name: "放到画布", exact: true }).click();
+  const card = page.locator(".workspace-card.note");
+  await expect(card).toHaveCount(1);
+  const cardEditor = card.getByRole("textbox", { name: "笔记正文" });
+  await expect(cardEditor).toBeVisible();
+  await cardEditor.click({ modifiers: ["Shift"] });
+  for (const replacement of ["The same note from its card.", "A second complete replacement."]) {
+    await cardEditor.fill(replacement);
+    await expect(cardEditor).toHaveText(replacement);
+    await expect(panelEditor).toHaveText(replacement);
+    await expect(panel.getByRole("status")).toHaveText("已保存");
+  }
+  const response = await page.request.get(`http://127.0.0.1:43120/api/books/${bookId}/notes`,
+    { headers: { Origin: "http://127.0.0.1:43120" } });
+  const saved = (await response.json() as { title: string; document: unknown }[])
+    .find((note) => note.title === "卡片替换回归");
+  expect(JSON.stringify(saved?.document)).toContain("A second complete replacement.");
+  expect(JSON.stringify(saved?.document)).not.toContain("Draft retained after failure.");
+  await panel.getByRole("button", { name: "删除笔记", exact: true }).click();
+  await expect(card).toHaveCount(0);
+});
+
 test("excerpt keeps original source visible while its comment uses the shared editor", async ({ page }) => {
   const workspaces = new Workspaces(core.library);
   const snapshot = workspaces.get(bookId);
@@ -633,4 +673,33 @@ test("workspace refresh cannot overwrite edits made while its response is pendin
     await expect(page.getByRole("alert")).toContainText("刷新期间");
     await expect(input).toHaveValue("刷新过程中继续写入的内容");
   } finally { release(); }
+});
+
+test("an older mount load cannot overwrite a newer explicit workspace refresh", async ({ page }) => {
+  let reads = 0;
+  let firstFetched!: () => void, releaseFirst!: () => void, firstDelivered!: () => void;
+  const fetched = new Promise<void>((done) => { firstFetched = done; });
+  const released = new Promise<void>((done) => { releaseFirst = done; });
+  const delivered = new Promise<void>((done) => { firstDelivered = done; });
+  await page.route("**/api/books/*/workspace", async (route) => {
+    const response = await route.fetch();
+    const first = ++reads === 1;
+    if (first) { firstFetched(); await released; }
+    await route.fulfill({ response });
+    if (first) firstDelivered();
+  });
+  try {
+    await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+    await fetched;
+    const workspaces = new Workspaces(core.library);
+    const before = workspaces.get(bookId);
+    workspaces.save(bookId, { ...before, cards: [...before.cards.filter((card) => card.id !== "draft-card"),
+      { id: "draft-card", kind: "note", title: "Refresh", text: "新快照保留",
+        comment: "", x: 20, y: 40, width: 300, height: 240 }] });
+    await page.getByRole("button", { name: "刷新工作区" }).click();
+    await expect(page.getByLabel("卡片正文")).toHaveValue("新快照保留");
+    releaseFirst();
+    await delivered;
+    await expect(page.getByLabel("卡片正文")).toHaveValue("新快照保留");
+  } finally { releaseFirst(); }
 });
