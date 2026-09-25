@@ -97,6 +97,9 @@ try {
   await expect(page.locator(".tiptap")).toContainText(
     "Draft retained after failure.",
   );
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("关闭前保存失败");
+  await page.screenshot({ path: ".local/screenshots/save-failure-toast.png" });
   await page.getByRole("button", { name: "返回书库" }).click();
   await expect(page.locator(".tiptap")).toContainText(
     "Draft retained after failure.",
@@ -153,7 +156,10 @@ try {
   await page.getByLabel("页码", { exact: true }).fill("3");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("3");
+  await expect(page.getByRole("alert")).toBeVisible();
   await page.getByRole("button", { name: "区域摘录（R）" }).click();
+  await page.getByRole("button", { name: "关闭提示" }).click();
+  await expect(page.getByRole("alert")).toBeHidden();
   await expect(page.locator("#page-3")).toHaveAttribute(
     "data-render-ready",
     "true",

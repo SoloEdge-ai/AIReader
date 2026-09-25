@@ -22,6 +22,8 @@ import {
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
+import { body, jsonBody, send } from "./http";
+import { handleNoteRoutes } from "./note-routes";
 import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
 import { WorkspaceCommandV2Schema } from "../../../packages/protocol/src/workspace-commands";
 import { WorkspaceAssets } from "./workspace-assets";
@@ -32,27 +34,6 @@ import {
 } from "./workspace-archive";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
-export async function body(req: IncomingMessage, limit = 1024 * 1024) {
-  const chunks: Buffer[] = [];
-  let length = 0;
-  for await (const chunk of req) {
-    length += chunk.length;
-    if (length > limit) throw new Error("文件或请求过大");
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks);
-}
-export async function jsonBody(req: IncomingMessage, limit?: number) {
-  return JSON.parse((await body(req, limit)).toString());
-}
-export function send(res: ServerResponse, value: unknown, status = 200) {
-  res
-    .writeHead(status, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-    })
-    .end(JSON.stringify(value));
-}
 export function createCore(
   directory: string,
   webRoot: string,
@@ -378,75 +359,7 @@ export function createCore(
               return;
             }
           }
-          if (parts[3] === "annotations" || parts[3] === "notes") {
-            const kind = parts[3] === "annotations" ? "annotation" : "note";
-            if (parts[4]) {
-              if (
-                kind === "note" &&
-                req.method === "GET" &&
-                parts[5] === "export" &&
-                parts.length === 6
-              ) {
-                const exported = await notes.export(id, parts[4]);
-                res
-                  .writeHead(200, {
-                    "Content-Type": "application/zip",
-                    "Content-Disposition": `attachment; filename="${exported.filename}"`,
-                    "Content-Length": exported.buffer.length,
-                    "Cache-Control": "no-store",
-                    "X-Content-Type-Options": "nosniff",
-                  })
-                  .end(exported.buffer);
-              } else if (req.method === "POST" && kind === "annotation" && parts[5] === "note")
-                send(res, notes.comment(id, parts[4]));
-              else if (req.method === "DELETE")
-                send(res, notes.remove(id, parts[4], kind));
-              else if (req.method === "POST" && parts[5] === "restore")
-                send(res, notes.remove(id, parts[4], kind, true));
-              else if (req.method === "POST")
-                send(
-                  res,
-                  kind === "annotation"
-                    ? notes.updateAnnotation(id, parts[4], await jsonBody(req))
-                    : notes.updateNote(id, parts[4], await jsonBody(req)),
-                );
-              else throw new Error("不支持的操作");
-            } else if (req.method === "POST")
-              send(
-                res,
-                kind === "annotation"
-                  ? await notes.createAnnotation(
-                      id,
-                      JSON.parse(
-                        (await body(req, 12 * 1024 * 1024)).toString(),
-                      ),
-                    )
-                  : notes.createNote(id),
-                201,
-              );
-            else
-              send(
-                res,
-                kind === "annotation" ? notes.annotations(id) : notes.list(id),
-              );
-            return;
-          }
-          if (
-            parts[3] === "annotation-assets" &&
-            parts[4] &&
-            req.method === "GET"
-          ) {
-            const file = notes.asset(id, parts[4]);
-            res.writeHead(200, {
-              "Content-Type": "image/png",
-              "X-Content-Type-Options": "nosniff",
-              "Cache-Control": "private, max-age=3600",
-            });
-            createReadStream(file)
-              .on("error", () => res.destroy())
-              .pipe(res);
-            return;
-          }
+          if (await handleNoteRoutes(req, res, id, parts, notes)) return;
           if (parts[3] === "preferences") {
             if (req.method === "POST")
               library.store.put(

@@ -4,7 +4,7 @@
 
 Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。
 
-当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。WorkspaceState 保存画板编辑，`features/notes/NoteEditingSession` 保存富文本笔记编辑；两者尚未合并为最终 BookEditingSession。QuestionDrafts 按 book/session 保存问题草稿。Core Library 仍公开通用 Storage，server 仍含路由和业务；这些不是已完成的目标架构。
+当前 App 组合书库／阅读／笔记／问答，BookWorkspace/PdfReader 拥有空间交互。WorkspaceState 保存画板编辑，`features/notes/NoteEditingSession` 保存富文本笔记编辑；两者尚未合并为最终 BookEditingSession。QuestionDrafts 按 book/session 保存问题草稿。Core 的 `note-routes` 拥有按书籍隔离的笔记／批注 HTTP、导出与资源响应，通用请求体和 JSON 响应位于 `http`；Library 仍公开通用 Storage，server 仍含其他路由和业务，这些不是已完成的目标架构。
 
 笔记会话按书籍创建，拥有已提交版本、实时草稿、串行保存、响应丢失核对和批注操作撤销；`useBookNotes` 仅处理 React 订阅与离开保护。`client/notes.ts` 捕获 bookId 并提供类型化笔记操作。列表与展开编辑使用同一 `NoteEditor` 和会话快照，不再各自缓存标题／正文。普通刷新保留脏草稿的原始 revision；只有明确的“用此草稿覆盖最新版本”才重取冲突基线。较早请求的响应不能清除较新的输入。
 

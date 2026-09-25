@@ -36,6 +36,8 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 
 桌面退出：`features/desktop/useDesktopCloseHandshake` 负责 renderer 的保存入口、重复关窗合并、12 秒截止和界面锁定；App 只提供当前书籍的 `flush()` 与错误提示。修改关闭路径时运行 `node scripts/close-save-smoke.mjs` 和 `node scripts/desktop-smoke.mjs .`，覆盖真实 Core 冲突、SQLite 写锁、取消关闭、重试及 Core 回执。
 
+Core 笔记／批注接口：`apps/core/src/note-routes.ts` 拥有这些路由的 HTTP 方法、请求大小、ZIP/PNG 响应；`Notes` 保持业务和事务规则，`server.ts` 负责鉴权及书籍路由入口。修改边界时优先运行 `tests/notes.test.ts`、`tests/answer-notes.test.ts`、`tests/note-placements-http.test.ts` 和 `tests/excerpt-comments-http.test.ts`，不要只 mock Notes 服务。
+
 个人卡片通过 noteId 引用笔记会话；只为选中卡片挂载编辑器，其他卡片使用轻量预览。卡片容器不得接管编辑控件内部的 Shift＋点击等文本操作。工作区刷新也必须覆盖 GET 挂起期间继续编辑的回归。浏览器开发的 CORS 预检允许现有 PUT 保存接口，来源和会话验证不变。
 
 旧卡片转 Note 必须由 Core 在同一事务中创建、校验富文本并清除旧字段。不能仅按旧字段长度判断新文档大小：大量换行拆成富文本块会膨胀 JSON。转换失败时不得清空旧卡片；笔记独立导出和整书归档必须一并验证。
