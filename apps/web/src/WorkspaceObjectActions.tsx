@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Annotation } from "../../../packages/protocol/src";
-import type { InkStroke, WorkspaceObject } from "../../../packages/protocol/src/workspace";
+import type { BookWorkspace, InkStroke, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import { annotationColors } from "./ui/annotationColors";
 import { ColorPopover } from "./ui/ColorPopover";
 import { Icon } from "./ui/Icon";
@@ -96,5 +96,32 @@ export function WorkspaceObjectActions({ style, count, fixedSource, annotation, 
       disabled={materialBusy} onClick={onAddToQuestion}><Icon name="chat" /></button>}
     <button aria-label="删除选中对象" title="删除选中对象" onClick={onDelete}>
       <Icon name="trash" /></button>
+  </div>;
+}
+
+/** Relationship labels are edited here; the source objects remain owned by the book workspace. */
+export function WorkspaceRelationActions({ style, link, materialBusy, canAddToQuestion,
+  onLabel, onDirected, onDelete, onAddToQuestion,
+}: {
+  style: CSSProperties;
+  link: BookWorkspace["links"][number];
+  materialBusy: boolean;
+  canAddToQuestion: boolean;
+  onLabel: (label: string) => void;
+  onDirected: (directed: boolean) => void;
+  onDelete: () => void;
+  onAddToQuestion: () => void;
+}) {
+  return <div className="reader-context-bar workspace-object-toolbar link-editor" role="toolbar"
+    aria-label="关系操作" style={style}>
+    <input key={link.id} aria-label="关系名称" defaultValue={link.label} maxLength={200}
+      placeholder="关系名称" onBlur={(event) => {
+        if (event.target.value !== link.label) onLabel(event.target.value);
+      }} />
+    <label><input type="checkbox" aria-label="关系方向" checked={link.directed ?? false}
+      onChange={(event) => onDirected(event.target.checked)} />方向</label>
+    <button aria-label="删除关系" onClick={onDelete}><Icon name="trash" /></button>
+    {canAddToQuestion && <button aria-label="将关系加入提问" disabled={materialBusy}
+      onClick={onAddToQuestion}><Icon name="chat" /></button>}
   </div>;
 }

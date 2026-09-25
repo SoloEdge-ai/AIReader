@@ -38,7 +38,7 @@ import { dockBesideDocument } from "./WorkspaceLayout";
 import { locateWorkspaceItem } from "../../../packages/workspace-engine/src/catalog";
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
-import { WorkspaceObjectActions } from "./WorkspaceObjectActions";
+import { WorkspaceObjectActions, WorkspaceRelationActions } from "./WorkspaceObjectActions";
 import { base, post } from "./api";
 import "./workspace.css";
 import type { BookNotes } from "./features/notes/useBookNotes";
@@ -1169,24 +1169,19 @@ export const BookWorkspace = forwardRef<
         if (!link) return null;
         const from = boundsFor(link.from), to = boundsFor(link.to);
         if (!from || !to) return null;
-        return createPortal(<div className="reader-context-bar workspace-object-toolbar link-editor" role="toolbar" aria-label="关系操作"
+        return createPortal(<WorkspaceRelationActions link={link} materialBusy={materialBusy}
+          canAddToQuestion={Boolean(props.onQuestionMaterials)}
           style={{ left: Math.max(8, Math.min(el.clientWidth - 240,
             ((from.x + from.width / 2 + to.x + to.width / 2) / 2) * props.zoom - el.scrollLeft - 120)),
             top: Math.max(8, Math.min(el.clientHeight - 44,
-              ((from.y + from.height / 2 + to.y + to.height / 2) / 2) * props.zoom - el.scrollTop - 44)) }}>
-          <input key={link.id} aria-label="关系名称" defaultValue={link.label} maxLength={200}
-            placeholder="关系名称" onBlur={(event) => {
-              const label = event.target.value;
-              if (label !== link.label) state.change((current) => ({ ...current,
-                links: current.links.map((item) => item.id === link.id ? { ...item, label } : item) }));
-            }} />
-          <label><input type="checkbox" aria-label="关系方向" checked={link.directed ?? false}
-            onChange={(event) => state.change((current) => ({ ...current,
-              links: current.links.map((item) => item.id === link.id ? { ...item, directed: event.target.checked } : item) }))} />方向</label>
-          <button aria-label="删除关系" onClick={removeSelected}><Icon name="trash" /></button>
-          {props.onQuestionMaterials && <button aria-label="将关系加入提问" disabled={materialBusy}
-            onClick={() => void addSelectedToQuestion([link.id])}><Icon name="chat" /></button>}
-        </div>, el.parentElement);
+              ((from.y + from.height / 2 + to.y + to.height / 2) / 2) * props.zoom - el.scrollTop - 44)) }}
+          onLabel={(label) => state.change((current) => ({ ...current,
+            links: current.links.map((item) => item.id === link.id ? { ...item, label } : item) }))}
+          onDirected={(directed) => state.change((current) => ({ ...current,
+            links: current.links.map((item) => item.id === link.id ? { ...item, directed } : item) }))}
+          onDelete={() => void removeSelected()}
+          onAddToQuestion={() => void addSelectedToQuestion([link.id])}
+        />, el.parentElement);
       })()}
     </>;
   }
