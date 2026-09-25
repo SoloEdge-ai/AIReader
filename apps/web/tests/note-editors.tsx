@@ -2,12 +2,14 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { NoteEditor } from "../src/features/notes/NoteEditor";
 import { useBookNotes } from "../src/features/notes/useBookNotes";
+import { useBookEditing } from "../src/features/book/useBookEditing";
 import { post } from "../src/api";
 import "../src/style.css";
 
 function Harness() {
   const [bookId, setBookId] = useState<string>();
-  const state = useBookNotes(bookId);
+  const editing = useBookEditing(bookId);
+  const state = useBookNotes(editing.notes);
   useEffect(() => {
     void post("session", {}).then(() => setBookId(new URLSearchParams(location.search).get("book")!));
   }, []);

@@ -42,10 +42,10 @@ import { WorkspaceObjectActions, WorkspaceRelationActions } from "./WorkspaceObj
 import { base, post } from "./api";
 import "./workspace.css";
 import type { BookNotes } from "./features/notes/useBookNotes";
+import type { WorkspaceEditingSession } from "./features/workspace/WorkspaceEditingSession";
 import { NoteCardContent } from "./features/notes/NoteCardContent";
 
 export interface BookWorkspaceHandle {
-  flush(): Promise<boolean>;
   excerpt(selection: ReadingSelection): void;
   escape(): void;
   addToQuestion(ids: string[]): Promise<boolean>;
@@ -69,11 +69,12 @@ export const BookWorkspace = forwardRef<
       "workspaceRevision" | "targets" | "previews">) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
     notes: BookNotes;
+    workspaceSession: WorkspaceEditingSession;
     onExpandNote: (note: Note) => void;
     onCatalogChange?: (bookId: string, catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">) => void;
   }
 >(function BookWorkspace(props, ref) {
-  const state = useWorkspace(props.book.id, props.annotations?.map((annotation) => annotation.id));
+  const state = useWorkspace(props.workspaceSession, props.annotations?.map((annotation) => annotation.id));
   const onCatalogChange = useRef(props.onCatalogChange);
   onCatalogChange.current = props.onCatalogChange;
   useEffect(() => {
@@ -350,11 +351,7 @@ export const BookWorkspace = forwardRef<
     setSelected(result.cardId);
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
-  useImperativeHandle(ref, () => ({ flush: async () => {
-    // A canvas placement may reference a Note: commit the content owner first.
-    if (!(await props.notes.flush())) return false;
-    return state.flush();
-  }, excerpt: add,
+  useImperativeHandle(ref, () => ({ excerpt: add,
     placeNote,
     addToQuestion: addSelectedToQuestion,
     locate: locateAnchors,

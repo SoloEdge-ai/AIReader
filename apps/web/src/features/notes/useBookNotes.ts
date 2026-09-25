@@ -1,17 +1,8 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { NoteEditingSession } from "./NoteEditingSession";
+import { useSyncExternalStore } from "react";
+import type { NoteEditingSession } from "./NoteEditingSession";
 
-export function useBookNotes(bookId?: string) {
-  const session = useMemo(() => new NoteEditingSession(bookId), [bookId]);
+export function useBookNotes(session: NoteEditingSession) {
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  useEffect(() => {
-    void session.refresh().catch(() => {});
-    const warn = (event: BeforeUnloadEvent) => {
-      if (session.getSnapshot().dirty) { event.preventDefault(); event.returnValue = ""; }
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => { session.pause(); window.removeEventListener("beforeunload", warn); };
-  }, [session]);
   return {
     ...snapshot,
     getSnapshot: session.getSnapshot,

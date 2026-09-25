@@ -653,6 +653,19 @@ test("workspace retry uses its original receipt and preserves newer drafts on re
   } finally { release(); }
 });
 
+test("book editing session saves a Note before its placement without a mounted reader", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+  await expect(page.getByLabel("卡片正文")).toBeVisible();
+  await page.getByRole("button", { name: "保存未挂载画布的书籍草稿" }).click();
+  await expect(page.getByLabel("书籍保存结果")).toHaveText("已保存笔记和位置");
+  const origin = "http://127.0.0.1:43120", headers = { Origin: origin };
+  const workspace = await (await page.request.get(`${origin}/api/books/${bookId}/workspace`, { headers })).json();
+  const card = workspace.cards.find((item: { id: string }) => item.id === "book-session-card");
+  expect(card?.noteId).toBeTruthy();
+  const notes = await (await page.request.get(`${origin}/api/books/${bookId}/notes`, { headers })).json();
+  expect(notes.find((note: { id: string }) => note.id === card.noteId)?.title).toBe("同一书籍的笔记");
+});
+
 test("workspace refresh cannot overwrite edits made while its response is pending", async ({ page }) => {
   await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
   const input = page.getByLabel("卡片正文");

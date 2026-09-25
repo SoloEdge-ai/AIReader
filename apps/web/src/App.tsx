@@ -21,6 +21,7 @@ import { api, post, base } from "./api";
 import { type QuestionRegion } from "./PdfReader";
 import { NotesPanel } from "./NotesPanel";
 import { useBookNotes } from "./features/notes/useBookNotes";
+import { useBookEditing } from "./features/book/useBookEditing";
 import { ExpandedNote } from "./features/notes/ExpandedNote";
 import { ChatPanel, type SelectionAction } from "./ChatPanel";
 import type { ObservedTurn } from "./features/chat/turn-sync";
@@ -97,10 +98,9 @@ export function App() {
     saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   current.current = active;
   const book = books.find((b) => b.id === active);
-  const notes = useBookNotes(active);
-  // BookWorkspace.flush includes both editors; without a mounted canvas the
-  // note session remains the only draft owner (for example in the library).
-  const flushCurrentBook = () => workspace.current?.flush() ?? notes.flush();
+  const editing = useBookEditing(active);
+  const notes = useBookNotes(editing.notes);
+  const flushCurrentBook = editing.flush;
   useDesktopCloseHandshake(
     flushCurrentBook,
     setError,
@@ -545,7 +545,7 @@ export function App() {
       if (!(await workspace.current?.addToQuestion([id])))
         throw new Error("画布材料尚未准备好，请重试");
     }}
-    beforeWorkspaceChange={async () => (await workspace.current?.flush()) ?? false}
+    beforeWorkspaceChange={editing.flush}
     onPlace={(note) => workspace.current!.placeNote(note)}
     onExpand={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
     onAddAnnotation={async (annotation) => {
@@ -941,6 +941,7 @@ export function App() {
             >
               <BookWorkspace
                 ref={workspace}
+                workspaceSession={editing.workspace!}
                 onCatalogChange={(bookId, catalog) => setCanvasCatalog({ bookId, catalog })}
                 notes={notes}
                 onExpandNote={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}

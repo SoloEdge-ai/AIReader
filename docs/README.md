@@ -10,6 +10,7 @@
 
 最近的 [Core 边界与阅读 UI 切片验证](verification/2026-09-25-http-ui-slice.md) 列出已跑的真实测试、Windows CI 与未完成项。
 [提问材料并发重试验证](verification/2026-09-25-question-material-retry.md) 记录冻结材料的书籍隔离和原子回执回归。
+[书籍编辑会话验证](verification/2026-09-25-book-editing-session.md) 记录 Note 与画布保存生命周期收拢及未完成的跨实体命令。
 
 | 工作 | 必读 |
 |---|---|
