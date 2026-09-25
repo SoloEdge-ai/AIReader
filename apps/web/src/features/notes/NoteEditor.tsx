@@ -8,7 +8,8 @@ import { canonicalDocument } from "./NoteEditingSession";
 export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes, "edit"> }) {
   const [link, setLink] = useState<string | undefined>();
   const titleRef = useRef(note.title),
-    composition = useRef(false);
+    composition = useRef(false),
+    localDocument = useRef<string | undefined>(undefined);
   titleRef.current = note.title;
   const latestState = useRef(state);
   latestState.current = state;
@@ -21,8 +22,11 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
     ],
     content: note.document,
     onUpdate: ({ editor }) => {
-      if (!composition.current)
-        latestState.current.edit(note.id, titleRef.current, editor.getJSON() as RichNode);
+      if (!composition.current) {
+        const document = editor.getJSON() as RichNode;
+        localDocument.current = canonicalDocument(document);
+        latestState.current.edit(note.id, titleRef.current, document);
+      }
     },
     editorProps: {
       attributes: {
@@ -38,12 +42,15 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
         compositionend: (_view) => {
           composition.current = false;
           queueMicrotask(() => {
-            if (editor)
+            if (editor) {
+              const document = editor.getJSON() as RichNode;
+              localDocument.current = canonicalDocument(document);
               latestState.current.edit(
                 note.id,
                 titleRef.current,
-                editor.getJSON() as RichNode,
+                document,
               );
+            }
           });
           return false;
         },
@@ -51,13 +58,17 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
     },
   });
   useEffect(() => {
-    // A local input dispatches to the shared session before React commits its
-    // snapshot. An older passive snapshot must not replace the focused editor
-    // (and its selection) while the user is typing. Passive views still sync.
-    if (!editor || composition.current || editor.isFocused) return;
-    if (canonicalDocument(editor.getJSON()) !== canonicalDocument(note.document))
-      editor.chain().setContent(note.document, { emitUpdate: false })
-        .setMeta("addToHistory", false).run();
+    // A local input can precede React's commit of that same draft. Ignore only
+    // the older snapshot for the active editor; a genuine remote refresh still
+    // updates a focused but clean editor.
+    if (!editor || composition.current) return;
+    const current = canonicalDocument(editor.getJSON());
+    const incoming = canonicalDocument(note.document);
+    if (current === incoming) { localDocument.current = undefined; return; }
+    if (editor.isFocused && localDocument.current === current) return;
+    editor.chain().setContent(note.document, { emitUpdate: false })
+      .setMeta("addToHistory", false).run();
+    localDocument.current = undefined;
   }, [editor, note.document]);
   if (!editor) return null;
   return (

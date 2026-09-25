@@ -402,6 +402,26 @@ test("two views edit one live note draft and reopening reads its saved content",
   await expect(second.getByLabel("笔记标题", { exact: true })).toHaveValue("同一份笔记");
 });
 
+test("a focused clean note editor accepts a genuinely newer server revision", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
+  const region = page.getByRole("region", { name: "列表编辑器" });
+  const editor = region.getByRole("textbox", { name: "笔记正文" });
+  await editor.focus();
+  await expect.poll(() => editor.evaluate((element) => document.activeElement === element)).toBe(true);
+  const id = await region.getAttribute("data-note-id");
+  const url = `http://127.0.0.1:43120/api/books/${bookId}/notes`;
+  const headers = { Origin: "http://127.0.0.1:43120" };
+  const current = (await (await page.request.get(url, { headers })).json() as { id: string; revision: number; title: string }[])
+    .find((note) => note.id === id)!;
+  expect((await page.request.post(`${url}/${id}`, { headers, data: {
+    revision: current.revision, title: current.title,
+    document: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "服务端的新版本" }] }] },
+  } })).status()).toBe(200);
+  await page.getByRole("button", { name: "刷新记录" }).evaluate((button: HTMLButtonElement) => button.click());
+  await expect(editor).toHaveText("服务端的新版本");
+  await expect.poll(() => editor.evaluate((element) => document.activeElement === element)).toBe(true);
+});
+
 test("expanded note stays editable beside chat and keeps the material draft synchronized", async ({ page }) => {
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
