@@ -50,6 +50,13 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
       method: "PUT", headers,
       body: JSON.stringify({ dock: "outside", offset: 4, collapsed: true }),
     })).status).toBe(400);
+    const globalPreferences = base + "/api/preferences";
+    expect((await (await fetch(globalPreferences, { headers })).json()).zoom).toBe(1.1);
+    expect((await fetch(globalPreferences, {
+      method: "POST", headers, body: JSON.stringify({ theme: "dark", zoom: 1.8 }),
+    })).status).toBe(200);
+    expect(await (await fetch(globalPreferences, { headers })).json()).toMatchObject({ theme: "dark", zoom: 1.8 });
+    expect((await fetch(globalPreferences, { method: "DELETE", headers })).status).toBe(405);
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     pdf.addPage().drawText("Memory isolation for inference", { font });
@@ -69,6 +76,8 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
     const reader = base + `/api/books/${book.id}`;
     expect((await (await fetch(reader, { headers })).json()).id).toBe(book.id);
     expect((await (await fetch(reader + "/preferences", { headers })).json()).zoom).toBe(1.1);
+    expect((await fetch(reader + "/preferences", { method: "DELETE", headers })).status).toBe(405);
+    expect((await fetch(reader + "/preferences/extra", { headers })).status).toBe(404);
     const changedPreferences = await fetch(reader + "/preferences", {
       method: "POST", headers,
       body: JSON.stringify({ theme: "dark", zoom: 1.4 }),

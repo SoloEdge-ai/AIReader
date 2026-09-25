@@ -8,9 +8,7 @@ import type {
   Bookmark,
   Passage,
   CoreEvent,
-  ReaderPreferences,
 } from "../../../packages/protocol/src/index";
-import { ReaderPreferencesSchema } from "../../../packages/protocol/src/index";
 import { Storage } from "./storage";
 import { tokens } from "./tokenize";
 import type { ParseMessage } from "./pdf-worker";
@@ -58,16 +56,6 @@ export class Library {
     book.lastOpenedAt = new Date().toISOString();
     this.store.put("book", id, id, book);
     return book;
-  }
-  readerPreferences(id: string): ReaderPreferences {
-    this.book(id);
-    return ReaderPreferencesSchema.parse(this.store.get("reader", id) ?? {});
-  }
-  saveReaderPreferences(id: string, value: ReaderPreferences) {
-    this.book(id);
-    const preferences = ReaderPreferencesSchema.parse(value);
-    this.store.put("reader", id, id, preferences);
-    return preferences;
   }
   file(id: string) {
     this.book(id);

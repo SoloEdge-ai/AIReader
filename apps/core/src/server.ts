@@ -8,20 +8,18 @@ import { CodexAdapter } from "./codex";
 import { ChatService } from "./chat";
 import { IndexService } from "./indexer";
 import { BookTools } from "./tools";
-import {
-  ToolPreferencesSchema,
-  ReaderPreferencesSchema,
-} from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { AiService } from "./ai-service";
 import { handleAiRoutes } from "./ai-routes";
 import { Notes } from "./notes";
-import { jsonBody, send } from "./http";
+import { send } from "./http";
 import { handleNoteRoutes } from "./note-routes";
 import { handleBookChatRoutes } from "./chat-routes";
 import { handleBookCollectionRoutes, handleBookReaderRoutes } from "./book-routes";
 import { handleBookToolRoutes } from "./book-tools-routes";
 import { handleBookIndexRoutes } from "./index-routes";
+import { Preferences } from "./preferences";
+import { handleGlobalPreferenceRoutes } from "./preferences-routes";
 import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
 import { WorkspaceAssets } from "./workspace-assets";
 import { QuestionMaterials } from "./question-materials";
@@ -42,6 +40,7 @@ export function createCore(
         client.send(JSON.stringify(event));
   };
   const library = new Library(directory, emit);
+  const preferences = new Preferences(library);
   const notes = new Notes(library);
   const workspaces = new Workspaces(library);
   const workspaceAssets = new WorkspaceAssets(library, workspaces);
@@ -131,42 +130,7 @@ export function createCore(
           return;
         }
         if (await handleGlobalWorkspaceRoutes(req, res, parts, workspaceRoutes)) return;
-        if (parts[1] === "tool-preferences" && parts.length === 2) {
-          if (req.method === "PUT")
-            library.store.put(
-              "setting",
-              "reader-tools",
-              "",
-              ToolPreferencesSchema.parse(await jsonBody(req)),
-            );
-          if (req.method !== "GET" && req.method !== "PUT") {
-            send(res, { error: "Method not allowed" }, 405);
-            return;
-          }
-          send(
-            res,
-            ToolPreferencesSchema.parse(
-              library.store.get("setting", "reader-tools") ?? {},
-            ),
-          );
-          return;
-        }
-        if (parts[1] === "preferences") {
-          if (req.method === "POST")
-            library.store.put(
-              "setting",
-              "reader",
-              "",
-              ReaderPreferencesSchema.parse(await jsonBody(req)),
-            );
-          send(
-            res,
-            ReaderPreferencesSchema.parse(
-              library.store.get("setting", "reader") ?? {},
-            ),
-          );
-          return;
-        }
+        if (await handleGlobalPreferenceRoutes(req, res, parts, preferences)) return;
         if (await handleAiRoutes(req, res, parts, ai)) return;
         if (await handleBookCollectionRoutes(req, res, parts, library)) return;
         if (parts[1] === "books" && parts[2]) {
@@ -174,7 +138,7 @@ export function createCore(
           const book = library.book(id);
           if (await handleBookWorkspaceRoutes(req, res, id, parts, url, workspaceRoutes)) return;
           if (await handleNoteRoutes(req, res, id, parts, notes)) return;
-          if (await handleBookReaderRoutes(req, res, book, parts, url, library)) return;
+          if (await handleBookReaderRoutes(req, res, book, parts, url, library, preferences)) return;
           if (await handleBookToolRoutes(req, res, id, parts, url, bookTools)) return;
           if (await handleBookIndexRoutes(req, res, id, parts, indexer, ai)) return;
           if (await handleBookChatRoutes(req, res, id, book.pages, parts, url, chatRoutes)) return;

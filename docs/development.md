@@ -42,7 +42,7 @@ Core 工作区接口：`apps/core/src/workspace-routes.ts` 拥有命令、相机
 
 Core 聊天接口：`apps/core/src/chat-routes.ts` 拥有会话、轮次、冻结阅读请求、图片资源、学习目标与回答转笔记的 HTTP 契约；模型能力检查由 `server.ts` 提供的选择函数执行，实际请求和持久化归 `ChatService` 等 Core 服务。修改时运行 `tests/chat-http.test.ts`、`tests/images-http.test.ts`、`tests/answer-notes.test.ts`、`tests/region-images-http.test.ts` 及材料上下文测试。
 
-书库与阅读接口：`apps/core/src/book-routes.ts` 处理导入、打开、PDF 文件、搜索、进度、偏好和书签的 HTTP 契约；`Library` 负责书籍存在性、来源文件路径和持久写入，`server.ts` 在分派前统一做会话与来源检查。修改时运行 `tests/http.test.ts` 和 `tests/library.test.ts`；跨书删除书签不得影响原书。
+书库与阅读接口：`apps/core/src/book-routes.ts` 处理导入、打开、PDF 文件、搜索、进度、每书偏好和书签的 HTTP 契约；`Library` 负责书籍存在性、来源文件路径和书库写入，`Preferences` 负责全局阅读、工具盘与每书布局偏好的校验、隔离和持久化，`preferences-routes.ts` 负责全局 HTTP。`server.ts` 在分派前统一做会话与来源检查。修改时运行 `tests/http.test.ts` 和 `tests/library.test.ts`；全局偏好与每书布局不得串写，跨书删除书签不得影响原书。
 
 全局 AI 接口：`apps/core/src/ai-routes.ts` 只处理 HTTP 方法与协议形状；`AiService` 负责账号断连／退出前暂停书籍任务、组件准备切换和模型可用性校验。问答和索引通过同一个 `selectModel` 入口冻结实际配置。修改时运行 `tests/ai-http.test.ts`、`tests/chat-http.test.ts`、`tests/indexer.test.ts` 和 Codex 进程协议测试，确保断连不删本应用模型选择，而退出账号会清除选择。
 

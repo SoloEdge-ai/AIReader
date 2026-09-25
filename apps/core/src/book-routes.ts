@@ -3,11 +3,11 @@ import { stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
-  ReaderPreferencesSchema,
   type Book,
 } from "../../../packages/protocol/src";
 import { body, jsonBody, send } from "./http";
 import type { Library } from "./library";
+import type { Preferences } from "./preferences";
 
 /** Authenticated book-library HTTP contract; all persistent writes remain in Library. */
 export async function handleBookCollectionRoutes(
@@ -43,15 +43,16 @@ export async function handleBookReaderRoutes(
   parts: string[],
   url: URL,
   library: Library,
+  preferences: Preferences,
 ): Promise<boolean> {
   const bookId = book.id;
-  if (parts[3] === "preferences") {
-    if (req.method === "POST")
-      library.saveReaderPreferences(
-        bookId,
-        ReaderPreferencesSchema.parse(await jsonBody(req)),
-      );
-    send(res, library.readerPreferences(bookId));
+  if (parts[3] === "preferences" && parts.length === 4) {
+    if (req.method === "POST") preferences.saveForBook(bookId, await jsonBody(req));
+    else if (req.method !== "GET") {
+      send(res, { error: "Method not allowed" }, 405);
+      return true;
+    }
+    send(res, preferences.forBook(bookId));
     return true;
   }
   if (parts[3] === "open" && req.method === "POST") {
