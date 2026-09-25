@@ -125,6 +125,7 @@ export function App() {
         Array.from(document.querySelectorAll<HTMLButtonElement>("button[popovertarget]"))
           .find((button) => button.getAttribute("popovertarget") === popover.id)
           ?.focus({ preventScroll: true });
+        return false;
       }
       const editing = (event.target as HTMLElement)?.closest(".workspace-card input,.workspace-card textarea,.notes-panel input,.notes-panel textarea,.notes-panel [contenteditable]");
       if (editing) {

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import type { ReaderTool, ToolPreferences } from "../../../packages/protocol/src";
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
+import { positionPopover } from "./ui/positionPopover";
 
 const tools = [
   { id: "pointer", label: "指针（V）", icon: "pointer" },
@@ -44,23 +45,30 @@ export function ReaderToolPalette({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const settings = useRef<HTMLDivElement>(null);
   const [settingTool, setSettingTool] = useState<"pen" | "highlighter">("pen");
-  function place(panel: HTMLElement) {
-    if (!palette.current) return;
-    panel.showPopover();
-    const bar = palette.current.getBoundingClientRect(), box = panel.getBoundingClientRect();
-    const left = preferences.dock === "right" ? bar.left - box.width - 8
-      : preferences.dock === "left" ? bar.right + 8 : bar.left + bar.width / 2 - box.width / 2;
-    const top = preferences.dock === "bottom" ? bar.top - box.height - 8 : bar.top;
-    panel.style.left = `${Math.max(8, Math.min(window.innerWidth - box.width - 8, left))}px`;
-    panel.style.top = `${Math.max(8, Math.min(window.innerHeight - box.height - 8, top))}px`;
+  const [brushOpen, setBrushOpen] = useState(false);
+  const brushPlacement = preferences.dock === "bottom" ? "top"
+    : preferences.dock === "left" ? "right" : "left";
+  function placeBrush() {
+    if (!palette.current || !settings.current) return;
+    positionPopover(settings.current, palette.current, brushPlacement, 266, "center");
   }
   function updateBrush(patch: Partial<ToolPreferences["pen"]>) {
     onPreferences({ ...preferences, [settingTool]: { ...preferences[settingTool], ...patch } });
   }
   function openBrush(next: "pen" | "highlighter") {
     setSettingTool(next);
-    if (settings.current) place(settings.current);
+    settings.current?.showPopover();
+    placeBrush();
   }
+  useEffect(() => {
+    if (!brushOpen) return;
+    window.addEventListener("resize", placeBrush);
+    window.addEventListener("scroll", placeBrush, true);
+    return () => {
+      window.removeEventListener("resize", placeBrush);
+      window.removeEventListener("scroll", placeBrush, true);
+    };
+  }, [brushOpen, preferences.dock, preferences.offset]);
   useEffect(() => {
     const cancel = () => {
       const pointerId = dragPointer.current;
@@ -231,7 +239,12 @@ export function ReaderToolPalette({
           </button>
         </>
       )}
-      <div ref={settings} popover="auto" role="dialog" aria-label="画笔设置" className="reader-brush-settings">
+      <div ref={settings} popover="auto" role="dialog" aria-label="画笔设置"
+        className="reader-popover reader-brush-settings"
+        onToggle={(event) => {
+          setBrushOpen(event.newState === "open");
+          if (event.newState === "open") requestAnimationFrame(placeBrush);
+        }}>
         <header>{settingTool === "pen" ? "画笔" : "荧光笔"}<span>再次点击工具可调整</span></header>
         <div className="brush-swatches" role="group" aria-label="画笔颜色">
           {["#345d84", "#222222", "#d35e45", "#e6b72d", "#69b28d"].map((color) =>

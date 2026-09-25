@@ -45,8 +45,11 @@ try {
   await settings.getByRole("button", { name: "粗细 8" }).click();
   await settings.getByRole("button", { name: "颜色 #d35e45" }).click();
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "画笔（P）" })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "画笔（P）" }).click();
+  await expect(page.getByRole("button", { name: "画笔（P）" })).toHaveAttribute("aria-pressed", "true");
   const reading = (await page.locator(".reading").boundingBox())!;
   await page.mouse.move(reading.x + 160, reading.y + 250);
   await page.mouse.down();
@@ -70,7 +73,10 @@ try {
   await page.getByRole("button", { name: "画笔（P）" }).click();
   await expect(page.getByRole("dialog", { name: "画笔设置" }).getByRole("button", { name: "粗细 8" })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "画笔（P）" })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "画笔（P）" }).click();
+  await expect(page.getByRole("button", { name: "画笔（P）" })).toHaveAttribute("aria-pressed", "true");
   const afterRestart = (await page.locator("#page-1").boundingBox())!;
   await page.mouse.move(afterRestart.x + 70, afterRestart.y + 160);
   await page.mouse.down();

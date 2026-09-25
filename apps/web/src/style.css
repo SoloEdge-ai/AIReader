@@ -1824,16 +1824,7 @@ summary {
 .reader-tool-palette[data-dock="left"] .palette-separator,
 .reader-tool-palette[data-dock="right"] .palette-separator { width: 20px; height: 1px; }
 .reader-brush-settings {
-  position: fixed;
-  inset: auto;
-  margin: 0;
-  width: 266px;
   padding: 13px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 8px 28px #0003;
   font-size: 12px;
 }
 .reader-tool-menu {

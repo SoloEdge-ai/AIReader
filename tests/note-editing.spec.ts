@@ -370,6 +370,22 @@ test("the tool handle drags across the real reader and keeps its dock on reopen"
   await expect(page.getByRole("toolbar", { name: "阅读工具盘" })).toHaveAttribute("data-dock", "left");
 });
 
+test("Escape closes brush settings before returning to the pointer", async ({ page }) => {
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").first().click();
+  const pen = page.getByRole("button", { name: "画笔（P）" });
+  await pen.click();
+  await expect(pen).toHaveAttribute("aria-pressed", "true");
+  await pen.click();
+  const settings = page.getByRole("dialog", { name: "画笔设置" });
+  await expect(settings).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await expect(pen).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
+});
+
 test("two views edit one live note draft and reopening reads its saved content", async ({ page }) => {
   await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
   const first = page.getByRole("region", { name: "列表编辑器" });

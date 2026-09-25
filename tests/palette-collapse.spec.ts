@@ -91,3 +91,26 @@ for (const dock of ["bottom", "left", "right"] as const)
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden();
   });
+
+for (const dock of ["bottom", "left", "right"] as const)
+  test(`${dock} brush settings share bounded placement and keep two-click activation`, async ({ page }) => {
+    await page.goto(`http://127.0.0.1:5173/tests/palette.html?dock=${dock}`);
+    const pen = page.getByRole("button", { name: "画笔（P）" });
+    await pen.click();
+    await expect(pen).toHaveAttribute("aria-pressed", "true");
+    const settings = page.getByRole("dialog", { name: "画笔设置" });
+    await expect(settings).toBeHidden();
+    await pen.click();
+    await expect(settings).toBeVisible();
+    if (dock === "bottom")
+      await page.screenshot({ path: "test-results/palette-brush-settings.png" });
+    const box = await settings.boundingBox(), viewport = page.viewportSize();
+    expect(box).not.toBeNull();
+    expect(viewport).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(7);
+    expect(box!.y).toBeGreaterThanOrEqual(7);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width - 7);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height - 7);
+    await page.keyboard.press("Escape");
+    await expect(settings).toBeHidden();
+  });

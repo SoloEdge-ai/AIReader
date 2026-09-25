@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { positionPopover, type PopoverPlacement } from "./positionPopover";
 
 /** Shared native top-layer surface, bounded to the viewport rather than a feature panel. */
 export function Popover({
@@ -22,7 +23,7 @@ export function Popover({
   pressed?: boolean;
   className?: string;
   disabled?: boolean;
-  placement?: "top" | "bottom" | "left" | "right";
+  placement?: PopoverPlacement;
   width?: number;
   role?: "dialog" | "menu";
   autoFocusFirst?: boolean;
@@ -34,36 +35,7 @@ export function Popover({
   const [open, setOpen] = useState(false);
   function position() {
     if (!button.current || !panel.current) return;
-    const rect = button.current.getBoundingClientRect();
-    const size = Math.min(width, innerWidth - 16);
-    if (placement === "left" || placement === "right") {
-      const leftRoom = rect.left - 16, rightRoom = innerWidth - rect.right - 16;
-      const useLeft = placement === "left"
-        ? leftRoom >= size + 8 || leftRoom >= rightRoom
-        : rightRoom < size + 8 && leftRoom > rightRoom;
-      Object.assign(panel.current.style, {
-        width: `${size}px`,
-        left: `${Math.max(8, Math.min(innerWidth - size - 8,
-          useLeft ? rect.left - size - 8 : rect.right + 8))}px`,
-        top: `${Math.max(8, Math.min(rect.top, innerHeight - panel.current.offsetHeight - 8))}px`,
-        bottom: "auto",
-        maxHeight: `${Math.max(0, innerHeight - 16)}px`,
-      });
-      return;
-    }
-    const above = rect.top - 16,
-      below = innerHeight - rect.bottom - 16;
-    const useAbove =
-      placement === "top"
-        ? above >= 180 || above >= below
-        : below < 180 && above > below;
-    Object.assign(panel.current.style, {
-      width: `${size}px`,
-      left: `${Math.max(8, Math.min(rect.left, innerWidth - size - 8))}px`,
-      top: useAbove ? "auto" : `${rect.bottom + 8}px`,
-      bottom: useAbove ? `${innerHeight - rect.top + 8}px` : "auto",
-      maxHeight: `${Math.max(0, useAbove ? above : below)}px`,
-    });
+    positionPopover(panel.current, button.current, placement, width);
   }
   function close() {
     panel.current?.hidePopover();
