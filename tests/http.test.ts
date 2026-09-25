@@ -62,6 +62,32 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
       await fetch(base + `/api/books/${book.id}/search?q=memory`, { headers })
     ).json();
     expect(results[0].anchor).toMatchObject({ bookId: book.id, page: 1 });
+    const reader = base + `/api/books/${book.id}`;
+    expect((await (await fetch(reader, { headers })).json()).id).toBe(book.id);
+    expect((await (await fetch(reader + "/preferences", { headers })).json()).zoom).toBe(1.1);
+    const changedPreferences = await fetch(reader + "/preferences", {
+      method: "POST", headers,
+      body: JSON.stringify({ theme: "dark", zoom: 1.4 }),
+    });
+    expect((await changedPreferences.json()).theme).toBe("dark");
+    expect((await (await fetch(reader + "/preferences", { headers })).json()).zoom).toBe(1.4);
+    expect((await (await fetch(reader + "/open", { method: "POST", headers })).json()).lastOpenedAt).toBeTruthy();
+    expect((await (await fetch(reader + "/file", { headers })).arrayBuffer()).byteLength).toBe(bytes.byteLength);
+    await fetch(reader + "/progress", { method: "POST", headers, body: JSON.stringify({ page: 1 }) });
+    expect((await (await fetch(reader, { headers })).json()).progress).toBe(1);
+    const bookmark = await (await fetch(reader + "/bookmarks", {
+      method: "POST", headers, body: JSON.stringify({ page: 1, note: "关键论述" }),
+    })).json();
+    expect((await (await fetch(reader + "/bookmarks", { headers })).json()).map((item: { id: string }) => item.id)).toContain(bookmark.id);
+    const otherPdf = await PDFDocument.create();
+    otherPdf.addPage().drawText("A separate book");
+    const other = await (await fetch(base + "/api/books", {
+      method: "POST", headers: { ...headers, "X-Filename": "Other.pdf" }, body: Buffer.from(await otherPdf.save()),
+    })).json();
+    await fetch(base + `/api/books/${other.id}/bookmarks/${bookmark.id}`, { method: "DELETE", headers });
+    expect((await (await fetch(reader + "/bookmarks", { headers })).json()).map((item: { id: string }) => item.id)).toContain(bookmark.id);
+    await fetch(reader + `/bookmarks/${bookmark.id}`, { method: "DELETE", headers });
+    expect(await (await fetch(reader + "/bookmarks", { headers })).json()).toEqual([]);
     const mismatch = await fetch(base + `/api/books/${book.id}/turns`, {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },

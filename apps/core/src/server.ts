@@ -1,5 +1,5 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { resolve, extname, relative, isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -18,9 +18,10 @@ import {
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
 import { Notes } from "./notes";
-import { body, jsonBody, send } from "./http";
+import { jsonBody, send } from "./http";
 import { handleNoteRoutes } from "./note-routes";
 import { handleBookChatRoutes } from "./chat-routes";
+import { handleBookCollectionRoutes, handleBookReaderRoutes } from "./book-routes";
 import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
 import { WorkspaceAssets } from "./workspace-assets";
 import { QuestionMaterials } from "./question-materials";
@@ -247,56 +248,13 @@ export function createCore(
             return;
           }
         }
-        if (parts[1] === "books" && parts.length === 2) {
-          if (req.method === "GET") {
-            send(res, library.books());
-            return;
-          }
-          if (req.method === "POST") {
-            send(
-              res,
-              await library.import(
-                await body(req, 256 * 1024 * 1024),
-                decodeURIComponent(
-                  String(req.headers["x-filename"] ?? "Document.pdf"),
-                ).slice(0, 300),
-              ),
-              201,
-            );
-            return;
-          }
-        }
+        if (await handleBookCollectionRoutes(req, res, parts, library)) return;
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];
           const book = library.book(id);
           if (await handleBookWorkspaceRoutes(req, res, id, parts, url, workspaceRoutes)) return;
           if (await handleNoteRoutes(req, res, id, parts, notes)) return;
-          if (parts[3] === "preferences") {
-            if (req.method === "POST")
-              library.store.put(
-                "reader",
-                id,
-                id,
-                ReaderPreferencesSchema.parse(await jsonBody(req)),
-              );
-            send(
-              res,
-              ReaderPreferencesSchema.parse(
-                library.store.get("reader", id) ?? {},
-              ),
-            );
-            return;
-          }
-          if (parts[3] === "open" && req.method === "POST") {
-            book.lastOpenedAt = new Date().toISOString();
-            library.store.put("book", id, id, book);
-            send(res, book);
-            return;
-          }
-          if (parts.length === 3) {
-            send(res, book);
-            return;
-          }
+          if (await handleBookReaderRoutes(req, res, book, parts, url, library)) return;
           if (parts[3] === "tools") {
             if (req.method === "GET") {
               send(res, {
@@ -407,71 +365,6 @@ export function createCore(
             }
           }
           if (await handleBookChatRoutes(req, res, id, book.pages, parts, url, chatRoutes)) return;
-          if (parts[3] === "file" && req.method === "GET") {
-            const file = library.file(id);
-            const size = (await stat(file)).size;
-            res.writeHead(200, {
-              "Content-Type": "application/pdf",
-              "Content-Length": size,
-              "Cache-Control": "private, max-age=60",
-            });
-            createReadStream(file)
-              .on("error", () => res.destroy())
-              .pipe(res);
-            return;
-          }
-          if (parts[3] === "search") {
-            send(
-              res,
-              library.search(
-                id,
-                (url.searchParams.get("q") ?? "").slice(0, 1000),
-              ),
-            );
-            return;
-          }
-          if (parts[3] === "passages") {
-            send(
-              res,
-              library.passages(
-                id,
-                url.searchParams.has("page")
-                  ? Number(url.searchParams.get("page"))
-                  : undefined,
-              ),
-            );
-            return;
-          }
-          if (parts[3] === "progress" && req.method === "POST") {
-            const data = z
-              .object({
-                page: z.number().int().min(1).max(Math.max(book.pages, 1)),
-              })
-              .parse(await jsonBody(req));
-            library.progress(id, data.page);
-            send(res, { ok: true });
-            return;
-          }
-          if (parts[3] === "bookmarks") {
-            if (req.method === "POST") {
-              const data = z
-                .object({
-                  page: z.number().int().min(1).max(Math.max(book.pages, 1)),
-                  note: z.string().max(1000),
-                })
-                .parse(await jsonBody(req));
-              send(res, library.addBookmark(id, data.page, data.note));
-              return;
-            }
-            if (req.method === "DELETE") {
-              const mark = library.bookmarks(id).find((x) => x.id === parts[4]);
-              if (mark) library.store.remove("bookmark", mark.id);
-              send(res, { ok: true });
-              return;
-            }
-            send(res, library.bookmarks(id));
-            return;
-          }
         }
         send(res, { error: "接口不存在" }, 404);
         return;

@@ -8,7 +8,9 @@ import type {
   Bookmark,
   Passage,
   CoreEvent,
+  ReaderPreferences,
 } from "../../../packages/protocol/src/index";
+import { ReaderPreferencesSchema } from "../../../packages/protocol/src/index";
 import { Storage } from "./storage";
 import { tokens } from "./tokenize";
 import type { ParseMessage } from "./pdf-worker";
@@ -50,6 +52,22 @@ export class Library {
     const book = this.store.get<Book>("book", id);
     if (!book) throw new Error("书籍不存在");
     return book;
+  }
+  open(id: string) {
+    const book = this.book(id);
+    book.lastOpenedAt = new Date().toISOString();
+    this.store.put("book", id, id, book);
+    return book;
+  }
+  readerPreferences(id: string): ReaderPreferences {
+    this.book(id);
+    return ReaderPreferencesSchema.parse(this.store.get("reader", id) ?? {});
+  }
+  saveReaderPreferences(id: string, value: ReaderPreferences) {
+    this.book(id);
+    const preferences = ReaderPreferencesSchema.parse(value);
+    this.store.put("reader", id, id, preferences);
+    return preferences;
   }
   file(id: string) {
     this.book(id);
@@ -236,6 +254,10 @@ export class Library {
     const mark: Bookmark = { id: randomUUID(), bookId, page, note };
     this.store.put("bookmark", mark.id, bookId, mark);
     return mark;
+  }
+  removeBookmark(bookId: string, bookmarkId: string) {
+    const mark = this.bookmarks(bookId).find((item) => item.id === bookmarkId);
+    if (mark) this.store.remove("bookmark", mark.id);
   }
   close() {
     this.closed = true;

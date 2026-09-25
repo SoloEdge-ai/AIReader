@@ -36,7 +36,9 @@ export async function handleBookChatRoutes(
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "private, max-age=3600",
     });
-    createReadStream(file).on("error", () => res.destroy()).pipe(res);
+    createReadStream(file)
+      .on("error", () => res.destroy())
+      .pipe(res);
     return true;
   }
   if (parts[3] === "memory" && req.method === "POST") {
@@ -54,7 +56,9 @@ export async function handleBookChatRoutes(
       parts[5] === "note" &&
       parts.length === 6
     ) {
-      z.object({}).strict().parse(await jsonBody(req));
+      z.object({})
+        .strict()
+        .parse(await jsonBody(req));
       const saved = services.notes.fromAnswer(bookId, parts[4]);
       send(res, saved, saved.created ? 201 : 200);
       return true;
@@ -85,7 +89,10 @@ export async function handleBookChatRoutes(
       if (value.reading.bookId !== bookId || value.reading.page > bookPages)
         throw new Error("阅读位置与书籍不匹配");
       const chosen = await services.selectModel(
-        ModelSelectionSchema.parse({ model: value.model, effort: value.effort }),
+        ModelSelectionSchema.parse({
+          model: value.model,
+          effort: value.effort,
+        }),
       );
       send(
         res,
