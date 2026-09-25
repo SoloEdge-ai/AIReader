@@ -17,6 +17,7 @@
 - 聊天会话、轮次和学习记忆经 `ChatRepository` 按书籍存取；创建轮次与提交冻结材料保持同一 SQLite 事务，失败时一起回滚。上下文不再自行拼接聊天记录键。
 - 画布对象操作条从 `BookWorkspace` 分离，文字选区与源批注共用颜色选项；聊天只在轮次进行中补读，丢失终态 WebSocket 事件时从 Core HTTP 恢复，完成后停止轮询。
 - 索引任务、目标章节、批次摘要与语义节点经 `IndexRepository` 按书籍存取；创建任务和目标章节同事务提交，目标及批次读取增加书籍条件。
+- 画布草稿、命令队列、视野及历史迁至 `WorkspaceEditingSession`；`WorkspaceState` 保留订阅与浏览器离开保护。Note 和画布仍是两套会话，未宣称跨实体历史完成。
 
 ## 已执行
 
@@ -27,7 +28,9 @@
 - 聊天仓储修改后 `pnpm typecheck`、`tests/chat-repository.test.ts`、`tests/chat-http.test.ts` 和 `tests/context.test.ts` 通过；仓储测试验证跨书隔离及材料回调失败时轮次回滚。
 - `node --import tsx scripts/objects-smoke.ts` 验证批注色点弹层实际改色、撤销／重做、对象关系和重启恢复；截图保存在忽略的 `.local/screenshots/annotation-object-color-menu.png`。`node --import tsx scripts/chat-smoke.ts` 在浏览器侧主动丢弃首轮 turn 事件后仍得到完整回答；定向 Playwright 测试验证终态事件缺失可补读且完成后停止轮询。
 - 索引仓储修改后 typecheck 与 `tests/index-repository.test.ts`、`tests/indexer.test.ts`、`tests/context.test.ts`、`tests/chat-http.test.ts` 通过；测试用 SQLite trigger 强制任务写入失败，确认目标章节随事务回滚。
+- 画布会话修改后 typecheck、34 项阅读 UI Playwright、`node --import tsx scripts/objects-smoke.ts`、`node scripts/close-save-smoke.mjs` 及本机构建／捆绑 Core 启动通过；其中真实 UI 覆盖旧回执重试、刷新竞态、卡片关系与桌面关闭失败恢复。
 - Windows CI：`36116023139` 和 `36117038716` 均通过，包含便携 EXE、当前用户安装包、SHA256、阅读／画布／聊天／笔记 UI 及安装更新回归。更早的 `36114328034` 在笔记同步处发生一次时序失败，随后已增加焦点保护和更精确断言。
+- Windows CI：`36120839503` 在 `2482aaf` 完整通过，覆盖修正后的聊天事件补读、回答笔记、PDF 区域缩放、桌面关闭和安装更新；新索引仓储／关系操作条提交 `b74b9bf` 的 CI 仍待结果。`36119339601` 暴露过 Core 完成而聊天 UI 停在等待的终态事件缺失，已通过进行中轮次补读和故障注入 UI 测试修复。
 
 ## 未完成
 

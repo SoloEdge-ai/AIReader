@@ -38,7 +38,7 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 
 Core 笔记／批注接口：`apps/core/src/note-routes.ts` 拥有这些路由的 HTTP 方法、请求大小、ZIP/PNG 响应；`Notes` 保持业务和事务规则，`server.ts` 负责鉴权及书籍路由入口。修改边界时优先运行 `tests/notes.test.ts`、`tests/answer-notes.test.ts`、`tests/note-placements-http.test.ts` 和 `tests/excerpt-comments-http.test.ts`，不要只 mock Notes 服务。
 
-Core 工作区接口：`apps/core/src/workspace-routes.ts` 拥有命令、相机、区域图片、资源、归档和问题材料的 HTTP 方法与请求限制；`server.ts` 仍负责会话／来源鉴权、普通书籍路由的存在性检查及服务生命周期。较早分派的 `/api/v2` 命令由工作区服务检查书籍存在性。修改此边界时运行工作区、归档、区域图片及问题材料的真实 HTTP 测试；不能仅用路由 mock 代替 Core/SQLite 行为。
+Core 工作区接口：`apps/core/src/workspace-routes.ts` 拥有命令、相机、区域图片、资源、归档和问题材料的 HTTP 方法与请求限制；`server.ts` 仍负责会话／来源鉴权、普通书籍路由的存在性检查及服务生命周期。较早分派的 `/api/v2` 命令由工作区服务检查书籍存在性。Renderer 的 `WorkspaceEditingSession` 拥有本书草稿、保存队列和撤销历史，`WorkspaceState` 只连接 React；修改会话时须跑工作区重试／刷新 UI 竞态及桌面关闭草稿回归。修改 Core 边界时运行工作区、归档、区域图片及问题材料的真实 HTTP 测试；不能仅用路由 mock 代替 Core/SQLite 行为。
 
 Core 聊天接口：`apps/core/src/chat-routes.ts` 拥有会话、轮次、冻结阅读请求、图片资源、学习目标与回答转笔记的 HTTP 契约；模型能力检查由 `server.ts` 提供的选择函数执行，实际请求归 `ChatService`，会话、轮次和学习记忆由 `ChatRepository` 按书籍存取。创建轮次和提交冻结材料共用一个 SQLite 事务。修改时运行 `tests/chat-repository.test.ts`、`tests/chat-http.test.ts`、`tests/context.test.ts`、`tests/images-http.test.ts`、`tests/answer-notes.test.ts`、`tests/region-images-http.test.ts` 及材料上下文测试。
 
