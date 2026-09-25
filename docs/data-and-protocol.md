@@ -24,7 +24,7 @@ SQLite records 仍保存笔记、批注等独立 JSON 实体，passages/FTS5 保
 
 v2 变更集合最多 13000 条，覆盖两个最大工作区之间的差量，避免级联删除产生的逆操作被旧 2000 条限制拒绝。HTTP 仍限 8 MiB；若逆操作无法在此限制内重新提交，整次变更拒绝并提示分批，不先删除再宣称可撤销。删除区域卡片时，在同一事务保留 Core 来源记录；恢复必须匹配原来源且资源仍属于本书，不能通过修改 inverse 伪造原文区域。
 
-导入副本在books；图片在annotations/workspace-assets/chat-images/question-materials。账号在control/codex-home，组件在runtimes。
+导入副本在books；图片在annotations/workspace-assets/chat-images/question-materials。账号在control/codex-home，组件在runtimes。区域图片的 HTTP 读取、工作区打包和源卡片笔记导出使用同一按书籍验证的资源读取入口；只有磁盘上存在 PNG 而缺少本书资源登记时不能将其打包为可信区域摘录。
 
 持久位置为PDF原生或世界坐标，不保存CSS/设备像素。跨页笔迹按逻辑stroke分段。原始点是事实来源。材料绑定book/session/版本与冻结内容；前端预览是用户视觉材料，不代表Core已验证像素。个人材料与原文evidence分离。冻结材料及请求回执由 QuestionMaterialRepository 按书籍读取并原子提交；同一 requestId 与同一载荷并发重试返回首份快照，载荷不同则拒绝，新尝试生成的临时图片不留下额外资源目录。材料与聊天轮次的最终提交仍共用外层 SQLite 事务。
 

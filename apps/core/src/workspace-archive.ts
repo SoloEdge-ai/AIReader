@@ -18,6 +18,7 @@ import { Library } from "./library";
 import { richDocument } from "./notes";
 import { Workspaces } from "./workspace";
 import { ChatImages, decodeImage } from "./chat-images";
+import type { WorkspaceAssets } from "./workspace-assets";
 
 export const MAX_WORKSPACE_ARCHIVE_BYTES = 384 * 1024 * 1024;
 const id = z
@@ -154,7 +155,7 @@ const manifestSchema = z
 
 /** Portable book workspace only: no account, executable, database or personal config. */
 export class WorkspaceArchives {
-  constructor(private library: Library) {}
+  constructor(private library: Library, private readonly workspaceAssets: WorkspaceAssets) {}
   async export(bookId: string) {
     const book = this.library.book(bookId);
     if (book.status !== "ready") throw new Error("请等待 PDF 解析完成后再打包");
@@ -202,14 +203,14 @@ export class WorkspaceArchives {
     for (const card of workspace.cards)
       if (card.region) {
         const assetId = id.parse(card.region.assetId);
-        const bytes = await readFile(join(this.library.directory, "workspace-assets", bookId, assetId + ".png"));
+        const bytes = await this.workspaceAssets.read(bookId, assetId);
         files[`assets/${assetId}.png`] = bytes;
         assets[assetId] = sha(bytes);
       }
     for (const n of values)
       if (n.sourceCard?.region && !assets[n.sourceCard.region.assetId]) {
         const assetId = id.parse(n.sourceCard.region.assetId);
-        const bytes = await readFile(join(this.library.directory, "workspace-assets", bookId, assetId + ".png"));
+        const bytes = await this.workspaceAssets.read(bookId, assetId);
         files[`assets/${assetId}.png`] = bytes;
         assets[assetId] = sha(bytes);
       }

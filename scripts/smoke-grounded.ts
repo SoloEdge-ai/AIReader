@@ -10,8 +10,9 @@ import { QuestionMaterials } from "../apps/core/src/question-materials";
 const library = new Library(resolve(".local/smoke-library"));
 const codex = new CodexAdapter(resolve(".local/codex-control"));
 const workspaces = new Workspaces(library);
+const workspaceAssets = new WorkspaceAssets(library, workspaces);
 const chat = new ChatService(library, codex,
-  new QuestionMaterials(library, workspaces, new Notes(library), new WorkspaceAssets(library, workspaces)));
+  new QuestionMaterials(library, workspaces, new Notes(library, workspaceAssets), workspaceAssets));
 const indexer = new IndexService(library, codex);
 try {
   library.resume();

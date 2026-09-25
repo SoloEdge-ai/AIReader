@@ -41,11 +41,11 @@ export function createCore(
   };
   const library = new Library(directory, emit);
   const preferences = new Preferences(library);
-  const notes = new Notes(library);
   const workspaces = new Workspaces(library);
   const workspaceAssets = new WorkspaceAssets(library, workspaces);
+  const notes = new Notes(library, workspaceAssets);
   const questionMaterials = new QuestionMaterials(library, workspaces, notes, workspaceAssets);
-  const workspaceArchives = new WorkspaceArchives(library);
+  const workspaceArchives = new WorkspaceArchives(library, workspaceAssets);
   const workspaceRoutes = { workspaces, assets: workspaceAssets, materials: questionMaterials,
     archives: workspaceArchives, notes };
   library.resume();

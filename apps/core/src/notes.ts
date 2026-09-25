@@ -18,6 +18,7 @@ import { changeNotePlacement } from "./note-placements";
 import { NoteTransactions } from "./note-transactions";
 import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
 import { Workspaces } from "./workspace";
+import type { WorkspaceAssets } from "./workspace-assets";
 export function richDocument(input: unknown): RichNode {
   if (JSON.stringify(input)?.length > 100000) throw new Error("笔记内容过长");
   let count = 0;
@@ -148,7 +149,7 @@ export function richDocument(input: unknown): RichNode {
 }
 export class Notes {
   private readonly changes: NoteTransactions;
-  constructor(readonly library: Library) {
+  constructor(readonly library: Library, private readonly workspaceAssets: WorkspaceAssets) {
     this.changes = new NoteTransactions(library.store, (event) => library.emit(event));
   }
   annotations(bookId: string) {
@@ -343,8 +344,7 @@ export class Notes {
     }
     if (note.sourceCard?.region)
       assets.push({ name: "assets/excerpt-region.png",
-        bytes: await readFile(join(this.library.directory, "workspace-assets", bookId,
-          note.sourceCard.region.assetId + ".png")) });
+        bytes: await this.workspaceAssets.read(bookId, note.sourceCard.region.assetId) });
     return {
       buffer: exportNoteArchive(
         book,

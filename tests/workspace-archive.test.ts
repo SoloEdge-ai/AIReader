@@ -113,6 +113,11 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
         to: card.id, label: "explains" } }],
     });
     expect(linkedResponse.status).toBe(200);
+    const regionAssetId = region.workspace.cards[2].region.assetId;
+    const registration = core.library.store.workspaces.asset(book.id, regionAssetId)!;
+    core.library.store.remove("workspace-asset", regionAssetId);
+    expect((await request(`books/${book.id}/workspace/archive`)).status).toBe(400);
+    core.library.store.workspaces.saveAsset(registration);
     const download = await request(`books/${book.id}/workspace/archive`);
     expect(download.status).toBe(200);
     const archive = new Uint8Array(await download.arrayBuffer());
@@ -254,6 +259,14 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
     expect(detachedNotes[0].annotationId).not.toBe(annotation.id);
     expect((await request(`books/${detachedBook.id}/annotation-assets/${detachedNotes[0].annotationSource.assetId}`)).status).toBe(200);
     expect((await request(`books/${book.id}/annotation-assets/${detachedNotes[0].annotationSource.assetId}`)).status).toBe(400);
+    const regionNoteResponse = await request(`books/${book.id}/workspace/cards/${region.cardId}/note`, {});
+    expect(regionNoteResponse.status).toBe(201);
+    const regionNote = await regionNoteResponse.json();
+    const regionRegistration = core.library.store.workspaces.asset(book.id, regionAssetId)!;
+    core.library.store.remove("workspace-asset", regionAssetId);
+    expect((await request(`books/${book.id}/notes/${regionNote.id}/export`)).status).toBe(400);
+    core.library.store.workspaces.saveAsset(regionRegistration);
+    expect((await request(`books/${book.id}/notes/${regionNote.id}/export`)).status).toBe(200);
   } finally {
     core.close();
     await rm(directory, {
