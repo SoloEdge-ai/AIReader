@@ -9,12 +9,17 @@ function withDeadline<T>(work: Promise<T>, milliseconds: number): Promise<T> {
     timer = setTimeout(() => reject(new Error(`等待超过 ${milliseconds / 1000} 秒`)), milliseconds);
   })]).finally(() => clearTimeout(timer));
 }
-function stopCore(): Promise<void> {
+function stopCore(onLateComplete: () => void): Promise<void> {
   const child = core;
   if (!child) return Promise.reject(new Error("Core 尚未就绪"));
   const requestId = randomUUID();
   return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error("Core 停止超时")), 15000);
+    let timedOut = false;
+    let finished = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error("Core 停止超过 15 秒，仍在等待确认"));
+    }, 15000);
     const onMessage = (value: unknown) => {
       if (!value || typeof value !== "object" || (value as { requestId?: unknown }).requestId !== requestId) return;
       const message = value as { type?: string; error?: string };
@@ -23,11 +28,17 @@ function stopCore(): Promise<void> {
     };
     const onExit = () => finish(new Error("Core 未确认关闭便退出"));
     function finish(error?: Error) {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
       child!.off("message", onMessage);
       child!.off("exit", onExit);
-      if (error) reject(error);
-      else { core = undefined; resolve(); }
+      if (error) { if (!timedOut) reject(error); }
+      else {
+        core = undefined;
+        if (timedOut) onLateComplete();
+        else resolve();
+      }
     }
     child.on("message", onMessage);
     child.once("exit", onExit);
@@ -78,13 +89,13 @@ app.whenReady().then(() => {
         sandbox: true,
       },
     });
-    let allowingClose = false;
     let checkingClose = false;
+    let coreStopUncertain = false;
     window.on("close", (event) => {
-      if (allowingClose) return;
       event.preventDefault();
-      if (checkingClose) return;
+      if (checkingClose || coreStopUncertain) return;
       checkingClose = true;
+      let stoppingCore = false;
       void withDeadline(window.webContents.executeJavaScript(`(async () => {
         if (typeof window.aiReaderFlushBeforeClose !== "function") throw new Error("未找到保存入口");
         const saved = await window.aiReaderFlushBeforeClose();
@@ -93,21 +104,29 @@ app.whenReady().then(() => {
       })()`), 15000)
         .then(async (saved: boolean) => {
           if (!saved || window.isDestroyed()) return;
-          await stopCore();
-          if (!window.isDestroyed()) {
-            allowingClose = true;
-            window.close();
-          }
+          stoppingCore = true;
+          await stopCore(() => { if (!window.isDestroyed()) window.destroy(); });
+          // The drafts were verified before Core closed. A second cancelable
+          // beforeunload would strand an editor with no database behind it.
+          if (!window.isDestroyed()) window.destroy();
         })
         .catch((error: unknown) => {
           if (!window.isDestroyed()) {
-            void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
+            if (!stoppingCore)
+              void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
+            else coreStopUncertain = true;
             console.error("AIReader close handshake failed:", error);
             void dialog.showMessageBox(window, {
             type: "warning", title: "无法安全退出",
-            message: "保存或 Core 停止未得到确认，窗口保持打开。",
-            detail: String(error), buttons: ["返回编辑"],
-            });
+            message: stoppingCore
+              ? "草稿已保存，但 Core 停止状态未确认。为避免继续写入，窗口保持锁定。"
+              : "保存未得到确认，窗口保持打开。",
+            detail: String(error),
+            buttons: stoppingCore ? ["继续等待", "退出应用（停止未确认）"] : ["返回编辑"],
+            defaultId: 0, cancelId: 0,
+            }).then(({ response }) => {
+              if (stoppingCore && response === 1 && !window.isDestroyed()) window.destroy();
+            }).catch(() => {});
           }
         }).finally(() => { checkingClose = false; });
     });
@@ -134,10 +153,6 @@ app.whenReady().then(() => {
         cancelId: 0,
       });
       if (discard === 1) event.preventDefault();
-      else if (allowingClose) {
-        allowingClose = false;
-        void window.webContents.executeJavaScript("document.body.inert = false").catch(() => {});
-      }
     });
     void window.loadURL(`http://127.0.0.1:${port}`);
   });
