@@ -95,18 +95,10 @@
   z-index: 26;
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 36px;
-  padding: 4px 6px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 4px 16px #0002;
+  max-width: calc(100% - 16px);
+  overflow-x: auto;
   font-size: 11px;
 }
-.workspace-object-toolbar button { border: 0; background: transparent; border-radius: 6px; padding: 5px; color: inherit; }
-.workspace-object-toolbar button:hover { background: #66869a22; }
 .workspace-object-style {
   display: none;
   gap: 8px;

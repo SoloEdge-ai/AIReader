@@ -1126,7 +1126,7 @@ export const BookWorkspace = forwardRef<
         viewport={el} zoom={props.zoom} />, el.parentElement)}
       {el?.parentElement && selectedBounds && selectedBounds.bottom * props.zoom >= el.scrollTop &&
         selectedBounds.y * props.zoom <= el.scrollTop + el.clientHeight && createPortal(
-          <div className="workspace-object-toolbar" role="toolbar" aria-label="对象操作"
+          <div className="reader-context-bar workspace-object-toolbar" role="toolbar" aria-label="对象操作"
             style={{ left: Math.max(8, Math.min(el.clientWidth - 260,
               (selectedBounds.x + selectedBounds.right) / 2 * props.zoom - el.scrollLeft - 130)),
               top: Math.max(8, Math.min(el.clientHeight - 44,
@@ -1220,7 +1220,7 @@ export const BookWorkspace = forwardRef<
         if (!link) return null;
         const from = boundsFor(link.from), to = boundsFor(link.to);
         if (!from || !to) return null;
-        return createPortal(<div className="workspace-object-toolbar link-editor" role="toolbar" aria-label="关系操作"
+        return createPortal(<div className="reader-context-bar workspace-object-toolbar link-editor" role="toolbar" aria-label="关系操作"
           style={{ left: Math.max(8, Math.min(el.clientWidth - 240,
             ((from.x + from.width / 2 + to.x + to.width / 2) / 2) * props.zoom - el.scrollLeft - 120)),
             top: Math.max(8, Math.min(el.clientHeight - 44,

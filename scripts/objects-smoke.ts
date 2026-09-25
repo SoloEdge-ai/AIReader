@@ -101,7 +101,12 @@ try {
   const groupBefore = await workspace();
   await page.locator(`[data-object-id="${text.id}"]`).click();
   await page.locator(".workspace-card").first().click({ modifiers: ["Shift"] });
-  await expect(page.getByRole("toolbar", { name: "对象操作" })).toContainText("2 个对象");
+  const objectToolbar = page.getByRole("toolbar", { name: "对象操作" });
+  await expect(objectToolbar).toContainText("2 个对象");
+  await expect(objectToolbar).toHaveClass(/reader-context-bar/);
+  const connectButton = await objectToolbar.getByRole("button", { name: "连接选中对象" }).boundingBox();
+  expect(connectButton!.width).toBeGreaterThanOrEqual(36);
+  expect(connectButton!.height).toBeGreaterThanOrEqual(36);
   const cardHeader = (await page.locator(".workspace-card header").first().boundingBox())!;
   await page.mouse.move(cardHeader.x + 50, cardHeader.y + 12);
   await page.mouse.down();
