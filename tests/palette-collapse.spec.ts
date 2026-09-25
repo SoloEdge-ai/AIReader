@@ -62,3 +62,32 @@ test("dragging the handle docks the palette at the nearest edge", async ({ page 
   expect(after).not.toBeNull();
   expect(after!.x).toBeLessThan(70);
 });
+
+for (const dock of ["bottom", "left", "right"] as const)
+  test(`${dock} palette menu uses the shared bounded popover`, async ({ page }) => {
+    await page.goto(`http://127.0.0.1:5173/tests/palette.html?dock=${dock}`);
+    const trigger = page.getByRole("button", { name: "添加形状" });
+    const triggerBox = await trigger.boundingBox();
+    expect(triggerBox).not.toBeNull();
+    await trigger.click();
+    const menu = page.getByRole("menu", { name: "添加形状" });
+    await expect(menu).toBeVisible();
+    if (dock === "bottom")
+      await page.screenshot({ path: "test-results/palette-menu-bottom.png" });
+    const box = await menu.boundingBox();
+    const viewport = page.viewportSize();
+    expect(box).not.toBeNull();
+    expect(viewport).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(7);
+    expect(box!.y).toBeGreaterThanOrEqual(7);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width - 7);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height - 7);
+    if (dock === "bottom") expect(box!.y + box!.height).toBeLessThanOrEqual(triggerBox!.y + 2);
+    if (dock === "left") expect(box!.x).toBeGreaterThanOrEqual(triggerBox!.x + triggerBox!.width - 2);
+    if (dock === "right") expect(box!.x + box!.width).toBeLessThanOrEqual(triggerBox!.x + 2);
+    await expect(menu.getByRole("menuitem", { name: "矩形" })).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: "椭圆" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+  });

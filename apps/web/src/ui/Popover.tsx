@@ -6,6 +6,7 @@ export function Popover({
   triggerLabel,
   trigger,
   triggerClass,
+  pressed,
   className = "",
   disabled,
   placement = "bottom",
@@ -18,9 +19,10 @@ export function Popover({
   triggerLabel?: string;
   trigger: ReactNode;
   triggerClass?: string;
+  pressed?: boolean;
   className?: string;
   disabled?: boolean;
-  placement?: "top" | "bottom";
+  placement?: "top" | "bottom" | "left" | "right";
   width?: number;
   role?: "dialog" | "menu";
   autoFocusFirst?: boolean;
@@ -33,13 +35,28 @@ export function Popover({
   function position() {
     if (!button.current || !panel.current) return;
     const rect = button.current.getBoundingClientRect();
+    const size = Math.min(width, innerWidth - 16);
+    if (placement === "left" || placement === "right") {
+      const leftRoom = rect.left - 16, rightRoom = innerWidth - rect.right - 16;
+      const useLeft = placement === "left"
+        ? leftRoom >= size + 8 || leftRoom >= rightRoom
+        : rightRoom < size + 8 && leftRoom > rightRoom;
+      Object.assign(panel.current.style, {
+        width: `${size}px`,
+        left: `${Math.max(8, Math.min(innerWidth - size - 8,
+          useLeft ? rect.left - size - 8 : rect.right + 8))}px`,
+        top: `${Math.max(8, Math.min(rect.top, innerHeight - panel.current.offsetHeight - 8))}px`,
+        bottom: "auto",
+        maxHeight: `${Math.max(0, innerHeight - 16)}px`,
+      });
+      return;
+    }
     const above = rect.top - 16,
       below = innerHeight - rect.bottom - 16;
     const useAbove =
       placement === "top"
         ? above >= 180 || above >= below
         : below < 180 && above > below;
-    const size = Math.min(width, innerWidth - 16);
     Object.assign(panel.current.style, {
       width: `${size}px`,
       left: `${Math.max(8, Math.min(rect.left, innerWidth - size - 8))}px`,
@@ -70,6 +87,7 @@ export function Popover({
         ref={button}
         className={triggerClass}
         disabled={disabled}
+        aria-pressed={pressed}
         aria-label={triggerLabel ?? label}
         title={triggerLabel ?? label}
         aria-haspopup={role}
@@ -101,6 +119,7 @@ export function Popover({
         }}
         onToggle={(e) => {
           setOpen(e.newState === "open");
+          if (e.newState === "open") requestAnimationFrame(position);
           if (e.newState === "open" && autoFocusFirst)
             requestAnimationFrame(() => panel.current
               ?.querySelector<HTMLElement>('[role^="menuitem"]:not([disabled])')

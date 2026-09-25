@@ -1837,17 +1837,9 @@ summary {
   font-size: 12px;
 }
 .reader-tool-menu {
-  position: fixed;
-  inset: auto;
-  margin: 0;
   display: none;
   min-width: 156px;
   padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 8px 28px #0003;
 }
 .reader-tool-menu:popover-open { display: grid; gap: 2px; }
 .reader-tool-menu button { width: 100%; justify-content: flex-start; font-size: 12px; }
