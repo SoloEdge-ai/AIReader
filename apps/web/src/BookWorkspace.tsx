@@ -59,6 +59,7 @@ export const BookWorkspace = forwardRef<
     page: number;
     toolPreferences: ToolPreferences;
     toolbarHost?: HTMLElement | null;
+    feedbackHost?: HTMLElement | null;
     workspaceEvent?: number;
     onAnnotationColor?: (annotation: Annotation, color: Annotation["color"]) => Promise<void>;
     onAnnotationDelete?: (annotation: Annotation) => Promise<void>;
@@ -1456,23 +1457,6 @@ export const BookWorkspace = forwardRef<
           {!state.value?.cards.length && <p>选中原文创建摘录，或添加笔记。</p>}
         </aside>
       )}
-      {exportError && (
-        <div className="workspace-error" role="alert">
-          {exportError}
-          <button onClick={() => setExportError("")} aria-label="关闭打包错误">
-            <Icon name="close" />
-          </button>
-        </div>
-      )}
-      {inkError && <div className="workspace-error" role="alert">{inkError}
-        <button onClick={() => setInkError("")} aria-label="关闭笔迹错误"><Icon name="close" /></button>
-      </div>}
-      {linkFrom && (
-        <div className="workspace-notice">
-          点击另一张卡片建立连接{" "}
-          <button onClick={() => setLinkFrom(undefined)}>取消</button>
-        </div>
-      )}
       {selected &&
         state.value?.links.some(
           (link) => link.from === selected || link.to === selected,
@@ -1514,46 +1498,58 @@ export const BookWorkspace = forwardRef<
               ))}
           </aside>
         )}
-      {state.error && (
-        <div className="workspace-error" role="alert">
-          {state.error}
-          {state.value ? (
-            <>
-              <button onClick={() => void state.flush()}>重试保存</button>
-              <button
-                onClick={() => {
-                  const url = URL.createObjectURL(
-                    new Blob([JSON.stringify(state.value, null, 2)], {
-                      type: "application/json",
-                    }),
-                  );
-                  const link = document.createElement("a");
-                  link.href = url;
-                  link.download = `AIReader-workspace-${props.book.id}-draft.json`;
-                  link.click();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                }}
-              >
-                下载草稿备份
-              </button>
-              <button
-                onClick={() => {
-                  if (
-                    confirm(
-                      "重新加载会替换当前未保存草稿。请先下载草稿备份。确定重新加载？",
-                    )
-                  )
-                    void state.reload();
-                }}
-              >
-                重新加载已保存版本
-              </button>
-            </>
-          ) : (
-            <button onClick={() => void state.reload()}>重试加载</button>
-          )}
-        </div>
-      )}
+      {props.feedbackHost && (exportError || inkError || linkFrom || state.error) &&
+        createPortal(<div className="workspace-feedback">
+            {exportError && <div className="workspace-error" role="alert">{exportError}
+              <button onClick={() => setExportError("")} aria-label="关闭打包错误"><Icon name="close" /></button>
+            </div>}
+            {inkError && <div className="workspace-error" role="alert">{inkError}
+              <button onClick={() => setInkError("")} aria-label="关闭笔迹错误"><Icon name="close" /></button>
+            </div>}
+            {linkFrom && <div className="workspace-notice">点击另一张卡片建立连接{" "}
+              <button onClick={() => setLinkFrom(undefined)}>取消</button>
+            </div>}
+            {state.error && (
+              <div className="workspace-error" role="alert">
+                {state.error}
+                {state.value ? (
+                  <>
+                    <button onClick={() => void state.flush()}>重试保存</button>
+                    <button
+                      onClick={() => {
+                        const url = URL.createObjectURL(
+                          new Blob([JSON.stringify(state.value, null, 2)], {
+                            type: "application/json",
+                          }),
+                        );
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = `AIReader-workspace-${props.book.id}-draft.json`;
+                        link.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                      }}
+                    >
+                      下载草稿备份
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (
+                          confirm(
+                            "重新加载会替换当前未保存草稿。请先下载草稿备份。确定重新加载？",
+                          )
+                        )
+                          void state.reload();
+                      }}
+                    >
+                      重新加载已保存版本
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => void state.reload()}>重试加载</button>
+                )}
+              </div>
+            )}
+          </div>, props.feedbackHost)}
     </>
   );
 });

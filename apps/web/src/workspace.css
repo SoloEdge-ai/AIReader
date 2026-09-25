@@ -438,20 +438,32 @@
   color: var(--muted);
   padding: 6px 10px 3px;
 }
-.workspace-notice,
-.workspace-error {
+.workspace-feedback {
   position: absolute;
-  top: 12px;
-  left: 20px;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(620px, calc(100% - 40px));
+  max-height: calc(100% - 70px);
+  z-index: 12;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.workspace-feedback > :is(.workspace-notice, .workspace-error) {
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px 12px;
   background: var(--surface, white);
   border: 1px solid var(--line);
   border-radius: 8px;
-  max-width: calc(100% - 40px);
+  box-shadow: 0 8px 24px #0002;
   font-size: 12px;
 }
-.workspace-error {
-  top: 54px;
+.workspace-feedback > .workspace-error {
   color: var(--danger, #c04040);
 }
 .workspace-relations {

@@ -42,6 +42,7 @@ import { useDesktopCloseHandshake } from "./features/desktop/useDesktopCloseHand
 export function App() {
   const workspace = useRef<BookWorkspaceHandle>(null);
   const [workspaceToolbarHost, setWorkspaceToolbarHost] = useState<HTMLDivElement | null>(null);
+  const [readingFeedbackHost, setReadingFeedbackHost] = useState<HTMLElement | null>(null);
   const [navigating, setNavigating] = useState(false);
   const [books, setBooks] = useState<Book[]>([]),
     [active, setActive] = useState<string>();
@@ -931,6 +932,7 @@ export function App() {
             )}
             <section
               className="reading"
+              ref={setReadingFeedbackHost}
               onPointerDownCapture={(event) => {
                 if (!selection || (event.target as HTMLElement).closest(".selection-bar,.reader-tool-palette")) return;
                 selectionPinned.current = false;
@@ -947,6 +949,7 @@ export function App() {
                 page={page}
                 toolPreferences={toolPreferences}
                 toolbarHost={workspaceToolbarHost}
+                feedbackHost={readingFeedbackHost}
                 workspaceEvent={workspaceEvents[book.id] ?? 0}
                 onAnnotationColor={async (annotation, color) => {
                   try {

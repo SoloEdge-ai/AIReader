@@ -24,6 +24,7 @@ let completed = false;
 try {
   desktop = await electron.launch({ args: ["."], env });
   const page = await desktop.firstWindow();
+  await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1080, 760));
   await page.getByRole("heading", { name: "书库", exact: true }).waitFor();
   const pdf = await PDFDocument.create();
   pdf.addPage().drawText("Close-save acceptance source", { x: 35, y: 700 });
@@ -70,6 +71,7 @@ try {
   }
   desktop = await electron.launch({ args: ["."], env });
   const reopened = await desktop.firstWindow();
+  await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1080, 760));
   await reopened.locator(".book-card").first().click();
   await reopened.getByRole("button", { name: "笔记", exact: true }).first().click();
   await reopened.getByRole("button", { name: /关闭前提交测试/ }).click();
@@ -97,9 +99,40 @@ try {
   blocker.exec("ROLLBACK");
   blocker.close();
   blocker = undefined;
-  await reopened.getByRole("button", { name: "重试保存" }).last().click();
+  await desktop.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.setContentSize(1080, 640);
+    window.webContents.setZoomFactor(2);
+  });
+  expect(await reopened.evaluate(() => {
+    const feedback = document.querySelector(".workspace-feedback");
+    if (!feedback) return false;
+    const style = getComputedStyle(feedback);
+    return style.overflowY === "auto" && feedback.getBoundingClientRect().bottom <=
+      document.querySelector(".reading").getBoundingClientRect().bottom;
+  })).toBe(true);
+  expect(await reopened.evaluate(() => {
+    const feedback = document.querySelector(".workspace-feedback");
+    const filler = document.createElement("div");
+    filler.style.height = "600px";
+    feedback.append(filler);
+    const overflowed = feedback.scrollHeight > feedback.clientHeight;
+    feedback.scrollTop = feedback.scrollHeight;
+    const scrolled = feedback.scrollTop > 0;
+    filler.remove();
+    feedback.scrollTop = 0;
+    return overflowed && scrolled;
+  })).toBe(true);
+  const retry = reopened.getByRole("button", { name: "重试保存" }).last();
+  await retry.scrollIntoViewIfNeeded();
+  expect(await retry.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)?.closest("button") === button;
+  })).toBe(true);
+  await retry.click();
   await expect.poll(async () => reopened.evaluate(async (id) =>
     (await (await fetch(`/api/books/${id}/workspace`)).json()).objects.length, bookId)).toBe(1);
+  await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
   const workspaceClosed = desktop.waitForEvent("close", { timeout: 20000 });
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
   await workspaceClosed;

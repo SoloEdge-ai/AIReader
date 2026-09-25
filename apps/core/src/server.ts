@@ -14,9 +14,10 @@ import {
   ToolPreferencesSchema,
   ReaderPreferencesSchema,
   ModelSelectionSchema,
-  type ModelSelection,
 } from "../../../packages/protocol/src";
 import { RuntimeManager } from "./runtime";
+import { AiService } from "./ai-service";
+import { handleAiRoutes } from "./ai-routes";
 import { Notes } from "./notes";
 import { jsonBody, send } from "./http";
 import { handleNoteRoutes } from "./note-routes";
@@ -62,6 +63,7 @@ export function createCore(
   const indexer = new IndexService(library, codex);
   indexer.pauseAll();
   const bookTools = new BookTools(library, codex);
+  const ai = new AiService(library, codex, runtime, chat, indexer, bookTools);
   codex.on("account", (data) => emit({ type: "account", data }));
   codex.on("disconnected", () => emit({ type: "account", data: codex.info }));
   let closed = false;
@@ -69,26 +71,7 @@ export function createCore(
     if (!closed && state.status === "ready")
       void codex.connect().catch(() => {});
   });
-  async function selection(value?: ModelSelection) {
-    if (closed) throw new Error("Core 正在关闭");
-    await codex.connect();
-    if (closed) throw new Error("Core 正在关闭");
-    if (!codex.info.account) throw new Error("请先登录 ChatGPT");
-    const chosen =
-      value ?? library.store.get<ModelSelection>("setting", "model");
-    if (!chosen) throw new Error("请先选择模型和思考强度");
-    const models = await codex.models(),
-      model = models.find((m) => m.model === chosen.model);
-    if (
-      !model ||
-      !model.supportedReasoningEfforts.some(
-        (e) => e.reasoningEffort === chosen.effort,
-      )
-    )
-      throw new Error("所选模型或思考强度已不可用，请重新选择");
-    return chosen;
-  }
-  const chatRoutes = { chat, notes, selectModel: selection };
+  const chatRoutes = { chat, notes, selectModel: ai.selectModel.bind(ai) };
   const authenticated = (req: IncomingMessage) =>
     req.headers.cookie
       ?.split(";")
@@ -185,69 +168,7 @@ export function createCore(
           );
           return;
         }
-        if (parts[1] === "ai") {
-          const endpoint = parts[2];
-          if (endpoint === "status") {
-            send(res, codex.info);
-            return;
-          }
-          if (endpoint === "runtime") {
-            if (req.method === "POST" && parts[3] === "cancel")
-              await runtime.cancel();
-            else if (req.method === "POST") {
-              chat.cancelAll();
-              indexer.pauseAll();
-              bookTools.stopAll();
-              await codex.disconnect();
-              if (closed) throw new Error("Core 正在关闭");
-              void runtime.prepare();
-            }
-            send(res, runtime.state);
-            return;
-          }
-          if (endpoint === "selection") {
-            if (req.method === "POST") {
-              const choice = await selection(
-                ModelSelectionSchema.parse(await jsonBody(req)),
-              );
-              library.store.put("setting", "model", "", choice);
-            }
-            send(res, library.store.get("setting", "model") ?? null);
-            return;
-          }
-          if (endpoint === "models") {
-            send(res, await codex.models());
-            return;
-          }
-          if (req.method === "POST" && endpoint === "connect") {
-            await codex.connect();
-            send(res, codex.info);
-            return;
-          }
-          if (req.method === "POST" && endpoint === "login") {
-            send(res, await codex.login());
-            return;
-          }
-          if (req.method === "POST" && endpoint === "login-cancel") {
-            await codex.cancelLogin();
-            send(res, codex.info);
-            return;
-          }
-          if (
-            req.method === "POST" &&
-            (endpoint === "logout" || endpoint === "disconnect")
-          ) {
-            chat.cancelAll();
-            indexer.pauseAll();
-            bookTools.stopAll();
-            if (endpoint === "logout") {
-              await codex.logout();
-              library.store.remove("setting", "model");
-            } else await codex.disconnect();
-            send(res, codex.info);
-            return;
-          }
-        }
+        if (await handleAiRoutes(req, res, parts, ai)) return;
         if (await handleBookCollectionRoutes(req, res, parts, library)) return;
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];
@@ -334,7 +255,7 @@ export function createCore(
                 const job = indexer.list(id).find((j) => j.id === parts[4]);
                 if (!job?.model || !job.effort)
                   throw new Error("旧索引任务未记录模型，请创建新的索引任务");
-                await selection({ model: job.model, effort: job.effort });
+                await ai.selectModel({ model: job.model, effort: job.effort });
               }
               send(res, indexer.control(id, parts[4], value.action));
               return;
@@ -348,7 +269,7 @@ export function createCore(
                   effort: z.string().max(30).optional(),
                 })
                 .parse(await jsonBody(req));
-              const chosen = await selection(
+              const chosen = await ai.selectModel(
                 value.model ? ModelSelectionSchema.parse(value) : undefined,
               );
               send(
@@ -440,6 +361,7 @@ export function createCore(
     emit,
     async shutdown() {
       closed = true;
+      ai.close();
       await runtime.cancel();
       bookTools.close();
       indexer.close();
@@ -458,6 +380,7 @@ export function createCore(
     },
     close() {
       closed = true;
+      ai.close();
       void runtime.cancel();
       bookTools.close();
       indexer.close();
