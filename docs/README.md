@@ -8,6 +8,8 @@
 
 [实施计划](plans/architecture-refactor.md) 描述已接受目标，按进度表判断是否实现；[决策记录](decisions/0001-refactor-boundaries.md) 解释原因；verification 只证明特定提交实际检查过的内容。archive/2026-09 全部是历史材料，不作为现行要求。
 
+最近的 [Core 边界与阅读 UI 切片验证](verification/2026-09-25-http-ui-slice.md) 列出已跑的真实测试、Windows CI 与未完成项。
+
 | 工作 | 必读 |
 |---|---|
 | 功能/修复 | 产品、相关 UI、相关协议、测试 |
