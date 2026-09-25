@@ -6,7 +6,7 @@
 
 用户最新决定优先，根 AGENTS 规定工程约束。[产品](product.md)、[UI](ui.md) 描述当前行为；[架构](architecture.md)、[数据协议](data-and-protocol.md) 描述当前所有权。字段以 packages/protocol/src 的 schema 为准。
 
-[实施计划](plans/architecture-refactor.md) 描述已接受目标，按进度表判断是否实现；[决策记录](decisions/0001-refactor-boundaries.md) 解释原因；verification 只证明特定提交实际检查过的内容。archive/2026-09 全部是历史材料，不作为现行要求。
+[实施计划](plans/architecture-refactor.md) 描述已接受目标，按进度表判断是否实现；[边界决策](decisions/0001-refactor-boundaries.md) 和[跨实体命令决策](decisions/0002-book-edit-commands.md) 解释实现方向；verification 只证明特定提交实际检查过的内容。archive/2026-09 全部是历史材料，不作为现行要求。
 
 最近的 [Core 边界与阅读 UI 切片验证](verification/2026-09-25-http-ui-slice.md) 列出已跑的真实测试、Windows CI 与未完成项。
 [提问材料并发重试验证](verification/2026-09-25-question-material-retry.md) 记录冻结材料的书籍隔离和原子回执回归。
