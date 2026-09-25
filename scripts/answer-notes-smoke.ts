@@ -88,9 +88,15 @@ try {
   await page
     .getByRole("textbox", { name: "笔记正文", exact: true })
     .fill("我的理解：缓存复用已有计算结果。");
-  await expect(
-    page.getByRole("status").filter({ hasText: /^已保存$/ }),
-  ).toBeVisible();
+  // The footer can be below the scrolled note editor on a busy Windows runner;
+  // assert the actual save state, not whether its accessible node is in view.
+  try {
+    await expect(page.locator(".note-detail footer [role=status]"))
+      .toHaveText("已保存", { timeout: 20000 });
+  } catch (error) {
+    const statuses = await page.locator(".note-detail [role=status]").allTextContents();
+    throw new Error(`Note save did not settle: ${JSON.stringify(statuses)}`, { cause: error });
+  }
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
   await expect(page.locator(".side-panel .chat")).toBeVisible();
   const [reopen] = await Promise.all([

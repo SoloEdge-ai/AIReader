@@ -13,12 +13,14 @@
 - 保存失败提示位于阅读容器上方，在 1080px 窄窗口和 200% 页面缩放下可滚动且重试按钮可命中，不被材料抽屉遮住。
 - 对象／关系条采用选区条的浮层表面与 36px 按钮命中区；批注与画布对象复用颜色弹层，对象支持自定义色。对象测试验证颜色实际写入工作区，截图仅保存在忽略的 `.local/screenshots`。
 - 同一 Note 的卡片、笔记面板与展开编辑器使用共享草稿；正在输入的编辑器不会被旧快照覆盖，聚焦但干净的编辑器仍可接收真实的新版本。
+- 关闭、切书、返回书库和编辑退出使用同一当前书籍保存入口；Note 先于可能引用它的画布提交。当前仍是两套草稿状态加保存屏障，不把它称为完整 `BookEditingSession`。
 
 ## 已执行
 
 - 本机：`pnpm typecheck`、34 文件／55 项 Vitest、`pnpm build` 与捆绑 Core smoke 通过。`tests/http.test.ts` 使用两本真实生成 PDF 和外部模拟 Codex 进程验证工具轮次书籍隔离。
 - 本机打包版：`node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe` 通过；旧构建连续重复五次未复现 CI 曾出现的笔记同步时序失败。改进焦点同步后同一整段验收通过。
 - 本机 UI：`node --import tsx scripts/objects-smoke.ts`、`node scripts/selection-smoke.mjs` 通过；Playwright 的“双视图编辑一份笔记”和“聚焦干净编辑器接收服务端新版本”定向测试通过。
+- 保存屏障修改后 `node scripts/close-save-smoke.mjs` 以真实 Core 版本冲突／SQLite 写锁验证保留草稿、重试和重开；`node scripts/desktop-smoke.mjs .` 验证正常关闭，均通过。
 - Windows CI：`36116023139` 和 `36117038716` 均通过，包含便携 EXE、当前用户安装包、SHA256、阅读／画布／聊天／笔记 UI 及安装更新回归。更早的 `36114328034` 在笔记同步处发生一次时序失败，随后已增加焦点保护和更精确断言。
 
 ## 未完成
