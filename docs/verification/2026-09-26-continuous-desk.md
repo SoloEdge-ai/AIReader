@@ -22,6 +22,14 @@
 
 ## 打包与限制
 
-Portable 构建、实际启动、构建身份与校验和在本轮交付日志中记录。构建身份读取 `dist/build-info.json`，本地产物为 development 通道；不能称为稳定发布。
+Portable 构建与真实 EXE 两次启动通过：首次导入生成 PDF、等待索引、写入笔记、切换主题并正常退出；第二次使用同一个隔离目录，确认保存的标题和正文存在，然后正常退出。测试未使用用户 PDF 或现有应用数据。
+
+- 构建源码：`919f4032716d6430d8a047afeaa03a07fa33f52a`，工作树干净。随后提交仅调整验收脚本／记录，应用代码相同。
+- 本地产物：`release/AIReader-Portable-0.1.0-x64.exe`，118,951,145 bytes。
+- SHA-256：`EBC2A1C59FE239DE21892AC151F59FFFBC7C90F9FFB71AA5EBF80203826149C5`。
+- 身份：development；DB 6／archive 4／API 2，与 `dist/build-info.json` 一致。构建执行器为 Node 24.19.0。
+- 正式 dist 的 workspace、objects、materials、ink smoke 均通过。笔迹回归保留跨页、板上绘画、擦除、撤销、重开和带个人笔迹截图比较；文档平移改在可滚动的纵向范围内验证。
+
+Windows PR 完整流水线仍以 Actions 最新结果为准；本地产物不能称为稳定发布。
 
 本次不以原型截图或历史记录代替验收。未重新完成 516 页／500 卡片／5,000 绘图的完整性能测量，以及 Windows 150%／200% 的全部交互矩阵。安装升级、完整签名和发布仍由 Windows PR 流水线检验。测试用外部 Codex 进程替身；没有冒充实际模型服务请求成功。PR 保持草稿，不自动合并 main。
