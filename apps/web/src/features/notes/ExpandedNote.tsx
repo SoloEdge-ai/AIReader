@@ -136,14 +136,14 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
       event.preventDefault(); event.stopPropagation(); void close();
     }}>
     <header className="expanded-note-header">
-      <div>
-        <span className="expanded-note-eyebrow">{note.origin ? "AI 回答笔记" : "个人笔记"}</span>
-        <strong>编辑理解</strong>
-      </div>
       <button type="button" title="收起笔记编辑" aria-label="收起笔记编辑"
         disabled={closing} onClick={() => void close()}>
         <Icon name="close" />
       </button>
+      <div>
+        <span className="expanded-note-eyebrow">{note.origin ? "AI 回答笔记" : "个人笔记"}</span>
+        <strong>编辑理解</strong>
+      </div>
     </header>
     <div className="expanded-note-scroll">
       <article className="expanded-note-content">

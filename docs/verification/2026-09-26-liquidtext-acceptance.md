@@ -7,6 +7,9 @@
 - `pnpm typecheck`：通过，包含协议与纯引擎边界检查。
 - Node v24.19.0 执行 `vitest run`：49 个文件、95 项测试通过，覆盖 Core HTTP、SQLite、PDF 提取、来源冻结、连续撤销／重做、笔记、书籍级命令、主题组、归档、AI 材料和几何。
 - Node v24.19.0 执行 Playwright 阅读 UI 套件：45 项通过。包括双视口、窄窗、四套外观、摘录与拖放、分组、比较、原文聚焦、笔记与多来源、移出工作台后找回、AI 材料状态、输入焦点、长 PDF 第 300 页重开及保存失败恢复。
+- 使用真实 Core HTTP 和生成 PDF，运行 `workspace-smoke`、`region-smoke`、`ink-smoke`、`objects-smoke`、`materials-smoke`、`chat-smoke`、`chat-attachments-smoke`、`answer-notes-smoke`：均通过。它们覆盖笔记放置与重开、摘录回源、跨页笔迹、对象关系、材料冻结、浮动聊天、AI 回答保存为笔记和导出。
+- `pdf-region-chat-smoke` 在 1×、1.5×、2× 显示缩放下均通过，核对图表像素、PDF 坐标、旋转、缩放、取消、会话与跨书隔离。
+- 打包版 `selection-smoke`、`annotations-smoke`、`ink-packaged-smoke`、`objects-packaged-smoke`、`desktop-smoke`、`close-save-smoke` 和 `model-control-smoke` 均通过隔离数据验证；最终提交的产物仍需从干净工作树重建。
 - Node v24.19.0 执行 `scripts/workspace-performance.ts`：生成 516 页 PDF、500 卡片、100 主题组、1,000 关系、5,000 绘图对象和 250,000 笔迹点；工作台仅挂载 14 张可见卡片。
 - 四套外观及展开笔记截图位于 `generated-screenshots/`，仅使用生成的技术内容。
 
@@ -16,4 +19,4 @@ Windows 11 x64 Build 26200；Intel Core Ultra 7 155H；32GiB RAM；Edge 无头�
 
 ## 尚需 PR CI 和人工核对
 
-Windows Setup 实际安装、升级、卸载在全新 CI 工作区验证；本机不对已有安装身份执行脚本。DPI 100%／150%／200%、真实安装包重开与长期资源曲线以 CI 及人工验收为准。旧数据兼容按产品决定放弃：DB v6 运行时拒绝旧数据库、归档 v4 拒绝旧归档，不会自动清空旧文件。
+Windows Setup 实际安装、升级、卸载在全新 CI 工作区验证；本机不对已有安装身份执行脚本。DPI 100%／150%／200% 的浏览器渲染与输入已自动化验证，真实 Windows 显示器设置、安装包重开及长期资源曲线仍以 CI 和人工验收为准。旧数据兼容按产品决定放弃：DB v6 运行时拒绝旧数据库、归档 v4 拒绝旧归档，不会自动清空旧文件。

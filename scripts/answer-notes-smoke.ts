@@ -76,9 +76,10 @@ try {
     await firstSave
   ).json();
   expect(saved.created).toBe(true);
-  await expect(page.getByRole("textbox", { name: "笔记正文" })).toContainText(
+  await expect(page.locator(".note-detail-preview")).toContainText(
     "supported statement",
   );
+  await page.getByRole("button", { name: "展开编辑笔记" }).click();
   await expect(
     page.getByText("AI 生成 · 可编辑的回答笔记", { exact: true }),
   ).toBeVisible();
@@ -91,14 +92,15 @@ try {
   // The footer can be below the scrolled note editor on a busy Windows runner;
   // assert the actual save state, not whether its accessible node is in view.
   try {
-    await expect(page.locator(".note-detail footer [role=status]"))
+    await expect(page.locator(".expanded-note-footer [role=status]"))
       .toHaveText("已保存", { timeout: 20000 });
   } catch (error) {
-    const statuses = await page.locator(".note-detail [role=status]").allTextContents();
+    const statuses = await page.locator(".expanded-note [role=status]").allTextContents();
     throw new Error(`Note save did not settle: ${JSON.stringify(statuses)}`, { cause: error });
   }
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
   await expect(page.locator(".floating-chat .chat")).toBeVisible();
+  await page.getByRole("button", { name: "收起笔记编辑" }).click();
   const [reopen] = await Promise.all([
     page.waitForResponse(
       (response) =>
@@ -110,6 +112,7 @@ try {
   const opened: { note: Note; created: boolean } = await reopen.json();
   expect(opened.created).toBe(false);
   expect(opened.note.id).toBe(saved.note.id);
+  await page.getByRole("button", { name: "展开编辑笔记" }).click();
   await expect(
     page.getByRole("textbox", { name: "笔记标题", exact: true }),
   ).toHaveValue("缓存机制阅读笔记");
@@ -133,9 +136,11 @@ try {
       name: /缓存机制阅读笔记/,
     })
     .click();
+  await page.getByRole("button", { name: "展开编辑笔记" }).click();
   await expect(
     page.getByRole("textbox", { name: "笔记正文", exact: true }),
   ).toHaveText("我的理解：缓存复用已有计算结果。");
+  await page.getByRole("button", { name: "收起笔记编辑" }).click();
   await page.getByRole("textbox", { name: "页码", exact: true }).fill("2");
   await page.getByRole("textbox", { name: "页码", exact: true }).press("Enter");
   await expect(
@@ -168,7 +173,10 @@ try {
   await page.evaluate(() => {
     document.documentElement.dataset.theme = "light";
   });
+  await page.getByRole("button", { name: "展开编辑笔记" }).click();
   await page.setViewportSize({ width: 860, height: 760 });
+  const boardTab = page.getByRole("tab", { name: "工作台" });
+  if (await boardTab.count()) await boardTab.click();
   await expect(
     page.getByRole("textbox", { name: "笔记正文", exact: true }),
   ).toBeInViewport();
@@ -199,6 +207,7 @@ try {
     .locator(".notes-list")
     .getByRole("button", { name: /缓存机制阅读笔记/ })
     .click();
+  await page.getByRole("button", { name: "展开编辑笔记" }).click();
   await expect(
     page.getByRole("textbox", { name: "笔记正文", exact: true }),
   ).toHaveText("我的理解：缓存复用已有计算结果。");

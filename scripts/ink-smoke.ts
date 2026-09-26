@@ -30,7 +30,7 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: /Ink acceptance/ }).click();
   await expect(page.locator("#page-2")).toHaveAttribute("data-render-ready", "true");
-  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const first = (await page.locator("#page-1").boundingBox())!;
   const second = (await page.locator("#page-2").boundingBox())!;
   await page.getByRole("button", { name: "画笔（P）" }).click();
@@ -47,7 +47,7 @@ try {
     const snapshot = await (await page.request.get(endpoint)).json();
     throw new Error(`First ink stroke was not saved: ${JSON.stringify({
       revision: snapshot.revision, objects: snapshot.objects.length,
-      workspaceReady: await page.locator(".pdf-scroll").getAttribute("data-workspace-ready"),
+      workspaceReady: await page.locator(".board-pane .pdf-scroll").getAttribute("data-workspace-ready"),
       feedback: await page.locator(".workspace-feedback").allTextContents(),
       commandResponses, pageErrors: errors,
     })}`, { cause });
@@ -67,7 +67,7 @@ try {
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "画笔（P）" }).click();
   await expect(page.getByRole("button", { name: "画笔（P）" })).toHaveAttribute("aria-pressed", "true");
-  const reading = (await page.locator(".reading").boundingBox())!;
+  const reading = (await page.locator(".board-pane .pdf-scroll").boundingBox())!;
   await page.mouse.move(reading.x + 160, reading.y + 250);
   await page.mouse.down();
   await page.mouse.move(reading.x + 220, reading.y + 270, { steps: 8 });
@@ -84,7 +84,7 @@ try {
   await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(2);
   await page.reload();
   await page.getByRole("button", { name: /Ink acceptance/ }).click();
-  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   expect((await (await page.request.get(endpoint)).json()).objects).toHaveLength(2);
   await page.getByRole("button", { name: "画笔（P）" }).click();

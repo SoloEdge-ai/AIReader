@@ -372,7 +372,7 @@ export const BookWorkspace = forwardRef<
       if (original) {
         if (original.placed === false) state.change((current) => ({ ...current,
           cards: current.cards.map((card) => card.id === original.id ? { ...card, placed: true } : card) }));
-        navigate(original.x - 40, original.y - 40, 1); selectTarget(original.id); return;
+        navigate(original.x - 40, original.y - 40); selectTarget(original.id); return;
       }
       if (!mounted.current) return;
       const group = selectedGroup && state.value.groups.find((item) => item.id === selectedGroup);
@@ -403,12 +403,12 @@ export const BookWorkspace = forwardRef<
         props.notes.setSelected(created.id);
         setSelectedIds([card.id]); setSelected(card.id);
         const placement = pending.changes[0].type === "create-note" ? pending.changes[0].placement : card;
-        navigate(placement.x - 40, placement.y - 40, 1);
+        navigate(placement.x - 40, placement.y - 40);
         return;
       }
       state.change((current) => addCardToGroup({ ...current, cards: [...current.cards, card] }, card, selectedGroup));
       setSelectedIds([card.id]); setSelected(card.id);
-      navigate(card.x - 40, card.y - 40, 1);
+      navigate(card.x - 40, card.y - 40);
       if (!(await state.flush())) throw new Error("卡片放置未保存；笔记已保留在列表，画板草稿可重试");
     } finally { placing.current = false; }
   }
@@ -463,7 +463,7 @@ export const BookWorkspace = forwardRef<
     locateItem: (id) => {
       const card = state.value?.cards.find((entry) => entry.id === id && entry.placed !== false);
       if (card) {
-        navigate(card.x - 40, card.y - 40, 1);
+        navigate(card.x - 40, card.y - 40);
         setSelected(card.id);
         setSelectedIds([card.id]);
         setSelectedLink(undefined);
@@ -471,7 +471,7 @@ export const BookWorkspace = forwardRef<
         const object = state.value?.objects.find((entry) => entry.id === id);
         const link = state.value?.links.find((entry) => entry.id === id);
         const rect = state.value && locateWorkspaceItem(id, state.value, pdfPages.current, props.annotations ?? []);
-        if (rect) navigate(rect.x - 40, rect.y - 40, 1);
+        if (rect) navigate(rect.x - 40, rect.y - 40);
         setSelected(undefined);
         setSelectedIds(object ? [object.id] : []);
         setSelectedLink(link?.id);
@@ -483,7 +483,7 @@ export const BookWorkspace = forwardRef<
       if (!card) return;
       state.change((current) => ({ ...current, cards: current.cards.map((entry) =>
         entry.id === id ? { ...entry, placed: true } : entry) }));
-      navigate(Math.max(0, card.x - 40), Math.max(0, card.y - 40), 1);
+      navigate(Math.max(0, card.x - 40), Math.max(0, card.y - 40));
       setSelected(card.id); setSelectedIds([card.id]); setNarrowPane("board");
     },
     escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
@@ -1957,14 +1957,14 @@ export const BookWorkspace = forwardRef<
             </span>
           </button>
           {state.value?.groups.map((group) => <button key={group.id} onClick={() => {
-            navigate(Math.max(0, group.x - 40), Math.max(0, group.y - 40), 1);
+            navigate(Math.max(0, group.x - 40), Math.max(0, group.y - 40));
             setSelectedGroup(group.id); setShowOverview(false);
           }}><Icon name="workspace" /><span>{group.title}<small>{group.memberIds.length} 项材料</small></span></button>)}
           {state.value?.cards.filter((card) => card.placed !== false).map((card) => (
             <button
               key={card.id}
               onClick={() => {
-                navigate(card.x - 40, card.y - 40, 1);
+                navigate(card.x - 40, card.y - 40);
                 setSelected(card.id);
                 setShowOverview(false);
               }}

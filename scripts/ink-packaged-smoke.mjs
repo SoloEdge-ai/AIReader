@@ -21,7 +21,7 @@ try {
   await page.locator('input[type=file][accept="application/pdf"]').setInputFiles(fixture);
   await page.locator("#page-2").waitFor();
   await expect(page.locator("#page-2")).toHaveAttribute("data-render-ready", "true");
-  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const first = await page.locator("#page-1").boundingBox();
   const second = await page.locator("#page-2").boundingBox();
   await page.getByRole("button", { name: "画笔（P）" }).click();

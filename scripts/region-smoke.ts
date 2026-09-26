@@ -24,7 +24,7 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: /Region acceptance/ }).click();
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
-  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   await page.getByRole("button", { name: "区域摘录（R）" }).click();
   const pageBox = (await page.locator("#page-1").boundingBox())!;
   await page.mouse.move(pageBox.x + 50, pageBox.y + 145);
@@ -52,7 +52,9 @@ try {
   const originalPixels = Buffer.from(await (await page.request.get(
     `${origin}/api/books/${book.id}/workspace-assets/${saved.cards[0].region.assetId}`)).body());
   await card.getByRole("button", { name: /第 1 页/ }).click();
-  await expect(page.locator(".workspace-source-focus")).toHaveCount(1);
+  await expect(page.getByRole("complementary", { name: "摘录来源预览" })).toBeVisible();
+  await page.getByRole("complementary", { name: "摘录来源预览" })
+    .getByRole("button", { name: "前往原文" }).click();
   const highlight = await page.request.post(`${origin}/api/books/${book.id}/annotations`, {
     headers: { Origin: origin },
     data: { kind: "highlight", color: "yellow", quote: "", anchors: [{ page: 1, rects: [[70, 420, 180, 500]] }] },

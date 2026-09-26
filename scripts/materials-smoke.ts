@@ -24,8 +24,8 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: /Material acceptance/ }).click();
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
-  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
-  const source = (await page.locator("#page-1").boundingBox())!;
+  await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  const source = (await page.locator(".board-pane .pdf-scroll").boundingBox())!;
   await page.getByRole("button", { name: "添加形状" }).click();
   await page.getByRole("menuitem", { name: "矩形" }).click();
   await page.mouse.move(source.x + 60, source.y + 100);
@@ -42,28 +42,30 @@ try {
   await page.screenshot({ path: ".local/screenshots/question-materials.png" });
   await page.getByRole("button", { name: "笔记", exact: true }).first().click();
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
-  await expect(page.getByRole("region", { name: "画布材料" }).getByRole("button", { name: /定位.*矩形/ }))
+  await expect(page.getByRole("region", { name: "本书材料" }).getByRole("button", { name: /定位.*矩形/ }))
     .toHaveCount(1);
-  await page.getByRole("combobox", { name: "画布材料类型" }).selectOption("card");
-  await expect(page.getByRole("region", { name: "画布材料" }).getByRole("button", { name: /定位.*矩形/ }))
+  await page.getByRole("combobox", { name: "材料类型" }).selectOption("note");
+  await expect(page.getByRole("region", { name: "本书材料" }).getByRole("button", { name: /定位.*矩形/ }))
     .toHaveCount(0);
-  await page.getByRole("combobox", { name: "画布材料类型" }).selectOption("shape");
+  await page.getByRole("combobox", { name: "材料类型" }).selectOption("drawing");
   await page.getByRole("combobox", { name: "画布材料排序" }).selectOption("type");
-  await page.getByRole("region", { name: "画布材料" }).getByRole("button", { name: /定位.*矩形/ }).click();
+  await page.getByRole("region", { name: "本书材料" }).getByRole("button", { name: /定位.*矩形/ }).click();
   await expect(page.locator(".workspace-object.selected")).toHaveCount(1);
   await page.screenshot({ path: ".local/screenshots/material-catalog.png" });
-  await page.getByRole("button", { name: "新建笔记" }).click();
+  await page.locator(".notes-panel").getByRole("button", { name: "新建笔记" }).click();
   await page.getByLabel("笔记标题", { exact: true }).fill("待验证的个人想法");
   await page.locator(".tiptap").fill("这条笔记属于用户，不是原书观点。");
-  await page.getByRole("button", { name: "加入提问", exact: true }).click();
+  await page.locator(".notes-panel").getByRole("button", { name: "加入提问", exact: true }).click();
   await expect(page.locator(".question-material-item")).toHaveCount(2);
   await expect(page.locator(".question-material-list")).toContainText("待验证的个人想法");
+  await page.getByRole("button", { name: "收起笔记编辑" }).click();
   await page.getByRole("button", { name: "放到画布", exact: true }).click();
-  const materialList = page.getByRole("region", { name: "画布材料" }).locator(".material-card-row");
-  await page.getByRole("combobox", { name: "画布材料类型" }).selectOption("all");
+  const materialList = page.getByRole("region", { name: "本书材料" }).locator(".material-card-row");
+  await page.getByRole("combobox", { name: "材料类型" }).selectOption("all");
   await page.getByRole("combobox", { name: "画布材料排序" }).selectOption("page");
   await expect(materialList).toHaveCount(2);
-  await expect(materialList.first()).toContainText("矩形");
+  await expect(materialList.first()).toContainText("待验证的个人想法");
+  await expect(materialList.nth(1)).toContainText("矩形");
   await page.getByRole("combobox", { name: "画布材料排序" }).selectOption("type");
   await expect(materialList.first()).toContainText("待验证的个人想法");
   await page.setViewportSize({ width: 1280, height: 720 });

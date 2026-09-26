@@ -74,23 +74,25 @@ try {
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1080, 760));
   await reopened.locator(".book-card").first().click();
   await reopened.getByRole("button", { name: "笔记", exact: true }).first().click();
-  await reopened.getByRole("button", { name: /关闭前提交测试/ }).click();
+  await reopened.locator(".notes-list").getByRole("button", { name: /关闭前提交测试/ }).click();
+  await reopened.locator(".notes-panel").getByRole("button", { name: "展开编辑笔记" }).click();
   await expect(reopened.locator(".tiptap")).toContainText("这份草稿必须在窗口关闭前写入本机数据库。");
+  await reopened.getByRole("button", { name: "收起笔记编辑" }).click();
   await expect(reopened.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
-  await expect(reopened.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
-  await reopened.locator("#page-1").evaluate((page) => page.scrollIntoView({ block: "start", inline: "center" }));
-  const firstPage = (await reopened.locator("#page-1").boundingBox());
-  expect(firstPage).toBeTruthy();
+  await expect(reopened.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  const boardViewport = await reopened.locator(".board-pane .pdf-scroll").boundingBox();
+  expect(boardViewport).toBeTruthy();
+  const draw = { x: boardViewport.x + boardViewport.width / 2,
+    y: boardViewport.y + boardViewport.height / 2 };
   await reopened.getByRole("button", { name: "添加形状" }).click();
   await reopened.getByRole("menuitem", { name: "矩形" }).click();
   await expect(reopened.getByRole("button", { name: "添加形状" })).toHaveAttribute("aria-pressed", "true");
-  expect(await reopened.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest("#page-1")),
-    { x: firstPage.x + 80, y: firstPage.y + 180 })).toBe(true);
+  expect(await reopened.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest(".board-pane")), draw)).toBe(true);
   blocker = new DatabaseSync(join(directory, "library.sqlite"));
   blocker.exec("BEGIN IMMEDIATE");
-  await reopened.mouse.move(firstPage.x + 80, firstPage.y + 180);
+  await reopened.mouse.move(draw.x, draw.y);
   await reopened.mouse.down();
-  await reopened.mouse.move(firstPage.x + 190, firstPage.y + 250, { steps: 5 });
+  await reopened.mouse.move(draw.x + 70, draw.y + 50, { steps: 5 });
   await reopened.mouse.up();
   await expect(reopened.locator('[data-object-id]')).toHaveCount(1);
   await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
