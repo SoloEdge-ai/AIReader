@@ -69,6 +69,7 @@ export const RegionExcerptCardSchema = z.object({
 }).strict();
 export type RegionExcerptCard = z.infer<typeof RegionExcerptCardSchema>;
 export const WorkspaceGroupSchema = z.object({
+  presentation: z.enum(["frame", "cluster"]).optional(),
   id: identity,
   title: z.string().max(200),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),

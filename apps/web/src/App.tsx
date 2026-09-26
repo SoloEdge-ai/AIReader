@@ -1,3 +1,4 @@
+import { useExcerptDrag } from "./features/desk/useExcerptDrag";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -65,11 +66,16 @@ export function App() {
     [marks, setMarks] = useState<Bookmark[]>([]);
   const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<SelectionAction>();
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+  const excerptDrag = useExcerptDrag((frozen, x, y) => {
+    if (workspace.current?.dropExcerpt(frozen, x, y)) {
+      selectionPinned.current = false; clearSelection();
+    }
+  });
   const [draggedExcerpt, setDraggedExcerpt] = useState<{ bookId: string; selection: ReadingSelection }>();
   const [questionDrafts] = useState(() => new QuestionDraftStore());
   const [chatSessions, setChatSessions] = useState<Record<string, string>>({});
   const [readerHost, setReaderHost] = useState<HTMLDivElement | null>(null);
-  const [boardHost, setBoardHost] = useState<HTMLElement | null>(null);
   const questionDraftKey = active && chatSessions[active] ? `${active}:${chatSessions[active]}` : "";
   const activeQuestionDraft = useSyncExternalStore(questionDrafts.subscribe,
     () => questionDrafts.get(questionDraftKey));
@@ -582,7 +588,7 @@ export function App() {
     }}
     beforeWorkspaceChange={editing.flush}
     onPlace={(note) => workspace.current!.placeNote(note)}
-    onExpand={(note) => { readerTools.finish(); workspace.current?.showPane("board");
+    onExpand={(note) => { readerTools.finish(); 
       setExpandedNote({ bookId: book.id, id: note.id }); }}
     onAddAnnotation={async (annotation) => {
       const added = await workspace.current?.addToQuestion([annotation.id]);
@@ -941,18 +947,22 @@ export function App() {
               className={`reading${expandedNote?.bookId === book.id ? " note-expanded" : ""}`}
               ref={setReadingFeedbackHost}
               onPointerDownCapture={(event) => {
+                if (excerptDrag.begin(event, selection)) return;
                 if (!selection || (event.target as HTMLElement).closest(".selection-bar,.reader-tool-palette")) return;
                 selectionPinned.current = false;
                 clearSelection();
               }}
             >
+              {excerptDrag.preview && createPortal(<div className="desk-excerpt-drag"
+                style={{ left: excerptDrag.preview.x + 18, top: excerptDrag.preview.y + 18 }}>
+                {excerptDrag.preview.text}</div>, document.body)}
               <BookWorkspace
                 ref={workspace}
                 workspaceSession={editing.workspace!}
                 onBookChanges={editing.submitChanges}
                 onCatalogChange={(bookId, catalog) => setCanvasCatalog({ bookId, catalog })}
                 notes={notes}
-                onExpandNote={(note) => { readerTools.finish(); notes.setSelected(note.id); workspace.current?.showPane("board");
+                onExpandNote={(note) => { readerTools.finish(); notes.setSelected(note.id); 
                   setExpandedNote({ bookId: book.id, id: note.id }); }}
                 beforeExport={notes.flush}
                 book={book}
@@ -994,6 +1004,11 @@ export function App() {
                 onView={onPdfView}
                 zoom={layout.boardZoom}
                 onZoom={(boardZoom) => updateLayout({ ...layout, boardZoom })}
+                deskLayout={layout.deskLayout}
+                onDeskLayout={(deskLayout) => updateLayout({ ...layout, deskLayout })}
+                documentRect={layout.documentRect}
+                onDocumentRect={(documentRect) => updateLayout({ ...layout, documentRect })}
+                onSelectedMaterials={setSelectedMaterialIds}
                 pdfZoom={layout.pdfZoom}
                 onPdfZoom={(pdfZoom) => updateLayout({ ...layout, pdfZoom })}
                 splitRatio={layout.splitRatio}
@@ -1005,7 +1020,6 @@ export function App() {
                 draggedExcerpt={draggedExcerpt}
                 onExcerptDrop={() => { setDraggedExcerpt(undefined); selectionPinned.current = false; clearSelection(); }}
                 chatOpen={layout.panel !== "none"}
-                onBoardHost={setBoardHost}
                 rotation={layout.rotation}
                 onPage={onPage}
                 onSelection={(next) => {
@@ -1078,7 +1092,9 @@ export function App() {
                   onDismiss={() => { selectionPinned.current = false; clearSelection(); }}
                 />
               )}
-              {expanded && boardHost && createPortal(<ExpandedNote note={expanded} state={notes} onJump={jump}
+              {expanded && createPortal(<ExpandedNote note={expanded} state={notes} onJump={jump}
+                window={{ rect: layout.noteWindow, bounds: { width: viewportWidth, height: viewportHeight },
+                  onCommit: (noteWindow) => updateLayout({ ...layout, noteWindow }) }}
                 onJumpPdf={(anchor) => {
                   workspace.current?.showPane("pdf");
                   workspace.current?.locate([anchor]);
@@ -1093,7 +1109,7 @@ export function App() {
                   await notes.refresh();
                 }} onClose={() => {
                 setExpandedNote(undefined); readerTools.finish();
-              }} />, boardHost)}
+              }} />, document.body)}
             </section>
           </div>
           {layout.panel !== "none" && (
@@ -1119,6 +1135,8 @@ export function App() {
                       onCitation={jump}
                       notes={notes.notes}
                       annotations={notes.annotations}
+                      pendingMaterialIds={selectedMaterialIds}
+                      onAddPendingMaterials={() => workspace.current?.addToQuestion(selectedMaterialIds) ?? Promise.resolve(false)}
                       materialCatalog={canvasCatalog?.bookId === book.id ? canvasCatalog.catalog : undefined}
                       materialSourcesReady={Boolean(canvasCatalog?.bookId === book.id && notes.loaded)}
                       onNoteSaved={openSavedNote}

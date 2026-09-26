@@ -44,7 +44,7 @@ test("workspace groups are book-scoped, persisted and reversible without becomin
     const boardObject = { id: "board-label", kind: "text", surface: { kind: "board" },
       x: 80, y: 260, width: 240, height: 80, text: "Working theory", fontSize: 16,
       color: "#123456", bold: false, align: "left" };
-    const group = { id: "theme-one", title: "Memory model", color: "#56789a",
+    const group = { presentation: "cluster", id: "theme-one", title: "Memory model", color: "#56789a",
       x: 20, y: 40, width: 760, height: 300,
       memberIds: [first.id, second.id, boardObject.id], collapsed: false };
     const created = await request(path, command(book.id, "create-group", 0, [

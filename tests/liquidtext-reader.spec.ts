@@ -60,6 +60,7 @@ test.beforeAll(async () => {
     Buffer.from(await pdf.save()), "LiquidText alignment fixture.pdf",
   );
   bookId = book.id;
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent" });
   await core.library.waitForBook(bookId);
   const workspace = new Workspaces(core.library);
   const original = workspace.get(bookId);
@@ -286,6 +287,11 @@ test("a frozen AI material retains its snapshot when the source changes or leave
 });
 
 test("one atomic note placement links two excerpts and reopens with both sources", async ({ page }) => {
+  const cleanWorkspace = new Workspaces(core.library);
+  const prior = cleanWorkspace.get(bookId);
+  cleanWorkspace.save(bookId, { ...prior, groups: [], camera: { x: 0, y: 0, zoom: 1 },
+    cards: prior.cards.map((card, index) => ({ ...card, placed: true, x: 60 + index * 360, y: 80 })) });
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent", splitRatio: .4 });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await openBook(page);
   const board = page.getByRole("region", { name: "工作台" });
@@ -307,7 +313,9 @@ test("one atomic note placement links two excerpts and reopens with both sources
     expect(placed.x >= excerpt.x + excerpt.width || excerpt.x >= placed.x + placed.width ||
       placed.y >= excerpt.y + excerpt.height || excerpt.y >= placed.y + placed.height).toBe(true);
 
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   for (const id of ["excerpt-definition", "excerpt-theorem"]) {
+    await board.locator(`[data-card-id="${id}"]`).click({ position: { x: 40, y: 35 } });
     await board.locator(`[data-card-id="${id}"]`)
       .getByRole("button", { name: "关联到所选笔记" }).click();
   }
@@ -316,6 +324,7 @@ test("one atomic note placement links two excerpts and reopens with both sources
     return saved[0]?.sourceReferences.map((source) => source.targetId).sort();
   }).toEqual(["excerpt-definition", "excerpt-theorem"]);
   await expect(page.getByText("刷新期间工作区已发生编辑", { exact: false })).toHaveCount(0);
+  await noteCard.hover();
   await noteCard.getByRole("button", { name: "展开卡片笔记" }).click();
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
   await expect(expanded.locator(".expanded-note-sources summary"))
@@ -349,13 +358,14 @@ test("one atomic note placement links two excerpts and reopens with both sources
   await expect(page.getByRole("region", { name: "原文" }).locator(".pdf-page").first())
     .toBeVisible();
 
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
 
   await page.reload();
   await page.locator(".book-card").filter({ hasText: "LiquidText alignment fixture" }).click();
   const reopenedBoard = page.getByRole("region", { name: "工作台" });
   const reopenedNoteCard = reopenedBoard.locator(".workspace-card.note");
   await expect(reopenedNoteCard).toHaveCount(1);
+  await reopenedNoteCard.hover();
   await reopenedNoteCard.getByRole("button", { name: "展开卡片笔记" }).click();
   const reopened = page.getByRole("dialog", { name: "展开笔记编辑" });
   await expect(reopened.locator(".expanded-note-sources summary"))
@@ -443,4 +453,84 @@ test("Delete only removes a selected card while the workbench has focus", async 
   await card.locator("blockquote").click();
   await page.keyboard.press("Delete");
   await expect(card).toHaveCount(0);
+});
+
+
+test("spatial desk moves PDF, freezes multiple cards individually, and keeps floating notes nonmodal", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await openBook(page);
+  const layout = page.getByRole("button", { name: "切换桌面布局" });
+  if ((await layout.textContent()) !== "并排") await layout.click();
+  const cards = page.locator('.workspace-card.excerpt');
+  const ids = await cards.evaluateAll((elements) => elements.slice(0, 2).map((el) => el.getAttribute('data-card-id')));
+  expect(ids).toHaveLength(2);
+  await page.getByRole('button', { name: '多选材料', exact: true }).click();
+  for (const id of ids) await page.locator(`[data-card-id="${id}"] input[type="checkbox"]`).check();
+  await page.getByRole('button', { name: '将所选材料加入问题', exact: true }).click();
+  const chat = page.getByLabel('AI 问答浮窗', { exact: true });
+  await expect(chat.locator('.question-material-item')).toHaveCount(2);
+  await chat.getByRole('button', { name: '加入本轮问题', exact: true }).click();
+  await expect(chat.locator('.question-material-item')).toHaveCount(2);
+  await chat.getByRole('button', { name: '关闭问答浮窗' }).click();
+  await layout.click();
+  const pdf = page.locator('.pdf-pane');
+  const before = await pdf.boundingBox();
+  const header = pdf.locator('.reader-pane-header');
+  const box = await header.boundingBox();
+  await page.mouse.move(box!.x + 65, box!.y + 18); await page.mouse.down();
+  await page.mouse.move(box!.x + 185, box!.y + 68, { steps: 12 }); await page.mouse.up();
+  const after = await pdf.boundingBox();
+  expect(after!.x - before!.x).toBeCloseTo(120, 0);
+  expect(after!.y - before!.y).toBeCloseTo(50, 0);
+  await page.getByRole('button', { name: '新建笔记', exact: true }).click();
+  const note = page.getByLabel('笔记浮窗', { exact: true });
+  await expect(note).toBeVisible();
+  await note.getByLabel('笔记标题').fill('Floating desk note');
+  const noteHeader = note.getByLabel('拖动移动笔记浮窗');
+  const oldNote = await note.boundingBox();
+  await noteHeader.focus(); await page.keyboard.press('ArrowLeft');
+  expect((await note.boundingBox())!.x).toBeLessThan(oldNote!.x);
+  await note.getByRole('button', { name: '关闭笔记浮窗' }).click();
+  await expect(note).toHaveCount(0);
+  await page.screenshot({ path: '.local/desk-production-spatial.png', fullPage: true });
+  await page.reload(); await page.locator('.book-card').filter({ hasText: 'LiquidText alignment fixture' }).click();
+  await expect(page.locator('.desk-spatial')).toHaveCount(1);
+  await expect.poll(async () => (await page.locator('.pdf-pane').boundingBox())?.x).toBeCloseTo(after!.x, 0);
+});
+
+
+test("real PDF selection drags directly and contact grouping commits on release", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent", splitRatio: .4 });
+  const store = new Workspaces(core.library), prior = store.get(bookId);
+  store.save(bookId, { ...prior, groups: [], camera: { x: 0, y: 0, zoom: 1 }, cards: prior.cards.map((card, index) =>
+    ({ ...card, placed: true, x: 60 + index * 360, y: 80 })) });
+  await openBook(page);
+  await page.getByRole('button', { name: '选择文字（T）' }).click();
+  await selectFirstPdfLine(page, 1);
+  const selection = await page.evaluate(() => {
+    const native = window.getSelection()!, rect = native.getRangeAt(0).getBoundingClientRect();
+    return { text: native.toString(), x: rect.left + 12, y: rect.top + rect.height / 2 };
+  });
+  const board = await page.locator('.board-normal-view').boundingBox();
+  const previousCount = await page.locator('.workspace-card').count();
+  await page.mouse.move(selection.x, selection.y); await page.mouse.down();
+  await page.mouse.move(board!.x + 160, board!.y + 580, { steps: 16 });
+  await expect(page.locator('.desk-excerpt-drag')).toContainText(selection.text);
+  await page.mouse.up();
+  await expect(page.locator('.workspace-card')).toHaveCount(previousCount + 1);
+  await expect(page.getByRole('toolbar', { name: '文字选区操作' })).toHaveCount(0);
+  await expect.poll(() => store.get(bookId).cards.find((card) => card.text === selection.text)?.text).toBe(selection.text);
+  await page.getByRole('button', { name: '指针（V）' }).click();
+  const first = page.locator('[data-card-id="excerpt-definition"]');
+  const second = page.locator('[data-card-id="excerpt-theorem"]');
+  const a = await first.boundingBox(), b = await second.boundingBox();
+  await page.mouse.move(b!.x + 80, b!.y + 12); await page.mouse.down();
+  const dx = a!.x + a!.width + 5 - b!.x;
+  await page.mouse.move(b!.x + 80 + dx, b!.y + 12, { steps: 8 });
+  expect(store.get(bookId).groups).toEqual([]);
+  await page.mouse.up();
+  await expect.poll(() => store.get(bookId).groups[0]?.presentation).toBe('cluster');
+  await expect(page.locator('.desk-paper-bridges path:not(.pending)')).toHaveCount(1);
+  await page.screenshot({ path: '.local/desk-production-adjacent.png', fullPage: true });
 });

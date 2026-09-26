@@ -824,11 +824,12 @@ export function PdfReader({
   useLayoutEffect(() => {
     if (documentWidth) workspace?.onDocumentWidth(documentWidth);
   }, [documentWidth]);
-  let bottom = 40;
+  const documentInset = workspace?.mode === "document" ? 16 : WORKSPACE_DOCUMENT_X;
+  let bottom = workspace?.mode === "document" ? 16 : 40;
   const worldPages = views.current.map((view, index) => {
     const page = {
       page: index + 1,
-      x: WORKSPACE_DOCUMENT_X + (documentWidth - view.width / zoom) / 2,
+      x: documentInset + (documentWidth - view.width / zoom) / 2,
       y: bottom,
       width: view.width / zoom,
       height: view.height / zoom,
@@ -882,7 +883,7 @@ export function PdfReader({
         left: camera ? camera.x * zoom : initialNode ?
           Math.max(0, initialNode.offsetLeft + position.current.x * initialNode.offsetWidth - el.clientWidth / 2) :
           workspace.mode === "board" ? 0 :
-          (WORKSPACE_DOCUMENT_X + documentWidth / 2) * zoom - el.clientWidth / 2,
+          (documentInset + documentWidth / 2) * zoom - el.clientWidth / 2,
         top: camera ? camera.y * zoom : initialNode ?
           Math.max(0, initialNode.offsetTop + position.current.y * initialNode.offsetHeight - 20) :
           workspace.mode === "board" ? 0 :
@@ -1196,7 +1197,7 @@ export function PdfReader({
             workspace
               ? {
                   position: "relative",
-                  width: (workspace.mode === "board" ? workspace.width :
+                  width: (workspace.mode === "document" ? documentWidth + documentInset * 2 : workspace.mode === "board" ? workspace.width :
                     Math.max(workspace.width, WORKSPACE_DOCUMENT_X * 2 + documentWidth)) * zoom,
                   height: (workspace.mode === "board" ? workspace.height :
                     Math.max(workspace.height, bottom + 40)) * zoom,

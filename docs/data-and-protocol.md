@@ -49,3 +49,5 @@ Note.document 使用 Core 校验后的 Tiptap JSON。允许基础段落／标题
 删除 Note 在同一事务保存其位置／主题组归属／关系逆操作并删除个人卡片；源摘录卡片只解除评论引用。恢复时若 ID 已冲突、主题组已删除或关系端点缺失，整次恢复失败，不部分恢复。单独删除卡片不删除 Note。材料选择关联卡片必须携带 Note revision，Core 将摘录原文与评论分别分类并冻结；最终提交前再次核对 Note 版本。归档 v4 校验活跃 Note 引用、来源快照、主题组引用及单位置约束，恢复副本重映射 noteId/sourceCard.cardId、sourceReferences 的 ID／目标／资源、正文引用节点、组 ID、成员 ID 和图片资源。
 
 归档只支持 v4；v1、v2、v3 和未知较新版本在导入前明确拒绝。保留大小、路径、hash、图片及跨书验证；恢复独立副本并重映射引用。账号、执行文件和完整聊天不入包。旧版 `.aireader` 包需用生成它的旧版应用处理，本分支不提供转换。
+
+阅读偏好增加 `deskLayout: spatial | adjacent`（默认 spatial）、`documentRect` 和 `noteWindow`。文档矩形位于桌面单位，浮窗矩形位于窗口像素；两者均不增加内容版本。`WorkspaceGroup.presentation` 可为 frame 或 cluster，缺省按 frame 显示；软连接从 cluster 成员与位置派生，不另存永久关系。此处为当前格式内的可选字段扩展，格式版本仍为 DB v6／工作区 v5／布局 v3／归档 v4。

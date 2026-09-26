@@ -5,6 +5,12 @@ import { NoteEditor, type NoteEditorHandle } from "./NoteEditor";
 import { Icon } from "../../ui/Icon";
 import { base } from "../../api";
 import "./notes.css";
+import { FloatingWindow } from "../../ui/floating-window/FloatingWindow";
+import { clampWindow, type WindowRect, type WindowBounds } from "../../ui/floating-window/geometry";
+
+function defaultNoteWindow(bounds: WindowBounds): WindowRect {
+  return clampWindow({ x: Math.max(24, bounds.width * .48), y: 90, width: 600, height: 660 }, bounds);
+}
 
 interface NoteSourceItem {
   key: string;
@@ -97,7 +103,8 @@ function noteSources(note: Note): NoteSourceItem[] {
 }
 
 /** The only rich-text editing surface. PDF and chat stay usable around this workspace layer. */
-export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemoveSource }: {
+export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemoveSource, window: floating }: {
+  window?: { rect?: WindowRect; bounds: WindowBounds; onCommit: (rect: WindowRect) => void };
   note: Note;
   state: BookNotes;
   onClose: () => void;
@@ -127,7 +134,7 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
   }
   const statusKind = state.status.startsWith("保存失败") ? "error"
     : state.status === "保存中…" ? "saving" : "saved";
-  return <section className="expanded-note" ref={panel} role="dialog" aria-modal="false"
+  const content = <section className="expanded-note" ref={panel} role="dialog" aria-modal="false"
     aria-label="展开笔记编辑" data-note-id={note.id}
     onKeyDown={(event) => {
       if (event.nativeEvent.isComposing || event.key !== "Escape") return;
@@ -135,7 +142,7 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
       if ((event.target as HTMLElement).closest(".note-link-form,.note-math-form")) return;
       event.preventDefault(); event.stopPropagation(); void close();
     }}>
-    <header className="expanded-note-header">
+    {!floating && <header className="expanded-note-header">
       <button type="button" title="收起笔记编辑" aria-label="收起笔记编辑"
         disabled={closing} onClick={() => void close()}>
         <Icon name="close" />
@@ -144,7 +151,7 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
         <span className="expanded-note-eyebrow">{note.origin ? "AI 回答笔记" : "个人笔记"}</span>
         <strong>编辑理解</strong>
       </div>
-    </header>
+    </header>}
     <div className="expanded-note-scroll">
       <article className="expanded-note-content">
         {note.origin && <p className="expanded-note-origin-note">
@@ -200,4 +207,7 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
         <button type="button" onClick={() => void state.flush()}>重试保存</button>}
     </footer>
   </section>;
+  return floating ? <FloatingWindow {...floating} title="笔记" label="笔记浮窗"
+    className="floating-note" defaultRect={defaultNoteWindow} closeDisabled={closing}
+    onClose={() => void close()}>{content}</FloatingWindow> : content;
 }

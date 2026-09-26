@@ -40,6 +40,8 @@ export function ChatPanel({
   notes,
   annotations,
   materialCatalog,
+  pendingMaterialIds = [],
+  onAddPendingMaterials,
   materialSourcesReady,
   onNoteSaved,
   onStartRegion,
@@ -60,6 +62,8 @@ export function ChatPanel({
   notes: Note[];
   annotations: Annotation[];
   materialCatalog?: Pick<BookWorkspace, "cards" | "objects" | "links">;
+  pendingMaterialIds?: string[];
+  onAddPendingMaterials?: () => Promise<boolean>;
   materialSourcesReady: boolean;
   onNoteSaved: (note: Note) => Promise<void>;
   onStartRegion: (sessionId: string) => void;
@@ -493,6 +497,12 @@ export function ChatPanel({
         }}
       >
         <div className="composer-materials">
+          {!!pendingMaterialIds.length && <section className="pending-question-materials" aria-label="待加入材料">
+            <strong>待加入 · {pendingMaterialIds.length} 份材料</strong>
+            <ul>{pendingMaterialIds.map((id) => <li key={id}>{materialCatalog?.cards.find((card) => card.id === id)?.title || "所选绘图材料"}</li>)}</ul>
+            <button type="button" disabled={!!preparing} onClick={() => void onAddPendingMaterials?.()}>加入本轮问题</button>
+            <small>加入后保留此刻的内容，选择变化不会替换已加入材料。</small>
+          </section>}
           {(!!materials.length || !!images.length || !!attachment) &&
             <span className="question-material-heading">本轮材料 · {materialCount} 项</span>}
           {!!materials.length && <div className="question-material-list" aria-label="本轮材料">

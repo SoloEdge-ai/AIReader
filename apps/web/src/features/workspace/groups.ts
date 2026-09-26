@@ -1,3 +1,4 @@
+import { nearestContact } from "../../../../../packages/workspace-engine/src/contact";
 import type { BookWorkspace, WorkspaceCard, WorkspaceGroup, WorkspaceObject } from "../../../../../packages/protocol/src/workspace";
 import { objectRect } from "../../../../../packages/workspace-engine/src/objects";
 import { projectStroke } from "../../../../../packages/workspace-engine/src/ink";
@@ -99,7 +100,7 @@ export function arrangeGroup(snapshot: BookWorkspace, groupId: string): BookWork
 
 export function assignCardGroup(snapshot: BookWorkspace, card: WorkspaceCard): BookWorkspace {
   const centerX = card.x + card.width / 2, centerY = card.y + card.height / 2;
-  const target = snapshot.groups.find((group) => !group.collapsed &&
+  const target = snapshot.groups.find((group) => group.presentation !== "cluster" && !group.collapsed &&
     centerX >= group.x && centerX <= group.x + group.width &&
     centerY >= group.y && centerY <= group.y + group.height);
   return { ...snapshot, groups: snapshot.groups.map((group) => ({ ...group,
@@ -119,4 +120,31 @@ export function addCardToGroup(snapshot: BookWorkspace, card: WorkspaceCard,
     width: Math.max(group.width, card.x + card.width + 24 - group.x),
     height: Math.max(group.height, card.y + card.height + 24 - group.y),
   } : group) };
+}
+
+/** Release commits position and membership together through the existing atomic workspace command. */
+export function releaseCardContact(snapshot: BookWorkspace, cardId: string, groupId: string): BookWorkspace {
+  const card = snapshot.cards.find((item) => item.id === cardId);
+  if (!card) return snapshot;
+  const owner = snapshot.groups.find((group) => group.memberIds.includes(cardId));
+  if (owner && owner.presentation !== "cluster") return snapshot;
+  const eligible = snapshot.cards.filter((item) => item.placed !== false && !snapshot.groups.some((group) =>
+    group.memberIds.includes(item.id) && (group.collapsed || group.presentation !== "cluster")));
+  const contact = nearestContact(card, eligible, 8);
+  if (!contact) {
+    if (!owner || nearestContact(card, eligible.filter((item) => owner.memberIds.includes(item.id)), 44)) return snapshot;
+    return { ...snapshot, groups: snapshot.groups.map((group) => group.id === owner.id ? { ...group,
+      memberIds: group.memberIds.filter((id) => id !== cardId) } : group) };
+  }
+  const target = eligible.find((item) => item.id === contact.targetId)!;
+  const targetGroup = snapshot.groups.find((group) => group.memberIds.includes(target.id));
+  const members = [...new Set([...(owner?.memberIds ?? [cardId]), ...(targetGroup?.memberIds ?? [target.id])])];
+  const nextCard = contact.axis === "x" ? { ...card, x: Math.max(0, card.x < target.x ? target.x - card.width - 24 : target.x + target.width + 24) }
+    : { ...card, y: Math.max(0, card.y < target.y ? target.y - card.height - 24 : target.y + target.height + 24) };
+  const id = targetGroup?.id ?? owner?.id ?? groupId;
+  const title = targetGroup?.title ?? owner?.title ?? "关联材料";
+  const color = targetGroup?.color ?? owner?.color ?? "#5d83b0";
+  const grouped = groupSelection({ ...snapshot, cards: snapshot.cards.map((item) => item.id === cardId ? nextCard : item),
+    groups: snapshot.groups.filter((group) => group.id !== owner?.id && group.id !== targetGroup?.id) }, members, id, title, color);
+  return { ...grouped, groups: grouped.groups.map((group) => group.id === id ? { ...group, presentation: "cluster" } : group) };
 }

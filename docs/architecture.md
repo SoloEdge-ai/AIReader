@@ -4,7 +4,7 @@
 
 Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。聊天轮次优先用 WebSocket 更新；仅有进行中的轮次时按书籍／会话补读 HTTP 快照，以恢复可能丢失的终态事件，完成后停止轮询。
 
-问答浮窗由 renderer 的 `features/chat/FloatingChatWindow` 管理拖动和尺寸手势；纯几何运算在同目录 `floating-geometry`。浮窗仍复用原 `ChatPanel`、会话草稿和 Core 聊天接口，仅把按书籍保存的窗口矩形写入 `ReaderPreferences`。窗口变化不修改 PDF／工作区内容版本，也不通过独立系统窗口或 Node 权限实现。
+问答与笔记浮窗共用 renderer 的 `ui/floating-window` 管理拖动和尺寸手势；纯几何运算位于该模块的 `geometry`。业务保存与关闭保护留在笔记组件中。浮窗仍复用原 `ChatPanel`、会话草稿和 Core 聊天接口，仅把按书籍保存的窗口矩形写入 `ReaderPreferences`。窗口变化不修改 PDF／工作区内容版本，也不通过独立系统窗口或 Node 权限实现。
 
 App 组合书库、双区阅读、材料、笔记和问答；`BookWorkspace` 管理 PDF／工作台交互，两个 `PdfReader` 实例分别持有 PDF 与画布视口。PDF 页面只在原文实例加载；工作台实例只绘制画布对象。跨区来源线和 AI 材料线由 `features/connections` 把 PDF、画布和浮窗端点投影到屏幕，动画帧合并几何变化，不写入永久关系。原文聚焦仍使用 PDF.js 原始页面坐标及文字层，比较视图只读取已有摘录。两套视觉风格共享布局与语义组件，仅颜色和纸面层次不同。
 
@@ -49,3 +49,5 @@ Core 的 `book-routes` 拥有书库、阅读进度、书籍偏好、书签和 PD
 应用外壳组合features；features通过书籍编辑会话和类型客户端协作。UI基础不依赖业务；纯工作区引擎不依赖React/DOM/Node；PDF适配提供变换，几何不能导入React阅读器。
 
 Core HTTP调用应用操作，操作拥有事务/业务规则，存储拥有SQL/文件。共享协议不依赖应用。已验证几何、材料和引用模块逐步迁入明确位置，不按文件行数机械拆分。
+
+桌面呈现、选区拖出与接触几何的边界见 [ADR 0006](decisions/0006-continuous-desk.md)。接触分组通过既有 workspace 编辑会话一次提交位置及组归属；不把显示桥当作语义关系。

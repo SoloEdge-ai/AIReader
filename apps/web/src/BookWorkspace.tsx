@@ -1,3 +1,4 @@
+import { nearestContact, paperBridge } from "../../../packages/workspace-engine/src/contact";
 import {
   forwardRef,
   useEffect,
@@ -43,17 +44,20 @@ import { WorkspaceObjectActions, WorkspaceRelationActions } from "./WorkspaceObj
 import { base, post } from "./api";
 import "./workspace.css";
 import "./reader-split.css";
+import "./features/desk/desk.css";
+import { useDocumentObject, type DocumentRect } from "./features/desk/useDocumentObject";
 import type { BookNotes } from "./features/notes/useBookNotes";
 import type { WorkspaceEditingSession } from "./features/workspace/WorkspaceEditingSession";
 import { NoteCardContent } from "./features/notes/NoteCardContent";
 import { ConnectionOverlay, type ConnectionOverlayItem } from "./features/connections";
-import { addCardToGroup, arrangeGroup, assignCardGroup, boardMemberBounds, groupSelection, moveGroup } from "./features/workspace/groups";
+import { releaseCardContact, addCardToGroup, arrangeGroup, assignCardGroup, boardMemberBounds, groupSelection, moveGroup } from "./features/workspace/groups";
 import { findOpenCardPlacement } from "./features/workspace/card-placement";
 import { CompareView, FocusPdfDocument } from "./features/compare-focus";
 import { relatedComparisonNotes } from "./features/compare-focus/comparison-notes";
 
 export interface BookWorkspaceHandle {
   excerpt(selection: ReadingSelection, point?: InkPoint): void;
+  dropExcerpt(selection: ReadingSelection, x: number, y: number): boolean;
   escape(): void;
   addToQuestion(ids: string[]): Promise<boolean>;
   locate(anchors: PdfAnchor[]): void;
@@ -83,6 +87,11 @@ export const BookWorkspace = forwardRef<
     workspaceSession: WorkspaceEditingSession;
     onExpandNote: (note: Note) => void;
     onCatalogChange?: (bookId: string, catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links" | "groups">) => void;
+    deskLayout: "spatial" | "adjacent";
+    onDeskLayout: (layout: "spatial" | "adjacent") => void;
+    documentRect?: DocumentRect;
+    onDocumentRect: (rect: DocumentRect) => void;
+    onSelectedMaterials?: (ids: string[]) => void;
     pdfZoom: number;
     onPdfZoom: (zoom: number) => void;
     splitRatio: number;
@@ -119,6 +128,10 @@ export const BookWorkspace = forwardRef<
   }, [props.workspaceEvent]);
   const [selected, setSelected] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [multiSelect, setMultiSelect] = useState(false);
+  const selectionCallback = useRef(props.onSelectedMaterials);
+  selectionCallback.current = props.onSelectedMaterials;
+  useEffect(() => { selectionCallback.current?.(selectedIds); }, [selectedIds]);
   const [selectedLink, setSelectedLink] = useState<string>();
   const [selectedGroup, setSelectedGroup] = useState<string>();
   const [groupMaterialPreview, setGroupMaterialPreview] = useState<{ groupId: string; ids: string[] }>();
@@ -136,6 +149,9 @@ export const BookWorkspace = forwardRef<
   const [showOverview, setShowOverview] = useState(false);
   const [documentWidth, setDocumentWidth] = useState(0);
   const [narrow, setNarrow] = useState(false);
+  const spatial = props.deskLayout === "spatial" && !narrow && props.readerPaneMode === "split";
+  const documentObject = useDocumentObject(props.documentRect, props.zoom, props.onDocumentRect);
+  const documentZoom = props.pdfZoom * (spatial ? props.zoom : 1);
   const [narrowPane, setNarrowPane] = useState<"pdf" | "board">("pdf");
   const [splitDraft, setSplitDraft] = useState(props.splitRatio);
   const splitRoot = useRef<HTMLDivElement>(null);
@@ -252,8 +268,8 @@ export const BookWorkspace = forwardRef<
     const el = pdfViewport.current;
     if (!el) return;
     const page = pdfPages.current.find((item) => item.page === props.page);
-    if (page) el.scrollTo({ left: Math.max(0, (page.x + page.width / 2) * props.pdfZoom - el.clientWidth / 2),
-      top: Math.max(0, page.y * props.pdfZoom - 20) });
+    if (page) el.scrollTo({ left: Math.max(0, (page.x + page.width / 2) * documentZoom - el.clientWidth / 2),
+      top: Math.max(0, page.y * documentZoom - 20) });
     setNarrowPane("pdf");
     if (props.readerPaneMode === "board") props.onReaderPaneMode("split");
     setFocus(false);
@@ -332,11 +348,11 @@ export const BookWorkspace = forwardRef<
       text: selection.text,
       comment: "",
       x: point ? Math.max(0, point[0]) : selectedGroup ? (state.value.groups.find((group) => group.id === selectedGroup)?.x ?? 16) + 24 :
-        Math.max(40, (el?.scrollLeft ?? 0) / props.zoom + 60),
+        Math.max(spatial ? documentObject.rect.x + documentObject.rect.width + 36 : 40, (el?.scrollLeft ?? 0) / props.zoom + 60),
       y: point ? Math.max(0, point[1]) : selectedGroup ? (state.value.groups.find((group) => group.id === selectedGroup)?.y ?? 6) + 54 :
         Math.max(40, (el?.scrollTop ?? 0) / props.zoom + 60),
       width: 320,
-      height: 240,
+      height: Math.max(160, Math.min(340, 82 + Math.ceil(selection.text.length / 22) * 26)),
       source: { fingerprint: props.book.fingerprint, anchors: structuredClone(selection.anchors) },
     };
     if (!point) card = findOpenCardPlacement(card, state.value.cards.filter((item) => item.placed !== false));
@@ -379,7 +395,7 @@ export const BookWorkspace = forwardRef<
       let card: WorkspaceCard = { id: pendingCreateNote.current?.changes[0]?.type === "create-note"
           ? pendingCreateNote.current.changes[0].placement.id : crypto.randomUUID(), kind: "note", noteId: existing?.id,
         title: "", text: "", comment: "", x: point ? Math.max(0, point[0] + 20) : group ? group.x + 24 :
-          Math.max(40, (viewport.current?.scrollLeft ?? 0) / props.zoom + 60),
+          Math.max(spatial ? documentObject.rect.x + documentObject.rect.width + 36 : 40, (viewport.current?.scrollLeft ?? 0) / props.zoom + 60),
         y: point ? Math.max(0, point[1]) : group ? group.y + 54 :
           Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60),
         width: 340, height: 220 };
@@ -402,8 +418,7 @@ export const BookWorkspace = forwardRef<
         await props.notes.refresh();
         props.notes.setSelected(created.id);
         setSelectedIds([card.id]); setSelected(card.id);
-        const placement = pending.changes[0].type === "create-note" ? pending.changes[0].placement : card;
-        navigate(placement.x - 40, placement.y - 40);
+        props.onExpandNote(created);
         return;
       }
       state.change((current) => addCardToGroup({ ...current, cards: [...current.cards, card] }, card, selectedGroup));
@@ -453,6 +468,15 @@ export const BookWorkspace = forwardRef<
   useImperativeHandle(ref, () => ({ excerpt: add,
     placeNote,
     addToQuestion: addSelectedToQuestion,
+    dropExcerpt: (selection, x, y) => {
+      const board = viewport.current;
+      const bounds = board?.getBoundingClientRect();
+      const world = board?.querySelector<HTMLElement>(".pdf-world")?.getBoundingClientRect();
+      const hit = document.elementFromPoint(x, y);
+      if (!bounds || !world || !hit?.closest(".board-pane") || x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return false;
+      add(selection, [(x - world.left) / props.zoom, (y - world.top) / props.zoom]);
+      return true;
+    },
     locate: locateAnchors,
     jumpPage,
     focusAnchors: enterFocus,
@@ -499,7 +523,9 @@ export const BookWorkspace = forwardRef<
     const cards = current.cards.map((card) => card.id === id ? { ...card, ...change } : card);
     const next = { ...current, cards };
     const moved = cards.find((card) => card.id === id);
-    return moved && (change.x !== undefined || change.y !== undefined) ? assignCardGroup(next, moved) : next;
+    if (!moved || (change.x === undefined && change.y === undefined)) return next;
+    const owner = current.groups.find((group) => group.memberIds.includes(id));
+    return owner?.presentation === "cluster" ? next : assignCardGroup(next, moved);
   }
   function createThemeGroup() {
     if (!state.value) return;
@@ -652,10 +678,10 @@ export const BookWorkspace = forwardRef<
     }
     pendingLocate.current = undefined;
     setLocatingPage(undefined);
-    setReturnPosition({ x: el.scrollLeft / props.pdfZoom, y: el.scrollTop / props.pdfZoom });
+    setReturnPosition({ x: el.scrollLeft / documentZoom, y: el.scrollTop / documentZoom });
     const location = page.locate(anchor.rects[0]);
-    el.scrollTo({ left: Math.max(0, page.x * props.pdfZoom - 30),
-      top: Math.max(0, location.y * props.pdfZoom - 100) });
+    el.scrollTo({ left: Math.max(0, page.x * documentZoom - 30),
+      top: Math.max(0, location.y * documentZoom - 100) });
   }
   function jumpPage(pageNumber: number) {
     if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > props.book.pages) return;
@@ -673,8 +699,8 @@ export const BookWorkspace = forwardRef<
     }
     pendingPage.current = undefined;
     setLocatingPage(undefined);
-    el.scrollTo({ left: Math.max(0, page.x * props.pdfZoom - 30),
-      top: Math.max(0, page.y * props.pdfZoom - 20) });
+    el.scrollTo({ left: Math.max(0, page.x * documentZoom - 30),
+      top: Math.max(0, page.y * documentZoom - 20) });
   }
   async function addSelectedToQuestion(ids: string[] = selectedLink ? [selectedLink] : selectedIds) {
     if (!ids.length || !props.onQuestionMaterials || materialBusy) return false;
@@ -685,6 +711,9 @@ export const BookWorkspace = forwardRef<
       const snapshot = state.value;
       const revision = state.revision();
       if (!snapshot || revision === undefined) throw new Error("工作区尚未加载");
+      const frozen = new Set((props.questionMaterials ?? []).flatMap((material) => material.targets.map((target) => target.id)));
+      ids = [...new Set(ids)].filter((id) => !frozen.has(id));
+      if (!ids.length) return true;
       const targets = ids.map((id) => {
         const card = snapshot.cards.find((card) => card.id === id);
         if (card) return { kind: "card" as const, id, revision: card.noteId
@@ -695,8 +724,11 @@ export const BookWorkspace = forwardRef<
         if (annotation) return { kind: "annotation" as const, id, revision: annotation.revision };
         throw new Error("所选对象已失效，请重新选择");
       });
-      const previews = captureMaterialPreviews(ids, snapshot, props.annotations ?? [], pdfPages.current);
-      await props.onQuestionMaterials({ workspaceRevision: revision, targets, previews });
+      // Each selected object gets its own frozen record, so removing one never re-freezes its neighbours.
+      for (const target of targets) {
+        const previews = captureMaterialPreviews([target.id], snapshot, props.annotations ?? [], pdfPages.current);
+        await props.onQuestionMaterials({ workspaceRevision: revision, targets: [target], previews });
+      }
       return true;
     } catch (cause) {
       setInkError(`加入提问失败：${String(cause)}`);
@@ -993,12 +1025,28 @@ export const BookWorkspace = forwardRef<
           } as CSSProperties
         }
       >
+        <svg className="desk-paper-bridges" aria-hidden="true">
+          {groups.filter((group) => group.presentation === "cluster" && !group.collapsed).flatMap((group) => {
+            const members = cards.filter((card) => group.memberIds.includes(card.id));
+            return members.flatMap((card, index) => members.slice(index + 1).map((other) => {
+              const path = paperBridge(card, other);
+              return path ? <path key={`${card.id}-${other.id}`} d={path} /> : null;
+            }));
+          })}
+          {gesture && pointer.current?.mode === "move" && (() => {
+            const moving = allCards.find((card) => card.id === gesture.id);
+            const contact = moving && nearestContact(moving, cards);
+            const target = contact && cards.find((card) => card.id === contact.targetId);
+            const path = moving && target && paperBridge(moving, target);
+            return path ? <path className="pending" d={path} /> : null;
+          })()}
+        </svg>
         {groups.map((group) => {
           const actual = state.value!.groups.find((item) => item.id === group.id)!;
           const relationCount = state.value!.links.filter((link) =>
             group.memberIds.includes(link.from) || group.memberIds.includes(link.to)).length;
           return <section key={group.id}
-            className={`workspace-group${group.collapsed ? " collapsed" : ""}${selectedGroup === group.id ? " selected" : ""}`}
+            className={`workspace-group${group.presentation === "cluster" ? " paper-cluster" : ""}${group.collapsed ? " collapsed" : ""}${selectedGroup === group.id ? " selected" : ""}`}
             style={{ left: group.x, top: group.y, width: group.width,
               height: group.collapsed ? 58 : group.height,
               "--group-color": group.color } as CSSProperties}
@@ -1182,10 +1230,14 @@ export const BookWorkspace = forwardRef<
               if ((event.target as HTMLElement).closest("input, textarea, [contenteditable=true]")) return;
               if (event.button === 0) {
                 event.currentTarget.focus({ preventScroll: true });
-                select(card, event.shiftKey);
+                select(card, event.shiftKey || event.ctrlKey || event.metaKey || multiSelect);
               }
             }}
           >
+            {multiSelect && <label className="desk-card-check" onPointerDown={(event) => event.stopPropagation()}>
+              <input type="checkbox" aria-label={`选择材料：${card.title || "未命名"}`}
+                checked={selectedIds.includes(card.id)} onChange={() => selectTarget(card.id, true)} />
+            </label>}
             <header
               tabIndex={0}
               aria-label="移动卡片（方向键）"
@@ -1492,6 +1544,8 @@ export const BookWorkspace = forwardRef<
       if (pointer.current.mode === "move" && selectedIds.includes(id) && selectedIds.length > 1)
         shiftSelection(selectedIds, geometry.x - pointer.current.card.x,
           geometry.y - pointer.current.card.y);
+      else if (pointer.current.mode === "move") state.change((current) =>
+        releaseCardContact(assignCardGroupIfMoved(current, id, geometry), id, crypto.randomUUID()));
       else update(id, geometry);
     }
     cancel();
@@ -1502,7 +1556,7 @@ export const BookWorkspace = forwardRef<
   }
   function beginSurface(surface: "pdf" | "board") {
     pages.current = surface === "pdf" ? pdfPages.current : [];
-    gestureZoom.current = surface === "pdf" ? props.pdfZoom : props.zoom;
+    gestureZoom.current = surface === "pdf" ? documentZoom : props.zoom;
     projectedInk.current = state.value?.objects.filter((object): object is InkStroke => object.kind === "ink")
       .map((stroke) => projectStroke(stroke, pages.current)) ?? [];
   }
@@ -1577,8 +1631,8 @@ export const BookWorkspace = forwardRef<
         const page = pdfPages.current.find((entry) => entry.page === anchor?.page);
         if (!anchor || !rect || !page) continue;
         const point = page.toWorld([(rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2]);
-        const projected = worldRect && { x: Math.round(worldRect.left + point[0] * props.pdfZoom),
-          y: Math.round(worldRect.top + point[1] * props.pdfZoom) };
+        const projected = worldRect && { x: Math.round(worldRect.left + point[0] * documentZoom),
+          y: Math.round(worldRect.top + point[1] * documentZoom) };
         const visible = showPdf && projected && pdfPaneRect && projected.x >= pdfPaneRect.left &&
           projected.x <= pdfPaneRect.right && projected.y >= pdfPaneRect.top + 44 &&
           projected.y <= pdfPaneRect.bottom;
@@ -1612,21 +1666,24 @@ export const BookWorkspace = forwardRef<
       window.removeEventListener("resize", schedule);
       observer.disconnect(); resize.disconnect();
     };
-  }, [props.connectionHost, props.questionMaterials, props.chatOpen, props.pdfZoom, props.zoom, props.book.labels,
+  }, [props.connectionHost, props.questionMaterials, props.chatOpen, documentZoom, props.zoom, props.book.labels,
     selectedIds, props.notes.selected, state.value?.cards, showPdf, showBoard, comparing]);
   return (
     <>
       {props.connectionHost && connectionView && createPortal(<ConnectionOverlay
         container={connectionView.container} connections={connectionView.connections} />, props.connectionHost)}
-      <div ref={splitRoot} className="reader-split" style={{ "--reader-split-ratio": splitDraft } as CSSProperties}>
+      <div ref={splitRoot} className={`reader-split desk-surface ${spatial ? "desk-spatial" : "desk-adjacent"}`} style={{ "--reader-split-ratio": splitDraft } as CSSProperties}>
         {narrow && <div className="reader-pane-tabs" role="tablist" aria-label="阅读区域">
           <button role="tab" aria-selected={showPdf} onClick={() => { setNarrowPane("pdf"); props.onReaderPaneMode("split"); }}>原文</button>
           <button role="tab" aria-selected={showBoard}
             onDragOver={(event) => { if (event.dataTransfer.types.includes("application/x-aireader-excerpt")) setNarrowPane("board"); }}
             onClick={() => { setNarrowPane("board"); props.onReaderPaneMode("split"); }}>工作台</button>
         </div>}
-        <section className="reader-pane pdf-pane" aria-label="原文" hidden={!showPdf}>
-          <header className="reader-pane-header">
+        <section className="reader-pane pdf-pane" aria-label="原文" hidden={!showPdf}
+          style={spatial ? { left: (documentObject.rect.x - (state.value?.camera?.x ?? 0)) * props.zoom,
+            top: (documentObject.rect.y - (state.value?.camera?.y ?? 0)) * props.zoom,
+            width: documentObject.rect.width * props.zoom, height: documentObject.rect.height * props.zoom } : undefined}>
+          <header className="reader-pane-header" {...(spatial ? documentObject.move : {})}>
             <span><Icon name="book" /> 原文 <small>第 {props.page} 页</small></span>
             <div className="reader-pane-actions">
               {locatingPage && <span className="reader-source-loading" role="status">正在定位第 {props.book.labels[locatingPage - 1] ?? locatingPage} 页…</span>}
@@ -1639,7 +1696,7 @@ export const BookWorkspace = forwardRef<
             </div>
           </header>
           <div className="pdf-normal-view" hidden={!!focusAnchors}>
-          <PdfReader {...props} zoom={props.pdfZoom} onZoom={props.onPdfZoom} onRegionAction={regionAction}
+          <PdfReader {...props} zoom={documentZoom} onZoom={(zoom) => props.onPdfZoom(zoom / (spatial ? props.zoom : 1))} onRegionAction={regionAction}
             workspace={{
               mode: "document", ready: !!state.value, onDocumentWidth: setDocumentWidth,
               onCamera: () => {}, width: WORKSPACE_DOCUMENT_X * 2 + documentWidth,
@@ -1674,8 +1731,17 @@ export const BookWorkspace = forwardRef<
               requestAnimationFrame(() => locateAnchors([{ page: region.page, rects: [region.pdfRect] }]));
             }}
             onClose={() => setFocusAnchors(undefined)} /></div>}
+          {spatial && <div className="desk-document-resize" role="separator" tabIndex={0}
+            aria-label="调整文档大小" aria-orientation="vertical" aria-valuenow={documentObject.rect.width}
+            {...documentObject.resize} onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+              event.preventDefault();
+              props.onDocumentRect({ ...documentObject.rect,
+                width: Math.max(360, Math.min(1600, documentObject.rect.width + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0))),
+                height: Math.max(320, Math.min(2000, documentObject.rect.height + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0))) });
+            }} />}
         </section>
-        {!narrow && paneMode === "split" && <div className="reader-pane-separator" role="separator" tabIndex={0}
+        {!narrow && !spatial && paneMode === "split" && <div className="reader-pane-separator" role="separator" tabIndex={0}
           aria-label="调整原文与工作台宽度" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={70}
           aria-valuenow={Math.round(splitDraft * 100)}
           onKeyDown={(event) => {
@@ -1708,6 +1774,11 @@ export const BookWorkspace = forwardRef<
           <header className="reader-pane-header">
             <span><Icon name="workspace" /> 工作台 <small>{state.value?.cards.filter((card) => card.placed !== false).length ?? 0} 张卡片</small></span>
             <div className="reader-pane-actions">
+              <button aria-label="切换桌面布局" title={spatial ? "切换到连续并排布局" : "切换到空间桌面"}
+                onClick={() => props.onDeskLayout(props.deskLayout === "spatial" ? "adjacent" : "spatial")}>{props.deskLayout === "spatial" ? "空间" : "并排"}</button>
+              <button aria-label="多选材料" aria-pressed={multiSelect} onClick={() => setMultiSelect(!multiSelect)}>多选</button>
+              {!!selectedIds.length && <button aria-label="将所选材料加入问题" disabled={materialBusy}
+                onClick={() => void addSelectedToQuestion(selectedIds)}>加入问题 · {selectedIds.length}</button>}
               <button className="reader-pane-new-note" aria-label="新建笔记" title="新建笔记" onClick={() => add()}><Icon name="plus" /></button>
               <button className="reader-pane-secondary" aria-label="将所选材料建为主题组" title="将所选材料建为主题组"
                 disabled={!selectedIds.some((id) => state.value && boardMemberBounds(state.value, id))}
@@ -1907,8 +1978,8 @@ export const BookWorkspace = forwardRef<
             role="menuitem"
             onClick={() => {
               pdfViewport.current?.scrollTo({
-                left: returnPosition.x * props.pdfZoom,
-                top: returnPosition.y * props.pdfZoom,
+                left: returnPosition.x * documentZoom,
+                top: returnPosition.y * documentZoom,
               });
               setReturnPosition(undefined);
               setSourceFocus(undefined);
