@@ -77,9 +77,11 @@ try {
   await reopened.locator(".notes-list").getByRole("button", { name: /关闭前提交测试/ }).click();
   await reopened.locator(".notes-panel").getByRole("button", { name: "展开编辑笔记" }).click();
   await expect(reopened.locator(".tiptap")).toContainText("这份草稿必须在窗口关闭前写入本机数据库。");
-  await reopened.getByRole("button", { name: "收起笔记编辑" }).click();
+  await reopened.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(reopened.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
   await expect(reopened.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  const deskLayoutButton = reopened.getByRole("button", { name: "切换桌面布局" });
+  if ((await deskLayoutButton.textContent()) === "空间") await deskLayoutButton.click();
   const boardViewport = await reopened.locator(".board-pane .pdf-scroll").boundingBox();
   expect(boardViewport).toBeTruthy();
   const draw = { x: boardViewport.x + boardViewport.width / 2,

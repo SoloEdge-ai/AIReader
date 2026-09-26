@@ -24,6 +24,8 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: /Material acceptance/ }).click();
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  const deskLayoutButton = page.getByRole("button", { name: "切换桌面布局" });
+  if ((await deskLayoutButton.textContent()) === "空间") await deskLayoutButton.click();
   await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const source = (await page.locator(".board-pane .pdf-scroll").boundingBox())!;
   await page.getByRole("button", { name: "添加形状" }).click();
@@ -58,7 +60,7 @@ try {
   await page.locator(".notes-panel").getByRole("button", { name: "加入提问", exact: true }).click();
   await expect(page.locator(".question-material-item")).toHaveCount(2);
   await expect(page.locator(".question-material-list")).toContainText("待验证的个人想法");
-  await page.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByRole("button", { name: "放到画布", exact: true }).click();
   const materialList = page.getByRole("region", { name: "本书材料" }).locator(".material-card-row");
   await page.getByRole("combobox", { name: "材料类型" }).selectOption("all");

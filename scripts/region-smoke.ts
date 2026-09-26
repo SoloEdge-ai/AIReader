@@ -24,6 +24,8 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: /Region acceptance/ }).click();
   await expect(page.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
+  const deskLayoutButton = page.getByRole("button", { name: "切换桌面布局" });
+  if ((await deskLayoutButton.textContent()) === "空间") await deskLayoutButton.click();
   await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   await page.getByRole("button", { name: "区域摘录（R）" }).click();
   const pageBox = (await page.locator("#page-1").boundingBox())!;

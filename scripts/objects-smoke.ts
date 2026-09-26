@@ -22,6 +22,9 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(origin);
   await page.locator(".book-card").first().click();
+  // This regression exercises independent surfaces; spatial layout has its own reader acceptance.
+  const deskLayoutButton = page.getByRole("button", { name: "切换桌面布局" });
+  if ((await deskLayoutButton.textContent()) === "空间") await deskLayoutButton.click();
   const board = page.getByRole("region", { name: "工作台" });
   const viewport = board.locator(".pdf-scroll");
   await expect(viewport).toHaveAttribute("data-workspace-ready", "true");
@@ -69,6 +72,7 @@ try {
   await page.getByRole("button", { name: "对象格式" }).click();
 
   await board.getByRole("button", { name: "新建笔记" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   const card = board.locator(".workspace-card.note");
   await expect(card).toHaveCount(1);
   const header = (await card.locator("header").boundingBox())!;

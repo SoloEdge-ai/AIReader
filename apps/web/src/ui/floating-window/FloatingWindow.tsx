@@ -83,6 +83,7 @@ export function FloatingWindow({ rect, bounds, onCommit, onClose, children, titl
     if (event.button !== 0 || gesture.current) return;
     if (!edge && (event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
+    event.currentTarget.focus({ preventScroll: true });
     gesture.current = {
       pointerId: event.pointerId, target: event.currentTarget,
       startX: event.clientX, startY: event.clientY,

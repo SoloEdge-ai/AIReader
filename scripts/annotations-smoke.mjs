@@ -109,7 +109,7 @@ try {
   await page.unroute("**/api/v2/books/*/commands");
   await expanded.getByRole("button", { name: "重试保存" }).click();
   await expect(expanded.getByRole("status")).toHaveText("已保存");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByRole("button", { name: "放到画布", exact: true }).click();
   const noteCard = page.locator(".workspace-card.note");
   await expect(noteCard).toHaveCount(1);
@@ -120,7 +120,7 @@ try {
   await expect(noteCard).toContainText("The same note from its card.");
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("Draft retained after failure.");
   await expect(expanded.getByRole("status")).toHaveText("已保存");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.screenshot({ path: ".local/screenshots/shared-note-card-packaged.png" });
   await noteCard.getByRole("button", { name: "移出工作台，保留材料" }).click();
   await expect(noteCard).toHaveCount(0);
@@ -137,7 +137,7 @@ try {
   await expanded.locator(".tiptap").fill("Committed despite a lost response.");
   await expect(expanded.getByRole("status")).toHaveText("已保存");
   await page.unroute("**/api/v2/books/*/commands");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByLabel("批注颜色", { exact: true }).selectOption("green");
   await page.getByRole("button", { name: "删除批注", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(0);

@@ -21,6 +21,8 @@ try {
   await page.locator('input[type=file][accept="application/pdf"]').setInputFiles(fixture);
   await page.locator("#page-2").waitFor();
   await expect(page.locator("#page-2")).toHaveAttribute("data-render-ready", "true");
+  const deskLayoutButton = page.getByRole("button", { name: "切换桌面布局" });
+  if ((await deskLayoutButton.textContent()) === "空间") await deskLayoutButton.click();
   await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const first = await page.locator("#page-1").boundingBox();
   const second = await page.locator("#page-2").boundingBox();

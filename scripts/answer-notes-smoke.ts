@@ -100,7 +100,7 @@ try {
   }
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
   await expect(page.locator(".floating-chat .chat")).toBeVisible();
-  await page.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   const [reopen] = await Promise.all([
     page.waitForResponse(
       (response) =>
@@ -140,7 +140,7 @@ try {
   await expect(
     page.getByRole("textbox", { name: "笔记正文", exact: true }),
   ).toHaveText("我的理解：缓存复用已有计算结果。");
-  await page.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByRole("textbox", { name: "页码", exact: true }).fill("2");
   await page.getByRole("textbox", { name: "页码", exact: true }).press("Enter");
   await expect(

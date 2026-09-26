@@ -26,6 +26,9 @@ try {
   await page.goto(origin);
   await page.locator(".book-card").first().click();
   const document = page.getByRole("region", { name: "原文" });
+  // This regression exercises independent surfaces; spatial layout has its own reader acceptance.
+  const deskLayoutButton = page.getByRole("button", { name: "切换桌面布局" });
+  if ((await deskLayoutButton.textContent()) === "空间") await deskLayoutButton.click();
   const board = page.getByRole("region", { name: "工作台" });
   await expect(document.locator("#page-1")).toHaveAttribute("data-render-ready", "true");
   await expect(board.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true");
@@ -52,12 +55,11 @@ try {
   await board.getByRole("button", { name: "新建笔记" }).click();
   const card = board.locator(".workspace-card.note");
   await expect(card).toHaveCount(1);
-  await card.getByRole("button", { name: "展开卡片笔记" }).click();
   const editor = page.getByRole("dialog", { name: "展开笔记编辑" });
   await editor.getByLabel("笔记标题", { exact: true }).fill("Workspace interpretation");
   await editor.getByRole("textbox", { name: "笔记正文" }).fill("A durable personal interpretation.");
   await expect(editor.getByRole("status")).toHaveText("已保存");
-  await editor.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(card).toContainText("A durable personal interpretation.");
   const workspaceUrl = `${origin}/api/books/${book.id}/workspace`;
   await expect.poll(async () => (await (await context.request.get(workspaceUrl)).json()).cards.length).toBe(1);
