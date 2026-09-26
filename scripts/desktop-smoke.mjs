@@ -104,9 +104,10 @@ try {
     if (!(await page.locator(".notes-panel").isVisible()))
       await page.getByLabel("笔记", { exact: true }).click();
     await page
-      .getByRole("button", { name: /Installer continuity note/ })
+      .locator(".notes-list").getByRole("button", { name: /Installer continuity note/ })
       .click();
-    await expect(page.locator(".tiptap")).toContainText(
+    await page.locator(".note-detail").getByRole("button", { name: "展开编辑笔记" }).click();
+    await expect(page.locator(".expanded-note .tiptap")).toContainText(
       "Note retained through installer update.",
     );
     await page.getByRole("button", { name: "返回书库" }).click();
@@ -118,7 +119,7 @@ try {
   await page.locator('[data-book-status="ready"]').waitFor({ timeout: 30000 });
   if (process.env.AIREADER_CREATE_NOTE === "1") {
     await page.getByLabel("笔记", { exact: true }).click();
-    await page.getByRole("button", { name: "新建笔记" }).click();
+    await page.locator(".notes-panel").getByRole("button", { name: "新建笔记" }).click();
     await page
       .getByLabel("笔记标题", { exact: true })
       .fill("Installer continuity note");
@@ -126,8 +127,8 @@ try {
       .locator(".tiptap")
       .fill("Note retained through installer update.");
     await expect(
-      page.locator(".notes-panel").getByText("已保存", { exact: true }),
-    ).toBeVisible();
+      page.locator(".expanded-note-footer [role=status]"),
+    ).toHaveText("已保存", { timeout: 20_000 });
   }
   await page.screenshot({ path: ".local/screenshots/desktop.png" });
   const collapseSidebar = page.getByRole("button", { name: "关闭问答浮窗" });
