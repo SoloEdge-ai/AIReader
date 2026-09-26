@@ -51,11 +51,27 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
       body: JSON.stringify({ dock: "outside", offset: 4, collapsed: true }),
     })).status).toBe(400);
     const globalPreferences = base + "/api/preferences";
-    expect((await (await fetch(globalPreferences, { headers })).json()).zoom).toBe(1.1);
+    expect(await (await fetch(globalPreferences, { headers })).json()).toMatchObject({
+      visualStyle: "professional", splitRatio: 0.5, readerPaneMode: "split",
+      pdfZoom: 1.1, boardZoom: 1,
+    });
     expect((await fetch(globalPreferences, {
-      method: "POST", headers, body: JSON.stringify({ theme: "dark", zoom: 1.8 }),
+      method: "POST", headers, body: JSON.stringify({ theme: "dark", visualStyle: "paper",
+        splitRatio: 0.6, readerPaneMode: "board", pdfZoom: 1.8, boardZoom: 0.9,
+        pdfView: { page: 1, x: 0.25, y: 0.75 },
+        chatWindow: { x: 20, y: 30, width: 520, height: 640 } }),
     })).status).toBe(200);
-    expect(await (await fetch(globalPreferences, { headers })).json()).toMatchObject({ theme: "dark", zoom: 1.8 });
+    expect(await (await fetch(globalPreferences, { headers })).json()).toMatchObject({
+      theme: "dark", visualStyle: "paper", splitRatio: 0.6, readerPaneMode: "board",
+      pdfZoom: 1.8, boardZoom: 0.9, pdfView: { page: 1, x: 0.25, y: 0.75 },
+      chatWindow: { x: 20, y: 30, width: 520, height: 640 },
+    });
+    expect((await fetch(globalPreferences, {
+      method: "POST", headers, body: JSON.stringify({ zoom: 1.4 }),
+    })).status).toBe(400);
+    expect((await fetch(globalPreferences, {
+      method: "POST", headers, body: JSON.stringify({ splitRatio: 0.8 }),
+    })).status).toBe(400);
     expect((await fetch(globalPreferences, { method: "DELETE", headers })).status).toBe(405);
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -75,15 +91,21 @@ test("HTTP protects book APIs, imports and searches a PDF, rejects mismatched re
     expect(results[0].anchor).toMatchObject({ bookId: book.id, page: 1 });
     const reader = base + `/api/books/${book.id}`;
     expect((await (await fetch(reader, { headers })).json()).id).toBe(book.id);
-    expect((await (await fetch(reader + "/preferences", { headers })).json()).zoom).toBe(1.1);
+    expect(await (await fetch(reader + "/preferences", { headers })).json()).toMatchObject({
+      visualStyle: "professional", splitRatio: 0.5, readerPaneMode: "split",
+      pdfZoom: 1.1, boardZoom: 1,
+    });
     expect((await fetch(reader + "/preferences", { method: "DELETE", headers })).status).toBe(405);
     expect((await fetch(reader + "/preferences/extra", { headers })).status).toBe(404);
     const changedPreferences = await fetch(reader + "/preferences", {
       method: "POST", headers,
-      body: JSON.stringify({ theme: "dark", zoom: 1.4 }),
+      body: JSON.stringify({ theme: "dark", visualStyle: "paper", splitRatio: 0.65,
+        readerPaneMode: "pdf", pdfZoom: 1.4, boardZoom: 1.2 }),
     });
     expect((await changedPreferences.json()).theme).toBe("dark");
-    expect((await (await fetch(reader + "/preferences", { headers })).json()).zoom).toBe(1.4);
+    expect(await (await fetch(reader + "/preferences", { headers })).json()).toMatchObject({
+      visualStyle: "paper", splitRatio: 0.65, readerPaneMode: "pdf", pdfZoom: 1.4, boardZoom: 1.2,
+    });
     expect((await (await fetch(reader + "/open", { method: "POST", headers })).json()).lastOpenedAt).toBeTruthy();
     expect((await (await fetch(reader + "/file", { headers })).arrayBuffer()).byteLength).toBe(bytes.byteLength);
     await fetch(reader + "/progress", { method: "POST", headers, body: JSON.stringify({ page: 1 }) });

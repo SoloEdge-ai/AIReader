@@ -44,10 +44,17 @@ try {
     id: `link-${index}`, from: `card-${index % 500}`, to: `card-${(index + 1) % 500}`,
     label: "Generated relation",
   }));
+  const groups: BookWorkspace["groups"] = Array.from({ length: 100 }, (_, index) => ({
+    id: `group-${index}`, title: `Group ${index}`, color: "#56789a",
+    x: 760 + (index % 10) * 420, y: 40 + Math.floor(index / 10) * 520,
+    width: 400, height: 500,
+    memberIds: Array.from({ length: 5 }, (_, member) => `card-${index * 5 + member}`),
+    collapsed: index % 4 === 0,
+  }));
   const repository = core.library.store.workspaces;
   const seedAt = performance.now();
-  repository.save({ bookId: book.id, revision: 0, formatVersion: 4, layoutVersion: 2,
-    cards, objects, links });
+  repository.save({ bookId: book.id, revision: 0, formatVersion: 5, layoutVersion: 3,
+    cards, objects, groups, links });
   const seedMs = Math.round(performance.now() - seedAt);
   rssStages.push({ stage: "seeded", mib: Math.round(process.memoryUsage().rss / 2 ** 20) });
   const workspaces = new Workspaces(core.library);
@@ -56,6 +63,7 @@ try {
   const readMs = Math.round(performance.now() - readAt);
   rssStages.push({ stage: "read", mib: Math.round(process.memoryUsage().rss / 2 ** 20) });
   expect(workspace.objects).toHaveLength(5000);
+  expect(workspace.groups).toHaveLength(100);
   const input = { bookId: book.id, commandId: "perf-one-ink", expectedContentVersion: 0,
     changes: [{ type: "upsert-object" as const, object: { ...objects[0], color: "#3b6b90" } }] };
   const commandAt = performance.now();
@@ -89,7 +97,11 @@ try {
   const uiAt = performance.now();
   await page.goto(`http://127.0.0.1:${address.port}`);
   await page.locator(".book-card").first().click();
-  await expect(page.locator(".workspace-card")).toHaveCount(500, { timeout: 60_000 });
+  await expect.poll(async () => page.locator(".board-pane .workspace-card").count(),
+    { timeout: 60_000 }).toBeGreaterThan(0);
+  const mountedCardsOnOpen = await page.locator(".board-pane .workspace-card").count();
+  if (mountedCardsOnOpen >= cards.length)
+    throw new Error("Offscreen card culling is not active in the stress scene");
   const uiOpenMs = Math.round(performance.now() - uiAt);
   const openLongTasks = await page.evaluate(() => {
     const record = window as typeof window & { __longTasks: number[] };
@@ -105,7 +117,7 @@ try {
     }
     requestAnimationFrame(frame);
   })()`);
-  await page.locator(".pdf-scroll").hover();
+  await page.locator(".board-pane .pdf-scroll").hover();
   await page.mouse.wheel(0, 1500);
   await page.waitForTimeout(3200);
   const browserStats = await page.evaluate(() => {
@@ -125,7 +137,7 @@ try {
   console.log(JSON.stringify({
     host: { platform: platform(), release: release(), cpu: cpus()[0]?.model,
       ramGiB: Math.round(totalmem() / 2 ** 30) },
-    sample: { pages: 516, cards: 500, links: 1000, objects: 5000, inkPoints: 250000 },
+    sample: { pages: 516, cards: 500, mountedCardsOnOpen, groups: 100, links: 1000, objects: 5000, inkPoints: 250000 },
     timingsMs: { parse: parseMs, seed: seedMs, read: readMs, oneCommand: commandMs,
       repeatedCommandP50: percentile(repeatedCommands, .5), repeatedCommandP95: percentile(repeatedCommands, .95),
       uiOpen: uiOpenMs,

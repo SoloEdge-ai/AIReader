@@ -1065,6 +1065,11 @@ progress::-webkit-progress-value {
 .question-material-item-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .question-material-item button { border: 0; background: transparent; color: var(--muted); padding: 3px; }
 .question-material-item button:hover { color: var(--text); }
+.question-material-source-status {
+  margin: 5px 0 0; color: var(--text); font-size: 11px; line-height: 1.45;
+  padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface-raised, var(--surface));
+}
 .question-material-item details { margin-top: 5px; color: var(--muted); }
 .question-material-item details p { margin: 5px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .question-material-item details small { margin-right: 6px; color: var(--accent); }
@@ -1542,6 +1547,9 @@ summary {
   border-radius: 0;
   width: 100%;
 }
+.search-hit-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
+.search-hit-row .search-hit { flex: 1; min-width: 0; border-bottom: 0; }
+.search-hit-row > button:last-child { flex: 0 0 auto; min-width: 48px; min-height: 36px; color: var(--accent); font-size: 12px; }
 .search-hit small {
   display: block;
   color: var(--accent);

@@ -38,6 +38,13 @@ export function richDocument(input: unknown): RichNode {
         "blockquote",
         "codeBlock",
         "horizontalRule",
+        "table",
+        "tableRow",
+        "tableHeader",
+        "tableCell",
+        "inlineMath",
+        "blockMath",
+        "sourceReference",
       ].includes(value.type)
     )
       throw new Error("不支持的笔记内容");
@@ -102,10 +109,37 @@ export function richDocument(input: unknown): RichNode {
               .parse(value.attrs.language)
           : null,
       };
+    if (value.type === "inlineMath" || value.type === "blockMath")
+      result.attrs = {
+        latex: z.string().min(1).max(20000).parse(value.attrs?.latex),
+      };
+    if (value.type === "sourceReference")
+      result.attrs = {
+        referenceId: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/)
+          .parse(value.attrs?.referenceId),
+      };
+    if (value.type === "tableCell" || value.type === "tableHeader") {
+      const colspan = z.number().int().min(1).max(50).parse(value.attrs?.colspan ?? 1);
+      const colwidth = z
+        .array(z.number().int().min(1).max(10000))
+        .max(50)
+        .nullable()
+        .parse(value.attrs?.colwidth ?? null);
+      if (colwidth && colwidth.length !== colspan)
+        throw new Error("表格列宽与合并列不匹配");
+      result.attrs = {
+        colspan,
+        rowspan: z.number().int().min(1).max(100).parse(value.attrs?.rowspan ?? 1),
+        colwidth,
+        align: z.enum(["left", "center", "right", "justify"]).nullable()
+          .parse(value.attrs?.align ?? null),
+      };
+    }
     if (value.content !== undefined) {
       if (
         !Array.isArray(value.content) ||
-        ["text", "hardBreak", "horizontalRule"].includes(value.type)
+        ["text", "hardBreak", "horizontalRule", "inlineMath", "blockMath", "sourceReference"]
+          .includes(value.type)
       )
         throw new Error("无效的笔记层级");
       result.content = value.content.map((v: unknown) => parse(v, depth + 1));
@@ -119,34 +153,68 @@ export function richDocument(input: unknown): RichNode {
       "blockquote",
       "codeBlock",
       "horizontalRule",
+      "table",
+      "blockMath",
     ];
+    const cellBlocks = blocks.filter((type) => type !== "table");
     const allowed: Record<string, string[]> = {
       doc: blocks,
       blockquote: blocks,
       listItem: blocks,
-      paragraph: ["text", "hardBreak"],
-      heading: ["text", "hardBreak"],
+      paragraph: ["text", "hardBreak", "inlineMath", "sourceReference"],
+      heading: ["text", "hardBreak", "inlineMath", "sourceReference"],
       codeBlock: ["text"],
       bulletList: ["listItem"],
       orderedList: ["listItem"],
+      table: ["tableRow"],
+      tableRow: ["tableHeader", "tableCell"],
+      tableHeader: cellBlocks,
+      tableCell: cellBlocks,
     };
     if (children.some((child) => !allowed[value.type]?.includes(child.type)))
       throw new Error("无效的笔记层级");
     if (
-      ["doc", "blockquote", "listItem", "bulletList", "orderedList"].includes(
-        value.type,
-      ) &&
+      [
+        "doc",
+        "blockquote",
+        "listItem",
+        "bulletList",
+        "orderedList",
+        "table",
+        "tableRow",
+        "tableHeader",
+        "tableCell",
+      ].includes(value.type) &&
       !children.length
     )
       throw new Error("笔记结构缺少内容");
     if (value.type === "listItem" && children[0]?.type !== "paragraph")
       throw new Error("列表项必须以段落开始");
+    if (value.type === "table" && children.length > 100)
+      throw new Error("表格行数过多");
+    if (value.type === "tableRow" && children.length > 50)
+      throw new Error("表格列数过多");
     return result;
   }
   const result = parse(input, 0);
   if (result.type !== "doc") throw new Error("笔记必须包含文档根节点");
   return result;
 }
+
+export function noteDocument(input: unknown, sourceReferences: Note["sourceReferences"]): RichNode {
+  const document = richDocument(input);
+  const validReferences = new Set(sourceReferences.map((reference) => reference.id));
+  const pending = [document];
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (node.type === "sourceReference" &&
+        !validReferences.has(String(node.attrs?.referenceId ?? "")))
+      throw new Error("笔记正文引用了不存在的来源");
+    pending.push(...(node.content ?? []));
+  }
+  return document;
+}
+
 export class Notes {
   private readonly changes: NoteTransactions;
   constructor(readonly library: Library, private readonly workspaceAssets: WorkspaceAssets) {
@@ -186,6 +254,7 @@ export class Notes {
       bookId,
       annotationId,
       sourceCard,
+      sourceReferences: [],
       title,
       document: richDocument(document ?? { type: "doc", content: [{ type: "paragraph" }] }),
       revision: 1,
@@ -302,6 +371,7 @@ export class Notes {
       updatedAt: now,
       revision: 1,
       document: richDocument(answerDocument(turn.answer, sources)),
+      sourceReferences: [],
       origin: {
         kind: "chat",
         turnId,
@@ -345,6 +415,12 @@ export class Notes {
     if (note.sourceCard?.region)
       assets.push({ name: "assets/excerpt-region.png",
         bytes: await this.workspaceAssets.read(bookId, note.sourceCard.region.assetId) });
+    for (const reference of note.sourceReferences)
+      if (reference.region)
+        assets.push({ name: `assets/source-${reference.id}.png`,
+          bytes: reference.regionAssetKind === "annotation"
+            ? await readFile(this.asset(bookId, reference.region.assetId))
+            : await this.workspaceAssets.read(bookId, reference.region.assetId) });
     return {
       buffer: exportNoteArchive(
         book,
@@ -414,7 +490,7 @@ export class Notes {
       .parse(input);
     if (note.deletedAt || note.revision !== value.revision)
       throw new Error("笔记已更新，请保留草稿并重新加载后重试");
-    note.document = richDocument(value.document);
+    note.document = noteDocument(value.document, note.sourceReferences);
     note.title = value.title;
     note.revision++;
     note.updatedAt = new Date().toISOString();

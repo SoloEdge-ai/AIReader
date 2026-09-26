@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import {
   ReaderPreferencesSchema,
   type ReaderPreferences,
+  type PdfView,
   type Book,
   type Bookmark,
   type Passage,
@@ -50,6 +52,8 @@ export function App() {
     [active, setActive] = useState<string>();
   const [prefs, setPrefs] = useState(() => ReaderPreferencesSchema.parse({})),
     [layout, setLayout] = useState(() => ReaderPreferencesSchema.parse({}));
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const [settings, setSettings] = useState(false),
     [bookMenu, setBookMenu] = useState(false),
     [filter, setFilter] = useState("");
@@ -61,8 +65,14 @@ export function App() {
     [marks, setMarks] = useState<Bookmark[]>([]);
   const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<SelectionAction>();
+  const [draggedExcerpt, setDraggedExcerpt] = useState<{ bookId: string; selection: ReadingSelection }>();
   const [questionDrafts] = useState(() => new QuestionDraftStore());
   const [chatSessions, setChatSessions] = useState<Record<string, string>>({});
+  const [readerHost, setReaderHost] = useState<HTMLDivElement | null>(null);
+  const [boardHost, setBoardHost] = useState<HTMLElement | null>(null);
+  const questionDraftKey = active && chatSessions[active] ? `${active}:${chatSessions[active]}` : "";
+  const activeQuestionDraft = useSyncExternalStore(questionDrafts.subscribe,
+    () => questionDrafts.get(questionDraftKey));
   const [questionCapture, setQuestionCapture] = useState<{
     bookId: string;
     fingerprint: string;
@@ -77,6 +87,7 @@ export function App() {
   }, []);
   const clearSelection = useCallback(() => {
     setSelection(undefined);
+    setDraggedExcerpt(undefined);
     getSelection()?.removeAllRanges();
   }, []);
   const [highlight, setHighlight] = useState<SourceAnchor>(),
@@ -85,7 +96,8 @@ export function App() {
   const input = useRef<HTMLInputElement>(null),
     current = useRef(active),
     sequence = useRef(0),
-    saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+    saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined),
+    pdfViewTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   current.current = active;
   const book = books.find((b) => b.id === active);
   const editing = useBookEditing(active);
@@ -362,6 +374,9 @@ export function App() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, [prefs.theme]);
+  useEffect(() => {
+    document.documentElement.dataset.visualStyle = prefs.visualStyle;
+  }, [prefs.visualStyle]);
   useEffect(() => setPageInput(String(page)), [page]);
   useEffect(() => {
     if (!active || !book || !["queued", "parsing"].includes(book.status))
@@ -408,6 +423,7 @@ export function App() {
     return () => {
       live = false;
       clearTimeout(saveTimer.current);
+      clearTimeout(pdfViewTimer.current);
     };
   }, [active]);
   const onPage = useCallback(
@@ -425,8 +441,23 @@ export function App() {
     },
     [active],
   );
+  const onPdfView = useCallback((view: PdfView) => {
+    clearTimeout(pdfViewTimer.current);
+    if (!active) return;
+    pdfViewTimer.current = setTimeout(() => {
+      if (current.current !== active) return;
+      const previous = layoutRef.current.pdfView;
+      if (previous && previous.page === view.page &&
+          Math.abs(previous.x - view.x) < 0.001 && Math.abs(previous.y - view.y) < 0.001) return;
+      const next = { ...layoutRef.current, pdfView: view };
+      layoutRef.current = next;
+      setLayout(next);
+      void post(`books/${active}/preferences`, next).catch((cause) => setError(String(cause)));
+    }, 500);
+  }, [active]);
   const updateLayout = (p: ReaderPreferences) => persistLayout(p);
   const persistLayout = (p: ReaderPreferences) => {
+    layoutRef.current = p;
     setLayout(p);
     if (active)
       void post(`books/${active}/preferences`, p).catch((e) =>
@@ -463,8 +494,9 @@ export function App() {
       setQuestionCapture(undefined);
       if (p.panel === "notes") {
         setNav("材料");
-        setLayout({ ...p, panel: "chat", navigation: true });
-      } else setLayout(p);
+        layoutRef.current = { ...p, panel: "chat", navigation: true };
+        setLayout(layoutRef.current);
+      } else { layoutRef.current = p; setLayout(p); }
       setPage(b.progress);
       setActive(b.id);
       await post(`books/${b.id}/open`, {});
@@ -483,7 +515,11 @@ export function App() {
       (anchor && anchor.bookId !== active)
     )
       return;
-    document.getElementById("page-" + n)?.scrollIntoView({ block: "start" });
+    workspace.current?.showPane("pdf");
+    const rect = anchor?.rects.find((item) => item.length === 4 && item.every(Number.isFinite));
+    if (rect) workspace.current?.locate([{ page: n,
+      rects: [rect as [number, number, number, number]] }]);
+    else workspace.current?.jumpPage(n);
     setPage(n);
     setHighlight(anchor);
   };
@@ -533,6 +569,10 @@ export function App() {
       ),
     );
   const materialPanel = book ? <NotesPanel bookId={book.id} state={notes} onJump={jump}
+    onJumpPdf={(anchors) => {
+      workspace.current?.showPane("pdf");
+      workspace.current?.locate(anchors);
+    }}
     catalog={canvasCatalog?.bookId === book.id ? canvasCatalog.catalog : undefined}
     onLocateItem={(id) => workspace.current?.locateItem(id)}
     onAddItemToQuestion={async (id) => {
@@ -541,10 +581,20 @@ export function App() {
     }}
     beforeWorkspaceChange={editing.flush}
     onPlace={(note) => workspace.current!.placeNote(note)}
-    onExpand={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
+    onExpand={(note) => { readerTools.finish(); workspace.current?.showPane("board");
+      setExpandedNote({ bookId: book.id, id: note.id }); }}
     onAddAnnotation={async (annotation) => {
       const added = await workspace.current?.addToQuestion([annotation.id]);
       if (!added) throw new Error("批注预览尚未准备好；请在正文定位并重试");
+    }}
+    onAssociateAnnotation={async (note, annotation) => {
+      if (!(await editing.flush())) throw new Error("当前草稿尚未保存，请重试");
+      const latest = (await api<Note[]>(`books/${book.id}/notes`))
+        .find((item) => item.id === note.id && !item.deletedAt);
+      if (!latest) throw new Error("笔记已变化，请重新选择");
+      await editing.submitChanges([{ type: "add-source", noteId: latest.id,
+        expectedRevision: latest.revision, target: { kind: "annotation", id: annotation.id } }]);
+      await notes.refresh();
     }}
     onAddToQuestion={async (note) => {
       const snapshot = await api<{ revision: number }>(`books/${book.id}/workspace`);
@@ -656,6 +706,7 @@ export function App() {
       ) : (
         <div
           className="reader"
+          ref={setReaderHost}
           data-book-status={book.status}
           inert={navigating}
         >
@@ -707,47 +758,6 @@ export function App() {
               />
               <span>/ {book.pages || "—"}</span>
             </form>
-            <div className="zoom-controls">
-              <button
-                aria-label="缩小"
-                onClick={() =>
-                  updateLayout({
-                    ...layout,
-                    zoom: Math.max(0.4, layout.zoom - 0.1),
-                  })
-                }
-              >
-                −
-              </button>
-              <button
-                title="适合宽度"
-                onClick={() => {
-                  const width =
-                    document.querySelector(".reading")?.clientWidth ?? 800;
-                  const natural =
-                    (document
-                      .querySelector(".pdf-page")
-                      ?.getBoundingClientRect().width ?? 655) / layout.zoom;
-                  updateLayout({
-                    ...layout,
-                    zoom: Math.max(0.4, Math.min(3, (width - 64) / natural)),
-                  });
-                }}
-              >
-                {Math.round(layout.zoom * 100)}%
-              </button>
-              <button
-                aria-label="放大"
-                onClick={() =>
-                  updateLayout({
-                    ...layout,
-                    zoom: Math.min(3, layout.zoom + 0.1),
-                  })
-                }
-              >
-                +
-              </button>
-            </div>
             <button
               aria-label="添加书签"
               onClick={() =>
@@ -796,6 +806,9 @@ export function App() {
               ↻
             </button>
             <div className="workspace-menu-slot" ref={setWorkspaceToolbarHost} />
+            {layout.readerPaneMode !== "split" && <button aria-label="恢复原文与工作台双栏"
+              title="恢复原文与工作台双栏"
+              onClick={() => updateLayout({ ...layout, readerPaneMode: "split" })}>◧</button>}
             <button
               aria-label="书籍菜单"
               onClick={() => setBookMenu(!bookMenu)}
@@ -894,14 +907,18 @@ export function App() {
                       </button>
                     </form>
                     {hits.map((hit) => (
-                      <button
-                        className="search-hit"
-                        key={hit.id}
-                        onClick={() => jump(hit.page, hit.anchor)}
-                      >
-                        <small>第 {hit.anchor.label} 页</small>
-                        {hit.text.slice(0, 160)}
-                      </button>
+                      <div className="search-hit-row" key={hit.id}>
+                        <button className="search-hit" onClick={() => jump(hit.page, hit.anchor)}>
+                          <small>第 {hit.anchor.label} 页</small>
+                          {hit.text.slice(0, 160)}
+                        </button>
+                        <button aria-label={`聚焦第 ${hit.anchor.label} 页搜索结果`}
+                          onClick={() => {
+                            const rects = hit.anchor.rects.filter((rect) => rect.length === 4)
+                              .map((rect) => rect as [number, number, number, number]);
+                            if (rects.length) workspace.current?.focusAnchors([{ page: hit.page, rects }]);
+                          }}>聚焦</button>
+                      </div>
                     ))}
                   </>
                 )}
@@ -920,7 +937,7 @@ export function App() {
               </>
             )}
             <section
-              className="reading"
+              className={`reading${expandedNote?.bookId === book.id ? " note-expanded" : ""}`}
               ref={setReadingFeedbackHost}
               onPointerDownCapture={(event) => {
                 if (!selection || (event.target as HTMLElement).closest(".selection-bar,.reader-tool-palette")) return;
@@ -931,9 +948,11 @@ export function App() {
               <BookWorkspace
                 ref={workspace}
                 workspaceSession={editing.workspace!}
+                onBookChanges={editing.submitChanges}
                 onCatalogChange={(bookId, catalog) => setCanvasCatalog({ bookId, catalog })}
                 notes={notes}
-                onExpandNote={(note) => { readerTools.finish(); setExpandedNote({ bookId: book.id, id: note.id }); }}
+                onExpandNote={(note) => { readerTools.finish(); notes.setSelected(note.id); workspace.current?.showPane("board");
+                  setExpandedNote({ bookId: book.id, id: note.id }); }}
                 beforeExport={notes.flush}
                 book={book}
                 page={page}
@@ -970,8 +989,22 @@ export function App() {
                 key={active}
                 id={active!}
                 initialPage={book.progress}
-                zoom={layout.zoom}
-                onZoom={(zoom) => updateLayout({ ...layout, zoom })}
+                initialView={layout.pdfView}
+                onView={onPdfView}
+                zoom={layout.boardZoom}
+                onZoom={(boardZoom) => updateLayout({ ...layout, boardZoom })}
+                pdfZoom={layout.pdfZoom}
+                onPdfZoom={(pdfZoom) => updateLayout({ ...layout, pdfZoom })}
+                splitRatio={layout.splitRatio}
+                onSplitRatio={(splitRatio) => updateLayout({ ...layout, splitRatio })}
+                readerPaneMode={layout.readerPaneMode}
+                onReaderPaneMode={(readerPaneMode) => updateLayout({ ...layout, readerPaneMode })}
+                connectionHost={readerHost}
+                questionMaterials={activeQuestionDraft.materials}
+                draggedExcerpt={draggedExcerpt}
+                onExcerptDrop={() => { setDraggedExcerpt(undefined); selectionPinned.current = false; clearSelection(); }}
+                chatOpen={layout.panel !== "none"}
+                onBoardHost={setBoardHost}
                 rotation={layout.rotation}
                 onPage={onPage}
                 onSelection={(next) => {
@@ -1022,6 +1055,13 @@ export function App() {
                     selectionPinned.current = false;
                     clearSelection();
                   }}
+                  onExcerptDragStart={() => { if (active) setDraggedExcerpt({ bookId: active, selection }); }}
+                  onExcerptDragEnd={() => setDraggedExcerpt(undefined)}
+                  onFocus={() => {
+                    workspace.current?.focusAnchors(selection.anchors);
+                    selectionPinned.current = false;
+                    clearSelection();
+                  }}
                   onAnnotate={(kind) => void createAnnotation({
                     kind,
                     color: annotationColor,
@@ -1037,9 +1077,22 @@ export function App() {
                   onDismiss={() => { selectionPinned.current = false; clearSelection(); }}
                 />
               )}
-              {expanded && <ExpandedNote note={expanded} state={notes} onClose={() => {
+              {expanded && boardHost && createPortal(<ExpandedNote note={expanded} state={notes} onJump={jump}
+                onJumpPdf={(anchor) => {
+                  workspace.current?.showPane("pdf");
+                  workspace.current?.locate([anchor]);
+                }}
+                onRemoveSource={async (referenceId) => {
+                  if (!(await editing.flush())) throw new Error("当前草稿尚未保存，请重试");
+                  const latest = (await api<Note[]>(`books/${book.id}/notes`))
+                    .find((item) => item.id === expanded.id && !item.deletedAt);
+                  if (!latest) throw new Error("笔记已变化，请重新选择");
+                  await editing.submitChanges([{ type: "remove-source", noteId: latest.id,
+                    expectedRevision: latest.revision, referenceId }]);
+                  await notes.refresh();
+                }} onClose={() => {
                 setExpandedNote(undefined); readerTools.finish();
-              }} />}
+              }} />, boardHost)}
             </section>
           </div>
           {layout.panel !== "none" && (
@@ -1064,6 +1117,9 @@ export function App() {
                       }}
                       onCitation={jump}
                       notes={notes.notes}
+                      annotations={notes.annotations}
+                      materialCatalog={canvasCatalog?.bookId === book.id ? canvasCatalog.catalog : undefined}
+                      materialSourcesReady={Boolean(canvasCatalog?.bookId === book.id && notes.loaded)}
                       onNoteSaved={openSavedNote}
                       onStartRegion={startQuestionCapture}
                       onSessionChange={(sessionId) => {

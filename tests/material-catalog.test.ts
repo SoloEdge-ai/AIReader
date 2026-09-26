@@ -28,6 +28,7 @@ const catalog: Pick<BookWorkspace, "cards" | "objects" | "links"> = {
   links: [{ id: "relation", from: "excerpt", to: "later-shape", label: "支持关系", directed: false }],
 };
 const notes: Note[] = [{ id: "note-1", bookId: "book-1", title: "缓存假设",
+  sourceReferences: [],
   document: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "待验证的个人解释" }] }] },
   createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", revision: 1 }];
 

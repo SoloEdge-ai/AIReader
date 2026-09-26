@@ -3,10 +3,11 @@ import type { WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
 import { objectRect, shapeEndpoints } from "../../../packages/workspace-engine/src/objects";
 
-export function WorkspaceObjectView({ object, pages, zoom, selected, editing, onSelect, onEdit, onCommit, onResize }:
+export function WorkspaceObjectView({ object, pages, zoom, selected, editing, onSelect, onEdit, onCommit, onResize, offset }:
   { object: Exclude<WorkspaceObject, { kind: "ink" }>; pages: WorkspacePage[];
     zoom: number; selected: boolean; editing: boolean; onSelect: () => void; onEdit: () => void;
-    onCommit: (text: string) => void; onResize: (dx: number, dy: number) => void }) {
+    onCommit: (text: string) => void; onResize: (dx: number, dy: number) => void;
+    offset?: { x: number; y: number } }) {
   const [draft, setDraft] = useState(object.kind === "text" ? object.text : "");
   const resize = useRef<{ x: number; y: number }>(undefined);
   const [preview, setPreview] = useState<{ dx: number; dy: number }>();
@@ -14,7 +15,7 @@ export function WorkspaceObjectView({ object, pages, zoom, selected, editing, on
   const rect = objectRect(object, pages);
   if (!rect) return null;
   const className = `workspace-object ${object.kind}${selected ? " selected" : ""}`;
-  const style = { left: rect.x, top: rect.y, width: Math.max(1, rect.width + (preview?.dx ?? 0)),
+  const style = { left: rect.x + (offset?.x ?? 0), top: rect.y + (offset?.y ?? 0), width: Math.max(1, rect.width + (preview?.dx ?? 0)),
     height: Math.max(1, rect.height + (preview?.dy ?? 0)) };
   const handle = selected && !editing && <button className="workspace-object-resize" aria-label="调整对象大小"
     onPointerDown={(event) => {

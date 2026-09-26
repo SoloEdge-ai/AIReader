@@ -12,13 +12,17 @@ export function changeNotePlacement(library: Library, bookId: string, noteId: st
     if (!cards.length) return false;
     const ids = new Set(cards.filter((card) => card.kind === "note").map((card) => card.id));
     const links = workspace.links.filter((link) => ids.has(link.from) || ids.has(link.to));
-    library.store.put("note-removed-placement", key, bookId, { cards, links });
+    const groups = workspace.groups.filter((group) => group.memberIds.some((id) => ids.has(id)));
+    library.store.put("note-removed-placement", key, bookId, { cards, links, groups });
     new Workspaces(library).save(bookId, { ...workspace,
       cards: workspace.cards.filter((card) => !ids.has(card.id))
         .map((card) => card.noteId === noteId ? { ...card, noteId: undefined } : card),
+      groups: workspace.groups.map((group) => ({ ...group,
+        memberIds: group.memberIds.filter((id) => !ids.has(id)) })),
       links: workspace.links.filter((link) => !ids.has(link.from) && !ids.has(link.to)) }, true);
   } else {
-    const removed = library.store.get<Pick<BookWorkspace, "cards" | "links">>("note-removed-placement", key);
+    const removed = library.store.getForBook<Pick<BookWorkspace, "cards" | "links" | "groups">>(
+      "note-removed-placement", key, bookId);
     if (!removed) return false;
     const placements = removed.cards.filter((card) => card.kind === "note");
     const sources = removed.cards.filter((card) => card.kind !== "note");
@@ -27,9 +31,22 @@ export function changeNotePlacement(library: Library, bookId: string, noteId: st
       throw new Error("卡片或关系已变化，无法恢复笔记；内容未修改");
     const source = sources[0] && workspace.cards.find((card) => card.id === sources[0].id);
     const relink = source && !source.noteId;
+    const placementIds = new Set(placements.map((card) => card.id));
+    const restoredGroups = workspace.groups.map((group) => {
+      const before = removed.groups.find((entry) => entry.id === group.id);
+      if (!before) return group;
+      const current = new Set(group.memberIds);
+      return { ...group, memberIds: [
+        ...before.memberIds.filter((id) => placementIds.has(id) || current.has(id)),
+        ...group.memberIds.filter((id) => !before.memberIds.includes(id)),
+      ] };
+    });
+    if (removed.groups.some((group) => !workspace.groups.some((entry) => entry.id === group.id)))
+      throw new Error("主题组已变化，无法恢复笔记；内容未修改");
     if (placements.length || relink) new Workspaces(library).save(bookId, { ...workspace,
       cards: [...workspace.cards.map((card) => relink && card.id === source!.id
         ? { ...card, noteId } : card), ...placements],
+      groups: restoredGroups,
       links: [...workspace.links, ...removed.links] }, true);
     library.store.remove("note-removed-placement", key);
     return Boolean(placements.length || relink);

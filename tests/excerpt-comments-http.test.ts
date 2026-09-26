@@ -69,6 +69,30 @@ test("an excerpt keeps its immutable source while its comment becomes a shared N
     expect(copyNote.id).not.toBe(activeNote.id);
     expect(copyNote.sourceCard.cardId).toBe(copyCard.id);
     expect(copyNote.sourceCard.text).toBe("Source paragraph");
+    // Associating a Note with an excerpt must not consume its one independent card.
+    const noteCard = { id: "comment-note-card", kind: "note", noteId: note.id,
+      title: "", text: "", comment: "", x: 360, y: 30, width: 340, height: 220 };
+    const withPlacement = { bookId: book.id, expectedContentVersion: (await workspace()).revision,
+      changes: [{ type: "upsert-card", card: noteCard }] };
+    const hash = (payload: unknown) => createHash("sha256").update(JSON.stringify(payload,
+      (_key, value) => value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]])) : value)).digest("hex");
+    expect((await request(`v2/${root}/workspace/commands`, { ...withPlacement, commandId: randomUUID(),
+      payloadHash: hash(withPlacement) })).status).toBe(200);
+    expect((await workspace()).cards).toHaveLength(2);
+    const bothArchive = await request(`${root}/workspace/archive`);
+    expect(bothArchive.status).toBe(200);
+    const bothCopy = await fetch(`${origin}/api/workspace-archives`, { method: "POST", headers,
+      body: Buffer.from(await bothArchive.arrayBuffer()) });
+    expect(bothCopy.status).toBe(201);
+    const bothBook = await bothCopy.json();
+    const bothCards = (await (await request(`books/${bothBook.id}/workspace`)).json()).cards;
+    expect(bothCards).toHaveLength(2);
+    expect(bothCards[0].noteId).toBe(bothCards[1].noteId);
+    const withoutPlacement = { bookId: book.id, expectedContentVersion: (await workspace()).revision,
+      changes: [{ type: "delete-card", id: noteCard.id }] };
+    expect((await request(`v2/${root}/workspace/commands`, { ...withoutPlacement, commandId: randomUUID(),
+      payloadHash: hash(withoutPlacement) })).status).toBe(200);
     const exportedNote = await request(`${root}/notes/${note.id}/export`);
     expect(exportedNote.status).toBe(200);
     const files = unzipSync(new Uint8Array(await exportedNote.arrayBuffer()));

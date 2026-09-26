@@ -1,4 +1,5 @@
 import type { BookWorkspace, WorkspaceCommand, WorkspaceCommandBatch } from "../../../../../packages/protocol/src/workspace";
+import type { BookCommandReceipt } from "../../../../../packages/protocol/src/book-commands";
 import { applyWorkspaceChanges as apply, workspaceDifference as difference } from "../../../../../packages/workspace-engine/src/commands";
 import { api } from "../../api";
 import { submitWorkspaceCommand } from "../../client/workspace";
@@ -35,6 +36,7 @@ export class WorkspaceEditingSession {
   private reloadRequest = 0;
   private externalIds = new Set<string>();
   private live = true;
+  private bookCommandBarrier?: Promise<void>;
 
   constructor(readonly bookId: string) {}
 
@@ -85,9 +87,16 @@ export class WorkspaceEditingSession {
     try {
       const initial = await api<BookWorkspace>(`books/${this.bookId}/workspace`);
       if (!this.live || request !== this.reloadRequest) return;
-      if (this.generation !== startedGeneration || this.committed !== startedCommitted) {
+      if (this.generation !== startedGeneration) {
         clearTimeout(this.timer);
         this.publish({ error: "刷新期间工作区已发生编辑，草稿已保留，请保存或处理冲突后重试刷新" });
+        return;
+      }
+      // A local command receipt may arrive after the event started this reload.
+      // Its committed snapshot is at least as fresh as the fetched snapshot.
+      if (this.committed !== startedCommitted &&
+          (this.committed?.revision ?? -1) >= initial.revision) {
+        this.publish({ error: "" });
         return;
       }
       // A delayed content snapshot must not rewind the independent camera.
@@ -104,6 +113,7 @@ export class WorkspaceEditingSession {
   };
 
   flush = async (): Promise<boolean> => {
+    if (this.bookCommandBarrier) await this.bookCommandBarrier;
     clearTimeout(this.timer);
     if (this.pending) return this.pending;
     if (!this.draft || !this.committed) return true;
@@ -167,7 +177,33 @@ export class WorkspaceEditingSession {
     if (JSON.stringify(previous.camera) !== JSON.stringify(next.camera)) this.viewGeneration++;
     this.publish({ value: next, status: "待保存" });
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.flush(), 500);
+    if (!this.bookCommandBarrier) this.timer = setTimeout(() => void this.flush(), 500);
+  };
+
+  /** Hold local board commits while a cross-entity book command is in flight. */
+  holdForBookCommand = () => {
+    if (this.bookCommandBarrier) throw new Error("已有书籍命令正在提交");
+    clearTimeout(this.timer);
+    let release!: () => void;
+    this.bookCommandBarrier = new Promise<void>((resolve) => { release = resolve; });
+    return () => {
+      this.bookCommandBarrier = undefined;
+      release();
+      if (this.isDirty()) this.timer = setTimeout(() => void this.flush(), 500);
+    };
+  };
+
+  /** Rebase a local board draft on the content version committed by Core. */
+  acceptBookReceipt = (receipt: BookCommandReceipt) => {
+    if (!this.committed || !this.draft) throw new Error("工作区尚未加载");
+    // An event-driven reload can observe this transaction (or a later one)
+    // before its HTTP response reaches the editor.
+    if (this.committed.revision >= receipt.contentVersion) return;
+    if (this.committed.revision !== receipt.previousVersion)
+      throw new Error("工作区版本已变化，请刷新后核对书籍命令");
+    this.committed = { ...apply(this.committed, receipt.workspaceChanges), revision: receipt.contentVersion };
+    this.draft = { ...apply(this.draft, receipt.workspaceChanges), revision: receipt.contentVersion };
+    this.publish({ value: this.draft, status: this.isDirty() ? "待保存" : "已保存" });
   };
 
   private enqueueHistory(action: () => Promise<void>) {
