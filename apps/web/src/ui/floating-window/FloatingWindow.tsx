@@ -43,10 +43,11 @@ export function FloatingWindow({ rect, bounds, onCommit, onClose, children, titl
     setFrame(next);
   }
   useEffect(() => {
-    if (!gesture.current) {
-      savedRef.current = rect ?? defaultRect(bounds);
-      show(clampWindow(savedRef.current, bounds));
-    }
+    const active = gesture.current;
+    gesture.current = undefined;
+    if (active?.target.hasPointerCapture(active.pointerId)) active.target.releasePointerCapture(active.pointerId);
+    savedRef.current = rect ?? defaultRect(bounds);
+    show(clampWindow(savedRef.current, bounds));
   }, [rect, bounds.width, bounds.height, defaultRect]);
   function commit(display: WindowRect, operation: "move" | "reset" | ResizeEdge, saved = savedRef.current) {
     const next = persistedWindow(display, saved, operation);
@@ -62,9 +63,16 @@ export function FloatingWindow({ rect, bounds, onCommit, onClose, children, titl
       if (current.target.hasPointerCapture(current.pointerId))
         current.target.releasePointerCapture(current.pointerId);
     };
+    const escape = (event: KeyboardEvent) => {
+      if (!event.isComposing && event.key === "Escape" && gesture.current) {
+        event.preventDefault(); event.stopImmediatePropagation(); cancel();
+      }
+    };
+    window.addEventListener("keydown", escape, true);
     window.addEventListener("blur", cancel);
     return () => {
       window.removeEventListener("blur", cancel);
+      window.removeEventListener("keydown", escape, true);
       const current = gesture.current;
       gesture.current = undefined;
       if (current?.target.hasPointerCapture(current.pointerId))

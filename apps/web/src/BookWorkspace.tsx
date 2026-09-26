@@ -105,6 +105,7 @@ export const BookWorkspace = forwardRef<
     onBookChanges: (changes: BookChange[], commandId?: string) => Promise<BookCommandReceipt>;
     draggedExcerpt?: { bookId: string; selection: ReadingSelection };
     onExcerptDrop?: () => void;
+    excerptDragPoint?: { x: number; y: number };
   }
 >(function BookWorkspace(props, ref) {
   const state = useWorkspace(props.workspaceSession, props.annotations?.map((annotation) => annotation.id));
@@ -264,7 +265,17 @@ export const BookWorkspace = forwardRef<
     }));
     if (zoom !== props.zoom) props.onZoom?.(zoom);
   }
+  function revealDocument() {
+    if (props.deskLayout !== "spatial" || narrow) return;
+    const el = viewport.current;
+    const rect = documentObject.rect;
+    if (el && (rect.x * props.zoom < el.scrollLeft || rect.y * props.zoom < el.scrollTop ||
+      (rect.x + rect.width) * props.zoom > el.scrollLeft + el.clientWidth ||
+      (rect.y + rect.height) * props.zoom > el.scrollTop + el.clientHeight))
+      navigate(rect.x - 24, rect.y - 24);
+  }
   function locateDocument() {
+    revealDocument();
     const el = pdfViewport.current;
     if (!el) return;
     const page = pdfPages.current.find((item) => item.page === props.page);
@@ -279,7 +290,7 @@ export const BookWorkspace = forwardRef<
     const el = viewport.current;
     if (!el) return;
     const cards = state.value?.cards.filter((card) => card.placed !== false) ?? [];
-    const bounds = [...cards, ...(state.value?.groups ?? [])];
+    const bounds = [...cards, ...(state.value?.groups ?? []), ...(spatial ? [documentObject.rect] : [])];
     if (!bounds.length) return;
     const left = Math.min(...bounds.map((item) => item.x)) - 40;
     const top = Math.min(...bounds.map((item) => item.y)) - 40;
@@ -328,6 +339,7 @@ export const BookWorkspace = forwardRef<
   function add(selection?: ReadingSelection, point?: InkPoint) {
     if (!selection) { void placeNote().catch((error) => setInkError(String(error))); return; }
     if (!state.value) return;
+    if (selection.text.length > 20000) { setInkError("选区超过 20,000 字，请分段摘录；原文没有被截断。"); return; }
     const sameSource = state.value.cards.find((old) => old.kind === "excerpt" &&
       old.source?.fingerprint === props.book.fingerprint &&
       JSON.stringify(old.source.anchors) === JSON.stringify(selection.anchors));
@@ -469,6 +481,7 @@ export const BookWorkspace = forwardRef<
     placeNote,
     addToQuestion: addSelectedToQuestion,
     dropExcerpt: (selection, x, y) => {
+      if (selection.text.length > 20000) { setInkError("选区超过 20,000 字，请分段摘录；原文没有被截断。"); return false; }
       const board = viewport.current;
       const bounds = board?.getBoundingClientRect();
       const world = board?.querySelector<HTMLElement>(".pdf-world")?.getBoundingClientRect();
@@ -482,6 +495,7 @@ export const BookWorkspace = forwardRef<
     focusAnchors: enterFocus,
     showPane: (pane) => {
       setNarrowPane(pane);
+      if (pane === "pdf") revealDocument();
       if (props.readerPaneMode !== "split") props.onReaderPaneMode("split");
     },
     locateItem: (id) => {
@@ -516,7 +530,7 @@ export const BookWorkspace = forwardRef<
   function update(id: string, change: Partial<WorkspaceCard>) {
     if (state.value)
       state.change((current) => ({
-        ...assignCardGroupIfMoved(current, id, change),
+        ...((change.x !== undefined || change.y !== undefined) ? releaseCardContact(assignCardGroupIfMoved(current, id, change), id, crypto.randomUUID()) : assignCardGroupIfMoved(current, id, change)),
       }));
   }
   function assignCardGroupIfMoved(current: WorkspaceSnapshot, id: string, change: Partial<WorkspaceCard>) {
@@ -663,6 +677,7 @@ export const BookWorkspace = forwardRef<
     locateAnchors(annotation.anchors);
   }
   function locateAnchors(anchors: PdfAnchor[]) {
+    revealDocument();
     const anchor = anchors[0];
     if (!anchor) return;
     pendingPage.current = undefined;
@@ -684,6 +699,7 @@ export const BookWorkspace = forwardRef<
       top: Math.max(0, location.y * documentZoom - 100) });
   }
   function jumpPage(pageNumber: number) {
+    revealDocument();
     if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > props.book.pages) return;
     pendingLocate.current = undefined;
     setSourceFocus(undefined);
@@ -829,8 +845,11 @@ export const BookWorkspace = forwardRef<
         objects: snapshot.objects.map((object) => ids.includes(object.id) ?
           translateObject(object, dx, dy, pages.current, props.book.fingerprint) : object),
       };
-      for (const card of next.cards.filter((item) => ids.includes(item.id)))
-        next = assignCardGroup(next, card);
+      for (const card of next.cards.filter((item) => ids.includes(item.id))) {
+        const clustered = next.groups.some((group) => group.presentation === "cluster" && group.memberIds.includes(card.id));
+        if (!clustered) next = assignCardGroup(next, card);
+      }
+      for (const id of ids) next = releaseCardContact(next, id, crypto.randomUUID());
       return next;
     });
   }
@@ -1560,6 +1579,12 @@ export const BookWorkspace = forwardRef<
     projectedInk.current = state.value?.objects.filter((object): object is InkStroke => object.kind === "ink")
       .map((stroke) => projectStroke(stroke, pages.current)) ?? [];
   }
+  useEffect(() => {
+    const point = props.excerptDragPoint;
+    if (!narrow || !point) return;
+    const target = document.elementFromPoint(point.x, point.y)?.closest<HTMLElement>('[role="tab"][data-desk-tab]');
+    if (target?.dataset.deskTab === "board") setNarrowPane("board");
+  }, [narrow, props.excerptDragPoint]);
   const paneMode = narrow && props.readerPaneMode === "split" ? narrowPane : props.readerPaneMode;
   const showPdf = paneMode !== "board";
   const showBoard = paneMode !== "pdf";
@@ -1675,7 +1700,7 @@ export const BookWorkspace = forwardRef<
       <div ref={splitRoot} className={`reader-split desk-surface ${spatial ? "desk-spatial" : "desk-adjacent"}`} style={{ "--reader-split-ratio": splitDraft } as CSSProperties}>
         {narrow && <div className="reader-pane-tabs" role="tablist" aria-label="阅读区域">
           <button role="tab" aria-selected={showPdf} onClick={() => { setNarrowPane("pdf"); props.onReaderPaneMode("split"); }}>原文</button>
-          <button role="tab" aria-selected={showBoard}
+          <button role="tab" data-desk-tab="board" aria-selected={showBoard}
             onDragOver={(event) => { if (event.dataTransfer.types.includes("application/x-aireader-excerpt")) setNarrowPane("board"); }}
             onClick={() => { setNarrowPane("board"); props.onReaderPaneMode("split"); }}>工作台</button>
         </div>}
@@ -1683,7 +1708,15 @@ export const BookWorkspace = forwardRef<
           style={spatial ? { left: (documentObject.rect.x - (state.value?.camera?.x ?? 0)) * props.zoom,
             top: (documentObject.rect.y - (state.value?.camera?.y ?? 0)) * props.zoom,
             width: documentObject.rect.width * props.zoom, height: documentObject.rect.height * props.zoom } : undefined}>
-          <header className="reader-pane-header" {...(spatial ? documentObject.move : {})}>
+          <header className="reader-pane-header" {...(spatial ? documentObject.move : {})}
+            tabIndex={spatial ? 0 : undefined} aria-label={spatial ? "移动文档" : undefined}
+            onKeyDown={(event) => {
+              if (!spatial || event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return;
+              event.preventDefault();
+              props.onDocumentRect({ ...documentObject.rect,
+                x: Math.max(0, Math.min(10000, documentObject.rect.x + (event.key === "ArrowRight" ? 24 : event.key === "ArrowLeft" ? -24 : 0))),
+                y: Math.max(0, Math.min(10000, documentObject.rect.y + (event.key === "ArrowDown" ? 24 : event.key === "ArrowUp" ? -24 : 0))) });
+            }}>
             <span><Icon name="book" /> 原文 <small>第 {props.page} 页</small></span>
             <div className="reader-pane-actions">
               {locatingPage && <span className="reader-source-loading" role="status">正在定位第 {props.book.labels[locatingPage - 1] ?? locatingPage} 页…</span>}
@@ -1696,7 +1729,7 @@ export const BookWorkspace = forwardRef<
             </div>
           </header>
           <div className="pdf-normal-view" hidden={!!focusAnchors}>
-          <PdfReader {...props} zoom={documentZoom} onZoom={(zoom) => props.onPdfZoom(zoom / (spatial ? props.zoom : 1))} onRegionAction={regionAction}
+          <PdfReader {...props} zoomLimits={{ min: .4 * (spatial ? props.zoom : 1), max: 3 * (spatial ? props.zoom : 1) }} zoom={documentZoom} onZoom={(zoom) => props.onPdfZoom(Math.max(.4, Math.min(3, zoom / (spatial ? props.zoom : 1))))} onRegionAction={regionAction}
             workspace={{
               mode: "document", ready: !!state.value, onDocumentWidth: setDocumentWidth,
               onCamera: () => {}, width: WORKSPACE_DOCUMENT_X * 2 + documentWidth,
@@ -1774,6 +1807,7 @@ export const BookWorkspace = forwardRef<
           <header className="reader-pane-header">
             <span><Icon name="workspace" /> 工作台 <small>{state.value?.cards.filter((card) => card.placed !== false).length ?? 0} 张卡片</small></span>
             <div className="reader-pane-actions">
+              <button aria-label="回到文档" onClick={locateDocument}>原文</button>
               <button aria-label="切换桌面布局" title={spatial ? "切换到连续并排布局" : "切换到空间桌面"}
                 onClick={() => props.onDeskLayout(props.deskLayout === "spatial" ? "adjacent" : "spatial")}>{props.deskLayout === "spatial" ? "空间" : "并排"}</button>
               <button aria-label="多选材料" aria-pressed={multiSelect} onClick={() => setMultiSelect(!multiSelect)}>多选</button>
@@ -1847,8 +1881,8 @@ export const BookWorkspace = forwardRef<
                   state.value.camera?.zoom !== camera.zoom))
                   state.change((current) => ({ ...current, camera }), false);
               },
-              width: Math.max(2400, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.x + card.width + 200) ?? [])),
-              height: Math.max(1800, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.y + card.height + 200) ?? [])),
+              width: Math.max(2400, spatial ? documentObject.rect.x + documentObject.rect.width + 200 : 0, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.x + card.width + 200) ?? [])),
+              height: Math.max(1800, spatial ? documentObject.rect.y + documentObject.rect.height + 200 : 0, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.y + card.height + 200) ?? [])),
               render: overlay,
               onInkStart: (point) => { beginSurface("board"); return startInk(point); },
               onInkMove: moveInk, onInkEnd: finishInk, onInkCancel: cancelInk,

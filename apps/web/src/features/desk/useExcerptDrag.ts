@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { ReadingSelection } from "../../../../../packages/protocol/src";
 
 /** Freeze the real PDF anchors before native selection can collapse on re-grab. */
-export function useExcerptDrag(onDrop: (selection: ReadingSelection, x: number, y: number) => void) {
+export function useExcerptDrag(bookId: string | undefined, onDrop: (selection: ReadingSelection, x: number, y: number) => void) {
   const [preview, setPreview] = useState<{ x: number; y: number; text: string }>();
   const active = useRef<{ id: number; x: number; y: number; selection: ReadingSelection;
     moved: boolean; target: HTMLElement } | undefined>(undefined);
@@ -34,7 +34,7 @@ export function useExcerptDrag(onDrop: (selection: ReadingSelection, x: number, 
       window.removeEventListener("pointercancel", cancel); window.removeEventListener("blur", cancel);
       window.removeEventListener("keydown", escape);
     };
-  }, []);
+  }, [bookId]);
   function begin(event: PointerEvent<HTMLElement>, selection?: ReadingSelection): boolean {
     if (!selection || event.button !== 0 || !(event.target as HTMLElement).closest(".pdf-pane .textLayer")) return false;
     const native = window.getSelection();

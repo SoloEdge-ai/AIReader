@@ -16,8 +16,14 @@ export function useDocumentObject(saved: DocumentRect | undefined, zoom: number,
     if (active?.target.hasPointerCapture(active.id)) active.target.releasePointerCapture(active.id);
   }
   useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (!event.isComposing && event.key === "Escape" && pointer.current) {
+        event.preventDefault(); event.stopImmediatePropagation(); cancel();
+      }
+    };
+    window.addEventListener("keydown", escape, true);
     window.addEventListener("blur", cancel);
-    return () => { window.removeEventListener("blur", cancel); cancel(); };
+    return () => { window.removeEventListener("blur", cancel); window.removeEventListener("keydown", escape, true); cancel(); };
   }, []);
   function project(event: PointerEvent<HTMLElement>) {
     const active = pointer.current;

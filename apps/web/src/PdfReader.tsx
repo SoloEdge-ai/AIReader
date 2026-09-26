@@ -544,6 +544,7 @@ export interface PdfReaderProps {
   initialPage: number;
   zoom: number;
   onZoom?: (zoom: number) => void;
+  zoomLimits?: { min: number; max: number };
   rotation?: number;
   onPage: (page: number) => void;
   initialView?: PdfView;
@@ -590,6 +591,7 @@ export function PdfReader({
   onZoom,
   rotation = 0,
   onPage,
+  zoomLimits,
   initialView,
   onView,
   onSelection,
@@ -657,8 +659,8 @@ export function PdfReader({
   const wheelPosition = useRef<{ left: number; top: number } | undefined>(
     undefined,
   );
-  const wheelState = useRef({ zoom, onZoom });
-  wheelState.current = { zoom, onZoom };
+  const wheelState = useRef({ zoom, onZoom, zoomLimits });
+  wheelState.current = { zoom, onZoom, zoomLimits };
   useEffect(() => {
     const el = scroll.current;
     if (!el) return;
@@ -675,6 +677,7 @@ export function PdfReader({
         top: next?.top ?? el.scrollTop,
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
+        limits: current.zoomLimits,
         deltaY: event.deltaY,
         deltaMode: event.deltaMode,
         viewportHeight: el.clientHeight,
@@ -1180,7 +1183,7 @@ export function PdfReader({
         }
         if (anchors.length)
           onSelection({
-            text: selectedText.join(" ").slice(0, 12000),
+            text: selectedText.join(" "),
             page: anchors[0].page,
             anchors,
             screen: { x: e.clientX, y: e.clientY },

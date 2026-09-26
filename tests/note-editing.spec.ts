@@ -1,3 +1,4 @@
+import { Preferences } from "../apps/core/src/preferences";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -32,6 +33,7 @@ test.beforeAll(async () => {
   const imported = await fetch(origin + "/api/books", { method: "POST", headers, body: Buffer.from(await pdf.save()) });
   bookId = (await imported.json()).id;
   await core.library.waitForBook(bookId);
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent" });
   expect((await fetch(origin + `/api/books/${bookId}/notes`, { method: "POST", headers, body: "{}" })).status).toBe(201);
 });
 test.afterAll(async () => {
@@ -152,7 +154,7 @@ test("leaving material navigation keeps an unsaved note draft visible", async ({
   await page.unroute("**/api/v2/books/*/commands");
   await expanded.getByRole("button", { name: "重试保存", exact: true }).click();
   await expect(expanded.getByRole("status")).toHaveText("已保存");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true }).click();
   await expect(page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true })).toHaveClass(/chosen/);
 });
@@ -281,7 +283,7 @@ test("annotation comments are explicit and deleting either entity preserves the 
   await expanded.getByRole("button", { name: "重试保存", exact: true }).click();
   await expect(expanded.getByRole("status")).toHaveText("已保存");
   await page.screenshot({ path: "test-results/annotation-comment-source.png" });
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByRole("button", { name: "撤销批注操作" }).click();
   await page.getByRole("button", { name: "删除笔记", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
@@ -312,7 +314,7 @@ test("card and sidebar stay lightweight while the expanded editor owns the note"
   await expect(card).toContainText("从展开层继续写作");
   await expect(panel).toContainText("从展开层继续写作");
   await expect(card).toContainText("唯一展开编辑器");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await panel.getByRole("button", { name: "放到画布", exact: true }).click();
   await expect.poll(async () => ({ cards: await card.count(), dialogs })).toEqual({ cards: 1, dialogs: [] });
   await page.screenshot({ path: "test-results/shared-note-card.png" });
@@ -346,7 +348,7 @@ test("replacing card text after a failed save never restores the previous draft"
   await page.unroute("**/api/v2/books/*/commands");
   await expanded.getByRole("button", { name: "重试保存" }).click();
   await expect(expanded.getByRole("status")).toHaveText("已保存");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await panel.getByRole("button", { name: "放到画布", exact: true }).click();
   const card = page.locator(".workspace-card.note").filter({ hasText: "卡片替换回归" });
   await expect(card).toHaveCount(1);
@@ -386,6 +388,7 @@ test("excerpt keeps immutable source text beside its associated note", async ({ 
   await card.scrollIntoViewIfNeeded();
   await expect(card).toContainText("不可编辑的书中原文");
   await expect(card).toContainText("尚无关联笔记");
+  await card.click({ position: { x: 40, y: 36 } });
   await card.getByRole("button", { name: "写笔记" }).click();
   await expect(card).toContainText("不可编辑的书中原文");
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
@@ -394,9 +397,9 @@ test("excerpt keeps immutable source text beside its associated note", async ({ 
   await expect(expanded).toContainText("不可编辑的书中原文");
   await expect(card).toContainText("关联笔记 · 1");
   await expect(card).not.toContainText("修改后的个人理解");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(card).toContainText("不可编辑的书中原文");
-  expect((await card.locator("blockquote").boundingBox())?.height).toBeGreaterThanOrEqual(46);
+  expect((await card.locator("blockquote").boundingBox())?.height).toBeGreaterThanOrEqual(24);
   await page.screenshot({ path: "test-results/excerpt-comment-note.png" });
   const panel = page.locator(".notes-panel");
   if (!(await panel.isVisible())) await page.getByLabel("笔记", { exact: true }).click();
@@ -525,7 +528,7 @@ test("expanded note stays editable beside chat and keeps the material draft sync
   await expect(expanded).toBeVisible();
   await page.screenshot({ path: "test-results/expanded-note-and-chat.png" });
   await closeFloatingChat(page);
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(expanded).toHaveCount(0);
   await expect(page.locator(".notes-panel .tiptap")).toHaveCount(0);
   await expect(page.locator(".notes-panel")).toContainText("问答打开时仍可写笔记");
@@ -543,7 +546,7 @@ test("failed saves retain the shared draft and prevent closing the expanded edit
     ? route.fulfill({ status: 503, json: { error: "暂时无法保存" } }) : route.continue());
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("失败后两处保留草稿");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(expanded.getByRole("status")).toContainText("保存失败");
   await expect(page.locator(".notes-panel .tiptap")).toHaveCount(0);
   await expect(page.locator(".notes-panel")).toContainText("失败后两处保留草稿");

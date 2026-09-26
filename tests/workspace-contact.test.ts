@@ -21,6 +21,16 @@ test("release attaches and separates a cluster without manufacturing a semantic 
   expect(original.groups).toEqual([]);
   const separated = releaseCardContact({ ...attached, cards: attached.cards.map((item) =>
     item.id === "b" ? { ...item, x: 900 } : item) }, "b", "unused");
-  expect(separated.groups[0].memberIds).toEqual(["a"]);
+  expect(separated.groups).toEqual([]);
   expect(WorkspaceSchema.parse(separated)).toEqual(separated);
+});
+
+test("moving one card to a distant cluster does not carry its former neighbour", () => {
+  let snapshot = WorkspaceSchema.parse({ bookId: "book1", revision: 0, groups: [], links: [],
+    cards: [card("a", 100), card("b", 425), card("c", 1000)] });
+  snapshot = releaseCardContact(snapshot, "b", "group1");
+  snapshot = { ...snapshot, cards: snapshot.cards.map((item) => item.id === "b" ? { ...item, x: 675 } : item) };
+  const regrouped = releaseCardContact(snapshot, "b", "group2");
+  expect(regrouped.groups).toHaveLength(1);
+  expect(regrouped.groups[0].memberIds.sort()).toEqual(["b", "c"]);
 });

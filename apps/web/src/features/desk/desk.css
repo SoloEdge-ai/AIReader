@@ -34,7 +34,7 @@
   overflow: hidden; border-radius: 8px; padding: 18px; background: var(--surface); box-shadow: 0 12px 35px #0003;
   font-size: 14px; line-height: 1.7; opacity: .9; }
 
-.desk-paper-bridges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.desk-paper-bridges { position: absolute; inset: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 .desk-paper-bridges path { fill: var(--surface); }
 .desk-paper-bridges path.pending { fill: color-mix(in srgb, var(--accent) 18%, var(--surface)); stroke: var(--accent); stroke-dasharray: 4 5; }
 .desk-surface .workspace-group.paper-cluster:not(.collapsed) { border: 0; background: transparent; box-shadow: none; pointer-events: none; }

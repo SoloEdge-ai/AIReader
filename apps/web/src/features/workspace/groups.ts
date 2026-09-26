@@ -1,4 +1,4 @@
-import { nearestContact } from "../../../../../packages/workspace-engine/src/contact";
+import { cardContact, nearestContact } from "../../../../../packages/workspace-engine/src/contact";
 import type { BookWorkspace, WorkspaceCard, WorkspaceGroup, WorkspaceObject } from "../../../../../packages/protocol/src/workspace";
 import { objectRect } from "../../../../../packages/workspace-engine/src/objects";
 import { projectStroke } from "../../../../../packages/workspace-engine/src/ink";
@@ -122,8 +122,38 @@ export function addCardToGroup(snapshot: BookWorkspace, card: WorkspaceCard,
   } : group) };
 }
 
+/** Rebuild only clusters touched by a completed move, preserving each connected component. */
+function splitCluster(snapshot: BookWorkspace, movedId: string, freshId: string): BookWorkspace {
+  const owner = snapshot.groups.find((group) => group.presentation === "cluster" && group.memberIds.includes(movedId));
+  if (!owner) return snapshot;
+  const remaining = new Set(owner.memberIds);
+  const cards = new Map(snapshot.cards.map((card) => [card.id, card]));
+  const components: string[][] = [];
+  while (remaining.size) {
+    const component = [remaining.values().next().value!]; remaining.delete(component[0]);
+    for (let i = 0; i < component.length; i++) {
+      const from = cards.get(component[i]);
+      if (!from) continue;
+      for (const id of remaining) {
+        const to = cards.get(id);
+        if (to && cardContact(from, to, 44)) { remaining.delete(id); component.push(id); }
+      }
+    }
+    if (component.length > 1) components.push(component);
+  }
+  if (components.length === 1 && components[0].length === owner.memberIds.length) return snapshot;
+  let next = { ...snapshot, groups: snapshot.groups.filter((group) => group.id !== owner.id) };
+  for (const [index, members] of components.entries()) {
+    const id = index === 0 ? owner.id : `${freshId}_${index}`;
+    next = groupSelection(next, members, id, owner.title, owner.color);
+    next = { ...next, groups: next.groups.map((group) => group.id === id ? { ...group, presentation: "cluster" as const } : group) };
+  }
+  return next;
+}
+
 /** Release commits position and membership together through the existing atomic workspace command. */
 export function releaseCardContact(snapshot: BookWorkspace, cardId: string, groupId: string): BookWorkspace {
+  snapshot = splitCluster(snapshot, cardId, groupId);
   const card = snapshot.cards.find((item) => item.id === cardId);
   if (!card) return snapshot;
   const owner = snapshot.groups.find((group) => group.memberIds.includes(cardId));

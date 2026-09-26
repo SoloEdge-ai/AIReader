@@ -67,7 +67,7 @@ export function App() {
   const [selection, setSelection] = useState<ReadingSelection>(),
     [action, setAction] = useState<SelectionAction>();
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
-  const excerptDrag = useExcerptDrag((frozen, x, y) => {
+  const excerptDrag = useExcerptDrag(active, (frozen, x, y) => {
     if (workspace.current?.dropExcerpt(frozen, x, y)) {
       selectionPinned.current = false; clearSelection();
     }
@@ -1017,6 +1017,7 @@ export function App() {
                 onReaderPaneMode={(readerPaneMode) => updateLayout({ ...layout, readerPaneMode })}
                 connectionHost={readerHost}
                 questionMaterials={activeQuestionDraft.materials}
+                excerptDragPoint={excerptDrag.preview}
                 draggedExcerpt={draggedExcerpt}
                 onExcerptDrop={() => { setDraggedExcerpt(undefined); selectionPinned.current = false; clearSelection(); }}
                 chatOpen={layout.panel !== "none"}

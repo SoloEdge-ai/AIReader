@@ -507,6 +507,9 @@ test("real PDF selection drags directly and contact grouping commits on release"
     ({ ...card, placed: true, x: 60 + index * 360, y: 80 })) });
   await openBook(page);
   await page.getByRole('button', { name: '选择文字（T）' }).click();
+  await page.getByRole('textbox', { name: '页码' }).fill('1');
+  await page.getByRole('textbox', { name: '页码' }).press('Enter');
+  await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeVisible();
   await selectFirstPdfLine(page, 1);
   const selection = await page.evaluate(() => {
     const native = window.getSelection()!, rect = native.getRangeAt(0).getBoundingClientRect();
@@ -533,4 +536,49 @@ test("real PDF selection drags directly and contact grouping commits on release"
   await expect.poll(() => store.get(bookId).groups[0]?.presentation).toBe('cluster');
   await expect(page.locator('.desk-paper-bridges path:not(.pending)')).toHaveCount(1);
   await page.screenshot({ path: '.local/desk-production-adjacent.png', fullPage: true });
+});
+
+
+test("Escape cancels document and note gestures; return to document restores a distant desk", async ({ page }) => {
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "spatial" });
+  await page.setViewportSize({ width: 1600, height: 1000 }); await openBook(page);
+  const pdf = page.locator('.pdf-pane'), handle = page.getByLabel('移动文档', { exact: true });
+  const original = await pdf.boundingBox(), drag = await handle.boundingBox();
+  await page.mouse.move(drag!.x + 80, drag!.y + 18); await page.mouse.down();
+  await page.mouse.move(drag!.x + 220, drag!.y + 80, { steps: 8 });
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  expect((await pdf.boundingBox())!.x).toBeCloseTo(original!.x, 0);
+  await page.locator('.board-pane .pdf-scroll').evaluate((el) => el.scrollTo(1400, 900));
+  await expect.poll(async () => (await pdf.boundingBox())!.x).toBeLessThan(0);
+  await page.getByRole('button', { name: '回到文档', exact: true }).click();
+  await expect.poll(async () => (await pdf.boundingBox())!.x).toBeGreaterThanOrEqual(0);
+  await page.getByRole('button', { name: '新建笔记', exact: true }).click();
+  const note = page.getByLabel('笔记浮窗', { exact: true });
+  const before = await note.boundingBox(), title = await note.getByLabel('拖动移动笔记浮窗').boundingBox();
+  await page.mouse.move(title!.x + 100, title!.y + 20); await page.mouse.down();
+  await page.mouse.move(title!.x - 50, title!.y + 60, { steps: 8 });
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  await expect(note).toBeVisible(); expect((await note.boundingBox())!.x).toBeCloseTo(before!.x, 0);
+});
+
+test("native excerpt drag crosses the narrow workspace tab", async ({ page }) => {
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent", pdfZoom: .8 });
+  await page.setViewportSize({ width: 780, height: 900 }); await page.goto(base);
+  await page.locator('.book-card').filter({ hasText: 'LiquidText alignment fixture' }).click();
+  await page.getByRole('textbox', { name: '页码' }).fill('2');
+  await page.getByRole('textbox', { name: '页码' }).press('Enter');
+  await page.getByRole('button', { name: '选择文字（T）' }).click();
+  await expect(page.locator('.pdf-page[data-page="2"] .textLayer span').first()).toBeVisible();
+  await selectFirstPdfLine(page, 2);
+  const source = await page.evaluate(() => {
+    const selection = window.getSelection()!, rect = selection.getRangeAt(0).getBoundingClientRect();
+    return { x: rect.left + 20, y: rect.top + rect.height / 2, text: selection.toString() };
+  });
+  const tab = page.getByRole('tab', { name: '工作台', exact: true }), target = await tab.boundingBox();
+  await page.mouse.move(source.x, source.y); await page.mouse.down();
+  await page.mouse.move(target!.x + 25, target!.y + 12, { steps: 10 });
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  const board = await page.locator('.board-normal-view').boundingBox();
+  await page.mouse.move(board!.x + 120, board!.y + 300, { steps: 10 }); await page.mouse.up();
+  await expect.poll(() => new Workspaces(core.library).get(bookId).cards.some((card) => card.text === source.text)).toBe(true);
 });
