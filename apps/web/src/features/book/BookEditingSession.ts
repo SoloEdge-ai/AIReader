@@ -2,6 +2,7 @@ import { NoteEditingSession } from "../notes/NoteEditingSession";
 import { WorkspaceEditingSession } from "../workspace/WorkspaceEditingSession";
 import type { BookChange, BookCommandReceipt } from "../../../../../packages/protocol/src/book-commands";
 import { submitBookCommand } from "./BookCommandClient";
+import { ApiRequestError } from "../../api";
 
 /** Owns the editing lifecycle for one book, including the content-before-placement save barrier. */
 export class BookEditingSession {
@@ -40,7 +41,10 @@ export class BookEditingSession {
   flush = async (): Promise<boolean> => {
     if (!(await this.notes.flush())) return false;
     await this.commandTail;
-    if (this.attempts.size) return false;
+    for (const [commandId, attempt] of [...this.attempts]) {
+      try { await this.submitChanges(attempt.changes, commandId); }
+      catch { return false; }
+    }
     return this.workspace?.flush() ?? true;
   };
 
@@ -71,6 +75,12 @@ export class BookEditingSession {
         }
         this.attempts.delete(commandId);
         return receipt;
+      } catch (error) {
+        // A received 4xx is a definite rejection. Only transport failures and
+        // unverified receipts retain the exact command ID for reconciliation.
+        if (error instanceof ApiRequestError && error.status >= 400 && error.status < 500)
+          this.attempts.delete(commandId);
+        throw error;
       } finally { release(); }
     });
     this.pendingCommands++;

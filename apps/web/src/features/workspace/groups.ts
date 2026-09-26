@@ -5,7 +5,7 @@ import { projectStroke } from "../../../../../packages/workspace-engine/src/ink"
 type Rect = { x: number; y: number; width: number; height: number };
 
 export function boardMemberBounds(snapshot: BookWorkspace, id: string): Rect | undefined {
-  const card = snapshot.cards.find((item) => item.id === id);
+  const card = snapshot.cards.find((item) => item.id === id && item.placed !== false);
   if (card) return card;
   const object = snapshot.objects.find((item) => item.id === id);
   if (!object || !isBoardObject(object)) return;

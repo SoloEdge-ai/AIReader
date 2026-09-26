@@ -14,6 +14,28 @@ type RemovedPlacement = {
   associatedCardIds: string[];
 };
 
+function sameNoteContent(left: Note, right: Note): boolean {
+  const stable = (note: Note) => {
+    const { revision: _revision, updatedAt: _updatedAt, ...content } = note;
+    return JSON.stringify(content);
+  };
+  return stable(left) === stable(right);
+}
+
+function workspaceMatchesReceipt(workspace: BookWorkspace, changes: BookCommandReceipt["workspaceChanges"]): boolean {
+  return changes.every((change) => {
+    const expected = "card" in change ? change.card : "object" in change ? change.object :
+      "group" in change ? change.group : "link" in change ? change.link : undefined;
+    const id = expected?.id ?? ("id" in change ? change.id : "");
+    const collection = change.type.endsWith("card") ? workspace.cards :
+      change.type.endsWith("object") ? workspace.objects :
+      change.type.endsWith("group") ? workspace.groups : workspace.links;
+    const current = collection.find((item) => item.id === id);
+    if (change.type.startsWith("delete")) return current === undefined;
+    return JSON.stringify(current) === JSON.stringify(expected);
+  });
+}
+
 /** Core's cross-entity transaction boundary. Receipts are durable before any event is published. */
 export class BookCommands {
   private readonly workspaces: Workspaces;
@@ -176,14 +198,16 @@ export class BookCommands {
           workspace = applyWorkspaceChanges(workspace, change.changes);
         } else {
           const target = this.library.store.getForBook<BookCommandReceipt>("book-command", `${bookId}:${change.targetCommandId}`, bookId);
-          if (!target || target.contentVersion !== initial.revision)
-            throw new WorkspaceConflict("已有后续修改，无法直接撤销此命令");
+          if (!target || !workspaceMatchesReceipt(workspace, target.workspaceChanges))
+            throw new WorkspaceConflict("相关工作区对象已变化，无法撤销此命令");
+          for (const delta of target.noteChanges) {
+            const current = this.note(bookId, delta.after.id);
+            if (!sameNoteContent(current, delta.after))
+              throw new WorkspaceConflict("笔记已变化，无法撤销此命令", "NOTE_REVISION_CONFLICT");
+          }
           workspace = applyWorkspaceChanges(workspace, target.inverse.workspace);
           for (const inverse of target.inverse.notes) {
             const old = this.note(bookId, inverse.id);
-            const expected = target.noteChanges.find((delta) => delta.after.id === inverse.id)?.after.revision;
-            if (old.revision !== expected)
-              throw new WorkspaceConflict("笔记已变化，无法直接撤销此命令", "NOTE_REVISION_CONFLICT");
             const restored = inverse.before ? { ...inverse.before, revision: old.revision + 1,
               updatedAt: timestamp() } : { ...old, deletedAt: timestamp(), revision: old.revision + 1,
               updatedAt: timestamp() };

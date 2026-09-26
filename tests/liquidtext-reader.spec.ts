@@ -245,7 +245,7 @@ test("all four style and light combinations preserve the selected source card", 
   }
 });
 
-test("a frozen AI material reports changed and removed source while retaining its snapshot", async ({ page }) => {
+test("a frozen AI material retains its snapshot when the source changes or leaves the board", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openBook(page);
   const card = page.locator('[data-card-id="excerpt-definition"]');
@@ -268,8 +268,21 @@ test("a frozen AI material reports changed and removed source while retaining it
   await chat.getByRole("button", { name: "关闭问答浮窗" }).click();
   await page.getByRole("button", { name: "删除选中对象" }).click();
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
-  await expect(material.getByRole("status")).toContainText("原内容已移除");
+  await expect(material.getByRole("status")).toContainText("原内容已更新");
+  await expect.poll(async () => {
+    const current = await page.request.get(`http://127.0.0.1:43120/api/books/${bookId}/workspace`);
+    return (await current.json()).cards.find((entry: { id: string }) => entry.id === "excerpt-definition");
+  }).toMatchObject({ placed: false, text: "A graph is a set of vertices and edges." });
   await expect(material).toContainText("A graph is a set of vertices and edges.");
+  const notesButton = page.getByRole("button", { name: "笔记", exact: true }).first();
+  if ((await notesButton.getAttribute("aria-pressed")) !== "true") await notesButton.click();
+  await page.getByRole("region", { name: "本书材料" })
+    .getByRole("button", { name: "将修改后的定义放回工作台" }).click();
+  await expect(card).toBeVisible();
+  await expect.poll(async () => {
+    const current = await page.request.get(`http://127.0.0.1:43120/api/books/${bookId}/workspace`);
+    return (await current.json()).cards.find((entry: { id: string }) => entry.id === "excerpt-definition")?.placed;
+  }).toBe(true);
 });
 
 test("one atomic note placement links two excerpts and reopens with both sources", async ({ page }) => {

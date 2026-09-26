@@ -325,6 +325,13 @@
 .workspace-card .workspace-comment > button {
   padding: 4px 0;
 }
+.workspace-excerpt-expand {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 3px 8px;
+  color: var(--workspace-accent);
+  font-size: 12px;
+}
 .workspace-card-association {
   display: flex;
   align-items: center;

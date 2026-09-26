@@ -33,7 +33,7 @@ try {
   });
   await page.locator('[data-book-status="ready"]').waitFor();
   await page.getByRole("button", { name: "笔记", exact: true }).first().click();
-  await page.getByRole("button", { name: "新建笔记" }).click();
+  await page.locator(".notes-panel").getByRole("button", { name: "新建笔记", exact: true }).click();
   const bookId = await page.evaluate(async () => (await (await fetch("/api/books")).json())[0].id);
   const conflict = await page.evaluate(async (id) => {
     const notes = await (await fetch(`/api/books/${id}/notes`)).json();

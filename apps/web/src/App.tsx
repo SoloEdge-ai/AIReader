@@ -113,7 +113,7 @@ export function App() {
     useState<Annotation["color"]>("yellow");
   const [workspaceEvents, setWorkspaceEvents] = useState<Record<string, number>>({});
   const [canvasCatalog, setCanvasCatalog] = useState<{
-    bookId: string; catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">;
+    bookId: string; catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links" | "groups">;
   }>();
   const [turnEvents, setTurnEvents] = useState<ObservedTurn[]>([]);
   const [streamRevision, setStreamRevision] = useState(0);
@@ -575,6 +575,7 @@ export function App() {
     }}
     catalog={canvasCatalog?.bookId === book.id ? canvasCatalog.catalog : undefined}
     onLocateItem={(id) => workspace.current?.locateItem(id)}
+    onRestoreItem={(id) => workspace.current?.restoreItem(id)}
     onAddItemToQuestion={async (id) => {
       if (!(await workspace.current?.addToQuestion([id])))
         throw new Error("画布材料尚未准备好，请重试");

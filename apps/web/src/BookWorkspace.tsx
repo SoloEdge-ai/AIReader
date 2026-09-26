@@ -60,6 +60,7 @@ export interface BookWorkspaceHandle {
   jumpPage(page: number): void;
   placeNote(note: Note): Promise<void>;
   locateItem(id: string): void;
+  restoreItem(id: string): void;
   showPane(pane: "pdf" | "board"): void;
   focusAnchors(anchors: PdfAnchor[]): void;
 }
@@ -81,7 +82,7 @@ export const BookWorkspace = forwardRef<
     notes: BookNotes;
     workspaceSession: WorkspaceEditingSession;
     onExpandNote: (note: Note) => void;
-    onCatalogChange?: (bookId: string, catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">) => void;
+    onCatalogChange?: (bookId: string, catalog: Pick<WorkspaceSnapshot, "cards" | "objects" | "links" | "groups">) => void;
     pdfZoom: number;
     onPdfZoom: (zoom: number) => void;
     splitRatio: number;
@@ -103,9 +104,9 @@ export const BookWorkspace = forwardRef<
   useEffect(() => {
     if (!state.value) return;
     onCatalogChange.current?.(props.book.id, {
-      cards: state.value.cards, objects: state.value.objects, links: state.value.links,
+      cards: state.value.cards, objects: state.value.objects, links: state.value.links, groups: state.value.groups,
     });
-  }, [props.book.id, state.value?.cards, state.value?.objects, state.value?.links]);
+  }, [props.book.id, state.value?.cards, state.value?.objects, state.value?.links, state.value?.groups]);
   const mounted = useRef(true), placing = useRef(false);
   const pendingCreateNote = useRef<{ commandId: string; changes: BookChange[] } | undefined>(undefined);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -139,6 +140,20 @@ export const BookWorkspace = forwardRef<
   const [splitDraft, setSplitDraft] = useState(props.splitRatio);
   const splitRoot = useRef<HTMLDivElement>(null);
   const splitDrag = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const cancelUnfinished = () => {
+      splitDrag.current = undefined;
+      setSplitDraft(props.splitRatio);
+      groupPointer.current = undefined;
+      setGroupGesture(undefined);
+      pointer.current = undefined;
+      setGesture(undefined);
+      setCanvasGesture(undefined);
+      cancelInk();
+    };
+    window.addEventListener("blur", cancelUnfinished);
+    return () => window.removeEventListener("blur", cancelUnfinished);
+  }, [props.book.id, props.splitRatio]);
   const [navigation, setNavigation] = useState<{
     key: number;
     x: number;
@@ -247,7 +262,7 @@ export const BookWorkspace = forwardRef<
     setShowOverview(true);
     const el = viewport.current;
     if (!el) return;
-    const cards = state.value?.cards ?? [];
+    const cards = state.value?.cards.filter((card) => card.placed !== false) ?? [];
     const bounds = [...cards, ...(state.value?.groups ?? [])];
     if (!bounds.length) return;
     const left = Math.min(...bounds.map((item) => item.x)) - 40;
@@ -301,6 +316,9 @@ export const BookWorkspace = forwardRef<
       old.source?.fingerprint === props.book.fingerprint &&
       JSON.stringify(old.source.anchors) === JSON.stringify(selection.anchors));
     if (sameSource) {
+      if (sameSource.placed === false)
+        state.change((current) => ({ ...current, cards: current.cards.map((card) =>
+          card.id === sameSource.id ? { ...card, placed: true } : card) }));
       navigate(Math.max(0, sameSource.x - 40), Math.max(0, sameSource.y - 40));
       selectTarget(sameSource.id);
       setNarrowPane("board");
@@ -321,7 +339,7 @@ export const BookWorkspace = forwardRef<
       height: 240,
       source: { fingerprint: props.book.fingerprint, anchors: structuredClone(selection.anchors) },
     };
-    if (!point) card = findOpenCardPlacement(card, state.value.cards);
+    if (!point) card = findOpenCardPlacement(card, state.value.cards.filter((item) => item.placed !== false));
     const targetGroup = point ? state.value.groups.find((group) => !group.collapsed &&
       point[0] >= group.x && point[0] <= group.x + group.width &&
       point[1] >= group.y && point[1] <= group.y + group.height)?.id : selectedGroup;
@@ -351,7 +369,11 @@ export const BookWorkspace = forwardRef<
     try {
       if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存草稿后再放置笔记");
       const original = existing && state.value?.cards.find((card) => card.noteId === existing.id);
-      if (original) { navigate(original.x - 40, original.y - 40, 1); selectTarget(original.id); return; }
+      if (original) {
+        if (original.placed === false) state.change((current) => ({ ...current,
+          cards: current.cards.map((card) => card.id === original.id ? { ...card, placed: true } : card) }));
+        navigate(original.x - 40, original.y - 40, 1); selectTarget(original.id); return;
+      }
       if (!mounted.current) return;
       const group = selectedGroup && state.value.groups.find((item) => item.id === selectedGroup);
       let card: WorkspaceCard = { id: pendingCreateNote.current?.changes[0]?.type === "create-note"
@@ -361,7 +383,7 @@ export const BookWorkspace = forwardRef<
         y: point ? Math.max(0, point[1]) : group ? group.y + 54 :
           Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60),
         width: 340, height: 220 };
-      if (!point) card = findOpenCardPlacement(card, state.value.cards);
+      if (!point) card = findOpenCardPlacement(card, state.value.cards.filter((item) => item.placed !== false));
       if (!existing) {
         if (!pendingCreateNote.current) {
           const changes: BookChange[] = [{ type: "create-note", title: "未命名笔记",
@@ -439,7 +461,7 @@ export const BookWorkspace = forwardRef<
       if (props.readerPaneMode !== "split") props.onReaderPaneMode("split");
     },
     locateItem: (id) => {
-      const card = state.value?.cards.find((entry) => entry.id === id);
+      const card = state.value?.cards.find((entry) => entry.id === id && entry.placed !== false);
       if (card) {
         navigate(card.x - 40, card.y - 40, 1);
         setSelected(card.id);
@@ -455,6 +477,14 @@ export const BookWorkspace = forwardRef<
         setSelectedLink(link?.id);
       }
       setFocus(false);
+    },
+    restoreItem: (id) => {
+      const card = state.value?.cards.find((entry) => entry.id === id && entry.placed === false);
+      if (!card) return;
+      state.change((current) => ({ ...current, cards: current.cards.map((entry) =>
+        entry.id === id ? { ...entry, placed: true } : entry) }));
+      navigate(Math.max(0, card.x - 40), Math.max(0, card.y - 40), 1);
+      setSelected(card.id); setSelectedIds([card.id]); setNarrowPane("board");
     },
     escape: () => { cancelInk(); setCanvasGesture(undefined); setSelectedIds([]); setSelected(undefined);
       setSelectedLink(undefined); setLinkFrom(undefined); setEditingText(undefined); },
@@ -784,7 +814,7 @@ export const BookWorkspace = forwardRef<
     if (gesture.kind === "lasso") {
       const polygon = [...gesture.points, point];
       const chosen = [
-        ...state.value.cards.filter((card) => lassoHitsRect(polygon, card)).map((card) => card.id),
+        ...state.value.cards.filter((card) => card.placed !== false && lassoHitsRect(polygon, card)).map((card) => card.id),
         ...state.value.objects.filter((object) => object.kind === "ink" ?
           projectedInk.current.find((item) => item.id === object.id)?.paths.some((path) => lassoHitsPath(polygon, path.points)) :
           !!objectRect(object, pages.current) && lassoHitsRect(polygon, objectRect(object, pages.current)!)).map((object) => object.id),
@@ -844,7 +874,7 @@ export const BookWorkspace = forwardRef<
     }
     const ids = new Set(selectedIds);
     state.change((current) => ({ ...current,
-      cards: current.cards.filter((card) => !ids.has(card.id)),
+      cards: current.cards.map((card) => ids.has(card.id) ? { ...card, placed: false } : card),
       objects: current.objects.filter((object) => !ids.has(object.id)),
       groups: current.groups.map((group) => ({ ...group,
         memberIds: group.memberIds.filter((id) => !ids.has(id)) })),
@@ -894,7 +924,7 @@ export const BookWorkspace = forwardRef<
       { ...group, x: group.x + groupGesture.dx, y: group.y + groupGesture.dy } : group);
     const collapsedMemberIds = new Set(state.value.groups.filter((group) => group.collapsed)
       .flatMap((group) => group.memberIds));
-    const allCards = state.value.cards.map((card) => {
+    const allCards = state.value.cards.filter((card) => card.placed !== false).map((card) => {
       const offset = groupGesture && state.value!.groups.find((group) => group.id === groupGesture.id)?.memberIds.includes(card.id)
         ? groupGesture : undefined;
       return gesture?.id === card.id ? { ...card, ...gesture } : offset ?
@@ -996,7 +1026,8 @@ export const BookWorkspace = forwardRef<
                 if (Math.hypot(dx, dy) * props.zoom >= 3)
                   state.change((current) => moveGroup(current, group.id, dx, dy));
               }}
-              onPointerCancel={() => { groupPointer.current = undefined; setGroupGesture(undefined); }}>
+              onPointerCancel={() => { groupPointer.current = undefined; setGroupGesture(undefined); }}
+              onLostPointerCapture={() => { groupPointer.current = undefined; setGroupGesture(undefined); }}>
               <span className="workspace-group-name"><Icon name="workspace" />
                 <input aria-label="主题组名称" defaultValue={group.title} key={group.id} maxLength={200}
                   onClick={(event) => event.stopPropagation()}
@@ -1243,7 +1274,8 @@ export const BookWorkspace = forwardRef<
                   src={`${base}/api/books/${props.book.id}/workspace-assets/${card.region.assetId}`}
                   alt={`第 ${props.book.labels[card.region.page - 1] ?? card.region.page} 页图片摘录`} />
               ) : card.kind === "excerpt" ? (
-                <blockquote>{card.text}</blockquote>
+                <><blockquote>{card.text}</blockquote>{card.text.length > 250 &&
+                  <button className="workspace-excerpt-expand" onClick={() => setSourcePreview(card)}>展开查看</button>}</>
               ) : null}
               <div className="workspace-card-association">
                 <span>{associatedNotes.get(card.id)?.size ? `关联笔记 · ${associatedNotes.get(card.id)!.size}` : "尚无关联笔记"}</span>
@@ -1293,19 +1325,14 @@ export const BookWorkspace = forwardRef<
                   <Icon name="link" />
                 </button>
                 <button
-                  aria-label={card.noteId ? "移除卡片，保留笔记" : "删除卡片"}
-                  title={card.noteId ? "移除卡片，保留笔记" : "删除卡片"}
+                  aria-label="移出工作台，保留材料"
+                  title="移出工作台，保留材料"
                   onClick={() => {
                     state.change({
                       ...state.value!,
-                      cards: state.value!.cards.filter(
-                        (item) => item.id !== card.id,
-                      ),
+                      cards: state.value!.cards.map((item) => item.id === card.id ? { ...item, placed: false } : item),
                       groups: state.value!.groups.map((group) => ({ ...group,
                         memberIds: group.memberIds.filter((id) => id !== card.id) })),
-                      links: state.value!.links.filter(
-                        (link) => link.from !== card.id && link.to !== card.id,
-                      ),
                     });
                     if (linkFrom === card.id) setLinkFrom(undefined);
                   }}
@@ -1493,7 +1520,7 @@ export const BookWorkspace = forwardRef<
       frame = 0;
       const hostRect = plain(host.getBoundingClientRect());
       const connections: ConnectionOverlayItem[] = [];
-      const cards = state.value?.cards ?? [];
+      const cards = state.value?.cards.filter((card) => card.placed !== false) ?? [];
       const cardFor = (id: string) => cards.find((card) => card.id === id || card.noteId === id);
       const cardRect = (card: WorkspaceCard) => {
         const boardCanvas = host.querySelector<HTMLElement>(".board-pane .board-normal-view");
@@ -1673,10 +1700,13 @@ export const BookWorkspace = forwardRef<
             splitDrag.current = undefined; event.currentTarget.releasePointerCapture(event.pointerId);
             props.onSplitRatio(splitDraft);
           }}
-          onPointerCancel={() => { splitDrag.current = undefined; setSplitDraft(props.splitRatio); }} />}
+          onPointerCancel={() => { splitDrag.current = undefined; setSplitDraft(props.splitRatio); }}
+          onLostPointerCapture={() => {
+            if (splitDrag.current !== undefined) { splitDrag.current = undefined; setSplitDraft(props.splitRatio); }
+          }} />}
         <section ref={props.onBoardHost} className="reader-pane board-pane" aria-label="工作台" hidden={!showBoard}>
           <header className="reader-pane-header">
-            <span><Icon name="workspace" /> 工作台 <small>{state.value?.cards.length ?? 0} 张卡片</small></span>
+            <span><Icon name="workspace" /> 工作台 <small>{state.value?.cards.filter((card) => card.placed !== false).length ?? 0} 张卡片</small></span>
             <div className="reader-pane-actions">
               <button className="reader-pane-new-note" aria-label="新建笔记" title="新建笔记" onClick={() => add()}><Icon name="plus" /></button>
               <button className="reader-pane-secondary" aria-label="将所选材料建为主题组" title="将所选材料建为主题组"
@@ -1746,8 +1776,8 @@ export const BookWorkspace = forwardRef<
                   state.value.camera?.zoom !== camera.zoom))
                   state.change((current) => ({ ...current, camera }), false);
               },
-              width: Math.max(2400, ...(state.value?.cards.map((card) => card.x + card.width + 200) ?? [])),
-              height: Math.max(1800, ...(state.value?.cards.map((card) => card.y + card.height + 200) ?? [])),
+              width: Math.max(2400, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.x + card.width + 200) ?? [])),
+              height: Math.max(1800, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.y + card.height + 200) ?? [])),
               render: overlay,
               onInkStart: (point) => { beginSurface("board"); return startInk(point); },
               onInkMove: moveInk, onInkEnd: finishInk, onInkCancel: cancelInk,
@@ -1930,7 +1960,7 @@ export const BookWorkspace = forwardRef<
             navigate(Math.max(0, group.x - 40), Math.max(0, group.y - 40), 1);
             setSelectedGroup(group.id); setShowOverview(false);
           }}><Icon name="workspace" /><span>{group.title}<small>{group.memberIds.length} 项材料</small></span></button>)}
-          {state.value?.cards.map((card) => (
+          {state.value?.cards.filter((card) => card.placed !== false).map((card) => (
             <button
               key={card.id}
               onClick={() => {

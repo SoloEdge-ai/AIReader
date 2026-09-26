@@ -42,6 +42,7 @@ export function NotesPanel({
   onPlace,
   catalog,
   onLocateItem,
+  onRestoreItem,
   onAddItemToQuestion,
   beforeWorkspaceChange,
 }: {
@@ -54,8 +55,9 @@ export function NotesPanel({
   onAssociateAnnotation?: (note: Note, annotation: Annotation) => Promise<void>;
   onExpand?: (note: Note) => void;
   onPlace?: (note: Note) => Promise<void>;
-  catalog?: Pick<WorkspaceSnapshot, "cards" | "objects" | "links">;
+  catalog?: Pick<WorkspaceSnapshot, "cards" | "objects" | "links" | "groups">;
   onLocateItem?: (id: string) => void;
+  onRestoreItem?: (id: string) => void;
   onAddItemToQuestion?: (id: string) => Promise<void>;
   beforeWorkspaceChange?: () => Promise<boolean>;
 }) {
@@ -172,7 +174,24 @@ export function NotesPanel({
         </select>
       </div>
       <MaterialCatalog bookId={bookId} catalog={catalog} notes={state.notes} query={query}
-        onLocate={(id) => onLocateItem?.(id)} onAdd={async (id) => {
+        onLocate={(id) => {
+          if (state.notes.some((note) => note.id === id) && !catalog?.cards.some((card) => card.id === id))
+            state.setSelected(id);
+          else onLocateItem?.(id);
+        }} onRestore={async (id) => {
+          const note = state.notes.find((item) => item.id === id);
+          if (note && !catalog?.cards.some((card) => card.id === id)) {
+            if (!onPlace) throw new Error("工作台尚未准备好");
+            await onPlace(note);
+          } else if (onRestoreItem) onRestoreItem(id);
+          else throw new Error("工作台尚未准备好");
+        }} onAdd={async (id) => {
+          const note = state.notes.find((item) => item.id === id);
+          if (note && !catalog?.cards.some((card) => card.id === id)) {
+            if (!onAddToQuestion) throw new Error("材料操作不可用");
+            await onAddToQuestion(note);
+            return;
+          }
           if (!onAddItemToQuestion) throw new Error("材料操作不可用");
           await onAddItemToQuestion(id);
         }} />

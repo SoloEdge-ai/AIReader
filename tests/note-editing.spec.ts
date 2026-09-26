@@ -71,7 +71,7 @@ test("material navigation lists canvas cards and locates the selected placement"
   await page.locator(".notes-list button").first().click();
   await page.getByRole("button", { name: "放到画布" }).click();
   await expect(page.locator(".workspace-card")).toHaveCount(1);
-  const catalog = page.getByRole("region", { name: "画布材料" });
+  const catalog = page.getByRole("region", { name: "本书材料" });
   await expect(catalog.getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
   await catalog.getByRole("button", { name: /定位.*卡片/ }).click();
   await expect(page.locator(".workspace-card.selected")).toHaveCount(1);
@@ -86,7 +86,7 @@ test("material navigation lists canvas cards and locates the selected placement"
   await page.reload();
   await page.locator(".book-card").first().click();
   await page.locator(".nav-tabs").getByRole("button", { name: "材料" }).click();
-  await expect(page.getByRole("region", { name: "画布材料" })
+  await expect(page.getByRole("region", { name: "本书材料" })
     .getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
 });
 
@@ -317,8 +317,11 @@ test("card and sidebar stay lightweight while the expanded editor owns the note"
   await expect.poll(async () => ({ cards: await card.count(), dialogs })).toEqual({ cards: 1, dialogs: [] });
   await page.screenshot({ path: "test-results/shared-note-card.png" });
   await expect(panel).toContainText("从展开层继续写作");
-  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
+  await card.getByRole("button", { name: "移出工作台，保留材料" }).click();
   await expect(card).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "将唯一展开编辑器放回工作台" })).toBeVisible();
+  await panel.getByRole("button", { name: "将唯一展开编辑器放回工作台" }).click();
+  await expect(card).toHaveCount(1);
   await page.getByRole("button", { name: "返回书库" }).click();
   await expect(page.locator(".book-card").first()).toBeVisible();
 });
@@ -345,7 +348,7 @@ test("replacing card text after a failed save never restores the previous draft"
   await expect(expanded.getByRole("status")).toHaveText("已保存");
   await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
   await panel.getByRole("button", { name: "放到画布", exact: true }).click();
-  const card = page.locator(".workspace-card.note");
+  const card = page.locator(".workspace-card.note").filter({ hasText: "卡片替换回归" });
   await expect(card).toHaveCount(1);
   await expect(card.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
   await card.getByRole("button", { name: "展开卡片笔记" }).click();

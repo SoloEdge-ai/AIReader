@@ -156,5 +156,42 @@ test("book commands atomically save notes, board placement, frozen sources, and 
     const workspaceHash = createHash("sha256").update(commandPayload(collidingWorkspace)).digest("hex");
     expect((await request(`v2/${path}/workspace/commands`, {
       ...collidingWorkspace, payloadHash: workspaceHash })).status).toBe(409);
+    // Undo and redo must follow content state, not stale numeric Note revisions:
+    // each inverse is itself a committed book command and increments revisions.
+    const rename = (id: string, version: number, revision: number, title: string) =>
+      command(book.id, id, version, [{ type: "update-note", noteId,
+        expectedRevision: revision, title, document: withCitation }]);
+    expect((await request(commandPath, rename("rename-a", 13, 10, "First"))).status).toBe(200);
+    expect((await request(commandPath, rename("rename-b", 14, 11, "Second"))).status).toBe(200);
+    const undoB = command(book.id, "undo-b", 15, [{ type: "undo", targetCommandId: "rename-b" }]);
+    expect((await request(commandPath, undoB)).status).toBe(200);
+    const undoA = command(book.id, "undo-a", 16, [{ type: "undo", targetCommandId: "rename-a" }]);
+    expect((await request(commandPath, undoA)).status).toBe(200);
+    expect((await (await request(`${path}/notes`)).json()).find((note: { id: string }) => note.id === noteId).title)
+      .toBe("My idea");
+    expect((await request(commandPath, command(book.id, "redo-a", 17,
+      [{ type: "undo", targetCommandId: "undo-a" }]))).status).toBe(200);
+    expect((await request(commandPath, command(book.id, "redo-b", 18,
+      [{ type: "undo", targetCommandId: "undo-b" }]))).status).toBe(200);
+    expect((await (await request(`${path}/notes`)).json()).find((note: { id: string }) => note.id === noteId).title)
+      .toBe("Second");
+    const cardA = { ...excerpt, id: "second-excerpt", x: 20 };
+    const cardB = { ...excerpt, id: "third-excerpt", x: 360 };
+    expect((await request(commandPath, command(book.id, "card-a", 19, [{ type: "workspace",
+      changes: [{ type: "upsert-card", card: cardA }] }]))).status).toBe(200);
+    expect((await request(commandPath, command(book.id, "card-b", 20, [{ type: "workspace",
+      changes: [{ type: "upsert-card", card: cardB }] }]))).status).toBe(200);
+    expect((await request(commandPath, command(book.id, "undo-card-b", 21,
+      [{ type: "undo", targetCommandId: "card-b" }]))).status).toBe(200);
+    expect((await request(commandPath, command(book.id, "undo-card-a", 22,
+      [{ type: "undo", targetCommandId: "card-a" }]))).status).toBe(200);
+    expect((await (await request(`${path}/workspace`)).json()).cards.map((card: { id: string }) => card.id))
+      .toEqual(["note-card"]);
+    expect((await request(commandPath, command(book.id, "redo-card-a", 23,
+      [{ type: "undo", targetCommandId: "undo-card-a" }]))).status).toBe(200);
+    expect((await request(commandPath, command(book.id, "redo-card-b", 24,
+      [{ type: "undo", targetCommandId: "undo-card-b" }]))).status).toBe(200);
+    expect((await (await request(`${path}/workspace`)).json()).cards.map((card: { id: string }) => card.id))
+      .toEqual(["note-card", "second-excerpt", "third-excerpt"]);
   } finally { core.close(); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });

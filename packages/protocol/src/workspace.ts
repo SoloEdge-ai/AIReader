@@ -87,6 +87,7 @@ export const WorkspaceCardSchema = z
   .object({
     id: identity,
     kind: z.enum(["note", "excerpt", "region"]),
+    placed: z.boolean().optional(),
     noteId: identity.optional(),
     title: z.string().max(200),
     text: z.string().max(20000),
