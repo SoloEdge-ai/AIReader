@@ -68,10 +68,27 @@ export const RegionExcerptCardSchema = z.object({
   includePersonalMarks: z.boolean(),
 }).strict();
 export type RegionExcerptCard = z.infer<typeof RegionExcerptCardSchema>;
+export const WorkspaceGroupSchema = z.object({
+  presentation: z.enum(["frame", "cluster"]).optional(),
+  id: identity,
+  title: z.string().max(200),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  x: position,
+  y: position,
+  width: z.number().finite().min(220).max(1000000),
+  height: z.number().finite().min(120).max(1000000),
+  memberIds: z.array(identity).max(5500),
+  collapsed: z.boolean(),
+}).strict().superRefine((group, context) => {
+  if (new Set(group.memberIds).size !== group.memberIds.length)
+    context.addIssue({ code: "custom", message: "主题组成员不能重复" });
+});
+export type WorkspaceGroup = z.infer<typeof WorkspaceGroupSchema>;
 export const WorkspaceCardSchema = z
   .object({
     id: identity,
     kind: z.enum(["note", "excerpt", "region"]),
+    placed: z.boolean().optional(),
     noteId: identity.optional(),
     title: z.string().max(200),
     text: z.string().max(20000),
@@ -103,11 +120,12 @@ export const WorkspaceSchema = z
   .object({
     bookId: identity,
     revision: z.number().int().min(0),
-    formatVersion: z.literal(4).default(4),
-    layoutVersion: z.literal(2).default(2),
+    formatVersion: z.literal(5).default(5),
+    layoutVersion: z.literal(3).default(3),
     camera: WorkspaceCameraSchema.optional(),
     cards: WorkspaceCardSchema.array().max(500),
     objects: WorkspaceObjectSchema.array().max(5000).default([]),
+    groups: WorkspaceGroupSchema.array().max(500),
     links: z
       .array(
         z
@@ -133,6 +151,8 @@ export const WorkspaceCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("delete-link"), id: identity }).strict(),
   z.object({ type: z.literal("upsert-object"), object: WorkspaceObjectSchema }).strict(),
   z.object({ type: z.literal("delete-object"), id: identity }).strict(),
+  z.object({ type: z.literal("upsert-group"), group: WorkspaceGroupSchema }).strict(),
+  z.object({ type: z.literal("delete-group"), id: identity }).strict(),
 ]);
 export const WorkspaceCommandBatchSchema = z.object({
   bookId: identity,

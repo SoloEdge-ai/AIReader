@@ -46,13 +46,17 @@ test("a note placement shares content and removing the card preserves its note",
     expect((await (await request(`${path}/notes`)).json())[0].title).toBe("Shared title");
     expect((await command([{ type: "upsert-card", card: placement },
       { type: "upsert-card", card: { ...placement, id: "other", noteId: undefined, title: "Other" } },
-      { type: "upsert-link", link: { id: "edge", from: "placement", to: "other", label: "Related" } }])).status).toBe(200);
+      { type: "upsert-link", link: { id: "edge", from: "placement", to: "other", label: "Related" } },
+      { type: "upsert-group", group: { id: "topic", title: "Topic", color: "#56789a",
+        x: 20, y: 30, width: 700, height: 360, memberIds: ["placement", "other"], collapsed: false } }])).status).toBe(200);
     expect((await request(`${path}/notes/${note.id}`, undefined, "DELETE")).status).toBe(200);
     expect((await snapshot()).cards.map((card: { id: string }) => card.id)).toEqual(["other"]);
     expect((await snapshot()).links).toEqual([]);
+    expect((await snapshot()).groups[0].memberIds).toEqual(["other"]);
     expect((await request(`${path}/notes/${note.id}/restore`, {})).status).toBe(200);
     expect((await snapshot()).cards.find((card: { id: string }) => card.id === "placement")).toEqual(placement);
     expect((await snapshot()).links).toEqual([{ id: "edge", from: "placement", to: "other", label: "Related" }]);
+    expect((await snapshot()).groups[0].memberIds).toEqual(["placement", "other"]);
     expect((await command([{ type: "upsert-card", card: { ...placement, id: "foreign", noteId: "missing-note" } }])).status).toBe(400);
     const conversation = await (await request(`${path}/sessions`, {})).json();
     const materialInput = { bookId: book.id, sessionId: conversation.id, requestId: "linked-note",
@@ -96,6 +100,7 @@ test("a note placement shares content and removing the card preserves its note",
       const restoredPong = once(socket, "pong"); socket.ping(); await restoredPong;
       expect(events.map((event) => event.type)).toEqual(["note", "workspace"]);
       expect((await snapshot()).cards.map((card: { id: string }) => card.id)).toContain("placement");
+      expect((await snapshot()).groups[0].memberIds).toEqual(["placement"]);
     } finally { socket.terminate(); }
   } finally {
     core.close();

@@ -1,0 +1,22 @@
+# LiquidText 对齐工作台验收记录（2026-09-26）
+
+分支：`codex/liquidtext-alignment`。使用生成 PDF 和隔离数据目录；本记录不包含用户书籍或数据库。最终提交 SHA、Windows 产物与安装验证另见同目录 Windows 打包记录。
+
+## 已运行
+
+- `pnpm typecheck`：通过，包含协议与纯引擎边界检查。
+- Node v24.19.0 执行 `vitest run`：49 个文件、95 项测试通过，覆盖 Core HTTP、SQLite、PDF 提取、来源冻结、连续撤销／重做、笔记、书籍级命令、主题组、归档、AI 材料和几何。
+- Node v24.19.0 执行 Playwright 阅读 UI 套件：45 项通过。包括双视口、窄窗、四套外观、摘录与拖放、分组、比较、原文聚焦、笔记与多来源、移出工作台后找回、AI 材料状态、输入焦点、长 PDF 第 300 页重开及保存失败恢复。
+- 使用真实 Core HTTP 和生成 PDF，运行 `workspace-smoke`、`region-smoke`、`ink-smoke`、`objects-smoke`、`materials-smoke`、`chat-smoke`、`chat-attachments-smoke`、`answer-notes-smoke`：均通过。它们覆盖笔记放置与重开、摘录回源、跨页笔迹、对象关系、材料冻结、浮动聊天、AI 回答保存为笔记和导出。
+- `pdf-region-chat-smoke` 在 1×、1.5×、2× 显示缩放下均通过，核对图表像素、PDF 坐标、旋转、缩放、取消、会话与跨书隔离。
+- 打包版 `selection-smoke`、`annotations-smoke`、`ink-packaged-smoke`、`objects-packaged-smoke`、`desktop-smoke`、`close-save-smoke` 和 `model-control-smoke` 均通过隔离数据验证；最终提交的产物仍需从干净工作树重建。
+- Node v24.19.0 执行 `scripts/workspace-performance.ts`：生成 516 页 PDF、500 卡片、100 主题组、1,000 关系、5,000 绘图对象和 250,000 笔迹点；工作台仅挂载 14 张可见卡片。
+- 四套外观及展开笔记截图位于 `generated-screenshots/`，仅使用生成的技术内容。
+
+## 同机压力测量
+
+Windows 11 x64 Build 26200；Intel Core Ultra 7 155H；32GiB RAM；Edge 无头浏览器。PDF 提取 1,625ms，样本写入 209ms，工作区读取 157ms，首个对象命令 337ms，后续十条对象命令 P50 325ms／P95 381ms。界面打开约 1,005ms；滚动帧 P95 16.8ms、P99 16.9ms；打开期最长任务 59ms，滚动期未记录长任务。Core RSS 在重复命令中升至约 950MiB，显式 GC 后堆使用约 109MiB；这是高水位测量，不等于持续泄漏已排除。未进行连续多小时编辑或真实复杂 516 页 PDF 的内存对照。
+
+## 尚需 PR CI 和人工核对
+
+Windows Setup 实际安装、升级、卸载在全新 CI 工作区验证；本机不对已有安装身份执行脚本。DPI 100%／150%／200% 的浏览器渲染与输入已自动化验证，真实 Windows 显示器设置、安装包重开及长期资源曲线仍以 CI 和人工验收为准。旧数据兼容按产品决定放弃：DB v6 运行时拒绝旧数据库、归档 v4 拒绝旧归档，不会自动清空旧文件。

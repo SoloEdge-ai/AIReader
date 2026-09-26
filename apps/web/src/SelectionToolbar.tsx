@@ -10,8 +10,11 @@ export function SelectionToolbar({
   color,
   onColor,
   onExcerpt,
+  onExcerptDragStart,
+  onExcerptDragEnd,
   onAnnotate,
   onAi,
+  onFocus,
   onDismiss,
   onInteract,
 }: {
@@ -19,8 +22,11 @@ export function SelectionToolbar({
   color: Annotation["color"];
   onColor: (color: Annotation["color"]) => void;
   onExcerpt: () => void;
+  onExcerptDragStart?: () => void;
+  onExcerptDragEnd?: () => void;
   onAnnotate: (kind: "highlight" | "underline" | "strike") => void;
   onAi: (name: string) => void;
+  onFocus: () => void;
   onDismiss: () => void;
   onInteract: () => void;
 }) {
@@ -77,6 +83,15 @@ export function SelectionToolbar({
     >
       <span className="context-count">{selection.text.length} 字</span>
       <button onClick={onExcerpt} title="将文字和来源放到白板">摘录卡片</button>
+      <button draggable aria-label="拖动摘录到工作台" title="拖入工作台以指定卡片位置，也可点击摘录"
+        onClick={onExcerpt}
+        onDragStart={(event) => {
+          event.dataTransfer.setData("application/x-aireader-excerpt", "frozen-selection");
+          event.dataTransfer.effectAllowed = "copy";
+          onExcerptDragStart?.();
+        }}
+        onDragEnd={onExcerptDragEnd}>⠿</button>
+      <button onClick={onFocus} title="只看所选原文附近的页面区域">聚焦原文</button>
       <Popover label="标注方式" trigger={<><Icon name="pen" /><span>标注</span></>} width={168}>
         {(close) => <div className="reader-context-menu">
           {(["highlight", "underline", "strike"] as const).map((kind, index) => (

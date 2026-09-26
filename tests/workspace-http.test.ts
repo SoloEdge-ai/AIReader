@@ -38,7 +38,8 @@ test("book-scoped commands are atomic, idempotent, versioned and independent of 
     expect(core.library.book(first.id).pages).toBe(1);
     const path = `books/${first.id}/workspace`;
     const initial = await (await request(path)).json();
-    expect(initial).toMatchObject({ bookId: first.id, revision: 0, formatVersion: 4, cards: [], objects: [], links: [] });
+    expect(initial).toMatchObject({ bookId: first.id, revision: 0, formatVersion: 5,
+      layoutVersion: 3, cards: [], objects: [], groups: [], links: [] });
     const card = {
       id: "card-one", kind: "note", title: "Observation", text: "My interpretation", comment: "",
       x: 720, y: 40, width: 300, height: 240,

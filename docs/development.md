@@ -16,7 +16,7 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 
 开发默认数据位置与桌面相同；隔离时显式设置AIREADER_DATA为临时目录。测试不得使用用户数据库。`pnpm test:e2e` 现在默认创建并清理独立临时数据库，避免旧测试库版本阻止窗口启动；安装连续性测试通过 `AIREADER_SMOKE_USE_DEFAULT=1` 明确选择受控的安装测试目录，不能对用户默认目录运行。工作前读索引/规范、检查分支/用户改动；按可观察流程实现、验证、同步文档，再提交。
 
-当前分支使用 DB v5，不会打开旧 v4 目录。开发／预览必须配置独立 AIREADER_DATA，不要为了启动而删除默认用户目录。`node --import tsx scripts/measure-workspace-writes.ts` 用生成样本和临时目录测量 HTTP 耗时及 SQLite 实际变更行数；它不是绘画帧率或 516 页性能验收。
+当前分支使用 DB v6，明确拒绝旧数据库而不修改原文件。开发／预览必须配置独立 AIREADER_DATA，不要为了启动而删除默认用户目录。`node --import tsx scripts/measure-workspace-writes.ts` 用生成样本和临时目录测量 HTTP 耗时及 SQLite 实际变更行数；它不是绘画帧率或 516 页性能验收。
 
 `node --import tsx scripts/manual-pdf-acceptance.ts <本机 PDF 路径> [页码] [设备像素比]` 用隔离临时库经界面及 Core HTTP 检查私有复杂 PDF 的导入、阅读页和指定页面完成渲染，设备像素比仅接受 1、1.5、2。截图保存在忽略的 `.local/screenshots`，不得提交；它不是 Windows 系统显示缩放或长时性能验收。
 
@@ -50,6 +50,6 @@ Core 聊天接口：`apps/core/src/chat-routes.ts` 拥有会话、轮次、冻�
 
 桌面关闭验收：`tests/core-shutdown-http.test.ts` 用未完成的真实请求验证草稿保存后的 Core 停止不会被卡住的 HTTP 连接无限阻塞。关闭顺序必须先拒绝新请求、断开连接、等待已进入处理的异步请求完成，再关闭 SQLite；不能把连接断开等同于文件／事务处理已经结束。`scripts/close-save-smoke.mjs` 在窄窗口及 200% 网页缩放下验证冲突／写锁失败时窗口和草稿仍在、重试按钮不被导航遮挡或裁切、重试后可以关闭和重开。不要用简单增加等待时间来掩盖关闭阶段卡住。
 
-个人卡片通过 noteId 引用笔记会话；只为选中卡片挂载编辑器，其他卡片使用轻量预览。卡片容器不得接管编辑控件内部的 Shift＋点击等文本操作。工作区刷新也必须覆盖 GET 挂起期间继续编辑的回归。浏览器开发的 CORS 预检允许现有 PUT 保存接口，来源和会话验证不变。
+个人卡片通过 noteId 引用笔记会话；卡片和材料栏一律使用轻量预览，不能因选中而挂载编辑器。所有正文修改经 `ExpandedNote` 中唯一的 `NoteEditor` 进入同一会话。表格或公式节点必须先扩展 Core 的白名单、层级与大小校验，再扩展编辑 UI、AI Markdown 转换和 Markdown 导出；不得只在 renderer 注册 Tiptap 扩展。工作区刷新也必须覆盖 GET 挂起期间继续编辑的回归。浏览器开发的 CORS 预检允许现有 PUT 保存接口，来源和会话验证不变。
 
 旧卡片转 Note 必须由 Core 在同一事务中创建、校验富文本并清除旧字段。不能仅按旧字段长度判断新文档大小：大量换行拆成富文本块会膨胀 JSON。转换失败时不得清空旧卡片；笔记独立导出和整书归档必须一并验证。

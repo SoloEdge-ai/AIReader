@@ -28,6 +28,7 @@ const catalog: Pick<BookWorkspace, "cards" | "objects" | "links"> = {
   links: [{ id: "relation", from: "excerpt", to: "later-shape", label: "支持关系", directed: false }],
 };
 const notes: Note[] = [{ id: "note-1", bookId: "book-1", title: "缓存假设",
+  sourceReferences: [],
   document: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "待验证的个人解释" }] }] },
   createdAt: "2026-09-25T00:00:00Z", updatedAt: "2026-09-25T00:00:00Z", revision: 1 }];
 
@@ -36,7 +37,7 @@ test("canvas materials share deterministic position and type ordering without ch
   expect(selectMaterialCatalog(entries, { query: "", category: "all", sort: "page" }).map((item) => item.id))
     .toEqual(["early-ink", "excerpt", "same-page-shape", "later-shape", "personal", "board-text", "relation"]);
   expect(selectMaterialCatalog(entries, { query: "", category: "all", sort: "type" }).map((item) => item.id))
-    .toEqual(["excerpt", "personal", "early-ink", "board-text", "same-page-shape", "later-shape", "relation"]);
+    .toEqual(["excerpt", "personal", "early-ink", "same-page-shape", "later-shape", "board-text", "relation"]);
   expect(catalog.cards[0].title).toBe("");
 });
 
@@ -53,9 +54,21 @@ test("moving a sourced card does not change page ordering or use PDF-native y as
 
 test("canvas type filter and search include note draft text but do not include unrelated entries", () => {
   const entries = buildMaterialCatalog(catalog, notes);
-  expect(selectMaterialCatalog(entries, { query: "个人解释", category: "card", sort: "page" }).map((item) => item.id))
+  expect(selectMaterialCatalog(entries, { query: "个人解释", category: "note", sort: "page" }).map((item) => item.id))
     .toEqual(["personal"]);
-  expect(selectMaterialCatalog(entries, { query: "缓存", category: "shape", sort: "page" })).toEqual([]);
-  expect(selectMaterialCatalog(entries, { query: "支持", category: "link", sort: "page" }).map((item) => item.id))
+  expect(selectMaterialCatalog(entries, { query: "缓存", category: "drawing", sort: "page" })).toEqual([]);
+  expect(selectMaterialCatalog(entries, { query: "支持", category: "drawing", sort: "page" }).map((item) => item.id))
     .toEqual(["relation"]);
+});
+
+test("unplaced excerpts remain findable while theme filtering only includes placed members", () => {
+  const hidden = { ...catalog, cards: catalog.cards.map((card) => card.id === "excerpt"
+    ? { ...card, placed: false } : card), groups: [{ id: "topic", title: "Topic", color: "#345d84",
+      x: 0, y: 0, width: 400, height: 300, collapsed: false, memberIds: ["personal"] }] };
+  const entries = buildMaterialCatalog(hidden, notes);
+  expect(entries.find((entry) => entry.id === "excerpt")).toMatchObject({ category: "excerpt", placed: false });
+  expect(selectMaterialCatalog(entries, { query: "原文提到缓存", category: "excerpt", sort: "page" })
+    .map((entry) => entry.id)).toEqual(["excerpt"]);
+  expect(selectMaterialCatalog(entries, { query: "", category: "all", sort: "page", groupId: "topic" })
+    .map((entry) => entry.id)).toEqual(["personal"]);
 });

@@ -1,4 +1,5 @@
-import { test, expect } from "@playwright/test";
+import { Preferences } from "../apps/core/src/preferences";
+import { test, expect, type Page } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -6,10 +7,21 @@ import { PDFDocument } from "pdf-lib";
 import { createCore } from "../apps/core/src/server";
 import { Workspaces } from "../apps/core/src/workspace";
 import type { ChatTurn } from "../packages/protocol/src/chat";
+import type { Note } from "../packages/protocol/src/notes";
 
 let core: ReturnType<typeof createCore>;
 let directory: string;
 let bookId: string;
+
+async function closeFloatingChat(page: Page) {
+  const toggle = page.getByRole("button", { name: "问答", exact: true }).first();
+  const chat = page.getByLabel("AI 问答浮窗");
+  await expect(toggle).toBeVisible();
+  if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+  else if (await chat.isVisible()) await chat.getByRole("button", { name: "关闭问答浮窗" }).click();
+  await expect(chat).toBeHidden();
+}
+
 test.beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "aireader-note-session-"));
   core = createCore(directory, resolve("dist/web"));
@@ -21,6 +33,7 @@ test.beforeAll(async () => {
   const imported = await fetch(origin + "/api/books", { method: "POST", headers, body: Buffer.from(await pdf.save()) });
   bookId = (await imported.json()).id;
   await core.library.waitForBook(bookId);
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent" });
   expect((await fetch(origin + `/api/books/${bookId}/notes`, { method: "POST", headers, body: "{}" })).status).toBe(201);
 });
 test.afterAll(async () => {
@@ -60,7 +73,7 @@ test("material navigation lists canvas cards and locates the selected placement"
   await page.locator(".notes-list button").first().click();
   await page.getByRole("button", { name: "放到画布" }).click();
   await expect(page.locator(".workspace-card")).toHaveCount(1);
-  const catalog = page.getByRole("region", { name: "画布材料" });
+  const catalog = page.getByRole("region", { name: "本书材料" });
   await expect(catalog.getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
   await catalog.getByRole("button", { name: /定位.*卡片/ }).click();
   await expect(page.locator(".workspace-card.selected")).toHaveCount(1);
@@ -75,7 +88,7 @@ test("material navigation lists canvas cards and locates the selected placement"
   await page.reload();
   await page.locator(".book-card").first().click();
   await page.locator(".nav-tabs").getByRole("button", { name: "材料" }).click();
-  await expect(page.getByRole("region", { name: "画布材料" })
+  await expect(page.getByRole("region", { name: "本书材料" })
     .getByRole("button", { name: /定位.*卡片/ })).toHaveCount(1);
 });
 
@@ -125,19 +138,23 @@ test("left navigation width is draggable and persists per book", async ({ page }
 test("leaving material navigation keeps an unsaved note draft visible", async ({ page }) => {
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
+  await closeFloatingChat(page);
   const notesButton = page.getByRole("button", { name: "笔记", exact: true }).first();
   if ((await notesButton.getAttribute("aria-pressed")) !== "true") await notesButton.click();
   await page.locator(".notes-list button").first().click();
-  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+  await page.getByRole("button", { name: "展开编辑笔记" }).click();
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await page.route("**/api/v2/books/*/commands", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 503, json: { error: "暂时无法保存" } }) : route.continue());
-  await page.locator(".notes-panel").getByRole("textbox", { name: "笔记正文" }).fill("切换导航前必须保留");
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("切换导航前必须保留");
   await page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true }).click();
   await expect(page.locator(".nav-tabs").getByRole("button", { name: "材料" })).toHaveClass(/chosen/);
-  await expect(page.locator(".notes-panel").getByRole("textbox", { name: "笔记正文" }))
-    .toHaveText("切换导航前必须保留");
-  await page.unroute("**/api/books/*/notes/*");
-  await page.locator(".notes-panel").getByRole("button", { name: "重试保存", exact: true }).click();
-  await expect(page.locator(".notes-panel").getByRole("status")).toHaveText("已保存");
+  await expect(page.locator(".notes-panel").getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
+  await expect(page.locator(".notes-panel")).toContainText("切换导航前必须保留");
+  await page.unroute("**/api/v2/books/*/commands");
+  await expanded.getByRole("button", { name: "重试保存", exact: true }).click();
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true }).click();
   await expect(page.locator(".nav-tabs").getByRole("button", { name: "目录", exact: true })).toHaveClass(/chosen/);
 });
@@ -220,12 +237,29 @@ test("annotation comments are explicit and deleting either entity preserves the 
   }, bookId);
   expect(annotation.noteId).toBeUndefined();
   await page.locator(".book-card").first().click();
+  await closeFloatingChat(page);
   await page.getByLabel("笔记", { exact: true }).click();
   await page.locator(".notes-list button").filter({ hasText: "独立标注测试" }).click();
   await expect(page.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
+  const sourceNote = page.getByLabel("关联标记到笔记");
+  const sourceNoteId = await sourceNote.locator("option").nth(1).getAttribute("value");
+  expect(sourceNoteId).toBeTruthy();
+  await sourceNote.selectOption(sourceNoteId!);
+  await page.getByRole("button", { name: "关联到笔记" }).click();
+  await expect.poll(async () => {
+    const response = await page.request.get(`http://127.0.0.1:43120/api/books/${bookId}/notes`,
+      { headers: { Origin: "http://127.0.0.1:43120" } });
+    const notes = await response.json() as Note[];
+    return notes.find((note) => note.id === sourceNoteId)?.sourceReferences
+      .some((reference) => reference.kind === "annotation" && reference.targetId === annotation.id);
+  }).toBe(true);
+  await expect(page.locator(".workspace-source-focus")).toHaveCount(0);
+  await page.getByRole("button", { name: "第 1 页原文 ↗" }).click();
+  await expect(page.locator(".workspace-source-focus")).toHaveCount(1);
   await page.getByRole("button", { name: "写评论", exact: true }).click();
-  await page.getByRole("textbox", { name: "笔记正文" }).fill("删除高亮也要保留的评论");
-  await expect(page.locator(".notes-panel").getByRole("status")).toHaveText("已保存");
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("删除高亮也要保留的评论");
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
   let removed!: () => void, release!: () => void;
   const removedOnServer = new Promise<void>((resolve) => { removed = resolve; });
   const releaseResponse = new Promise<void>((resolve) => { release = resolve; });
@@ -234,20 +268,22 @@ test("annotation comments are explicit and deleting either entity preserves the 
     const response = await route.fetch(); removed(); await releaseResponse;
     await route.fulfill({ response });
   });
-  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+  await page.route("**/api/v2/books/*/commands", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 503, json: { error: "保留并发草稿" } }) : route.continue());
   await page.getByRole("button", { name: "删除批注", exact: true }).click();
   await removedOnServer;
-  await page.getByRole("textbox", { name: "笔记正文" }).fill("删除高亮也要保留的评论，并继续编辑");
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("删除高亮也要保留的评论，并继续编辑");
   release();
   await expect(page.getByText("源标注已删除，以下保留原文位置与摘录。")).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "笔记正文" })).toHaveText("删除高亮也要保留的评论，并继续编辑");
+  await expect(expanded.getByRole("textbox", { name: "笔记正文" }))
+    .toHaveText("删除高亮也要保留的评论，并继续编辑");
   await page.unroute("**/api/books/*/annotations/*");
-  await expect(page.locator(".notes-panel").getByRole("status")).toContainText("保存失败");
-  await page.unroute("**/api/books/*/notes/*");
-  await page.locator(".notes-panel").getByRole("button", { name: "重试保存", exact: true }).click();
-  await expect(page.locator(".notes-panel").getByRole("status")).toHaveText("已保存");
+  await expect(expanded.getByRole("status")).toContainText("保存失败");
+  await page.unroute("**/api/v2/books/*/commands");
+  await expanded.getByRole("button", { name: "重试保存", exact: true }).click();
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
   await page.screenshot({ path: "test-results/annotation-comment-source.png" });
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByRole("button", { name: "撤销批注操作" }).click();
   await page.getByRole("button", { name: "删除笔记", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
@@ -256,11 +292,12 @@ test("annotation comments are explicit and deleting either entity preserves the 
   await page.getByRole("button", { name: "删除批注", exact: true }).click();
 });
 
-test("card, sidebar and expanded editor share one note; removal preserves content", async ({ page }) => {
+test("card and sidebar stay lightweight while the expanded editor owns the note", async ({ page }) => {
   const dialogs: string[] = [];
   page.on("dialog", async (dialog) => { dialogs.push(dialog.message()); await dialog.dismiss(); });
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
+  await closeFloatingChat(page);
   await expect(page.locator(".reader-body")).toBeVisible();
   if (!(await page.locator(".notes-panel").isVisible())) await page.getByLabel("笔记", { exact: true }).click();
   await page.locator(".notes-list button").first().click();
@@ -268,34 +305,25 @@ test("card, sidebar and expanded editor share one note; removal preserves conten
   const card = page.locator(".workspace-card.note");
   const panel = page.locator(".notes-panel");
   await expect(card).toHaveCount(1);
-  await card.getByRole("textbox", { name: "笔记正文" }).fill("画布写入的同一份正文");
-  await card.getByRole("textbox", { name: "笔记正文" }).click({ modifiers: ["Shift"] });
-  await expect(card.getByRole("textbox", { name: "笔记正文" })).toBeVisible();
-  await expect(panel.getByRole("textbox", { name: "笔记正文" })).toHaveText("画布写入的同一份正文");
-  await panel.getByLabel("笔记标题", { exact: true }).fill("三处共享笔记");
-  await expect(card.getByLabel("笔记标题", { exact: true })).toHaveValue("三处共享笔记");
-  await panel.getByRole("button", { name: "放到画布", exact: true }).click();
-  await expect.poll(async () => ({ cards: await card.count(), dialogs })).toEqual({ cards: 1, dialogs: [] });
+  await expect(card.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
+  await expect(panel.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
   await card.getByRole("button", { name: "展开卡片笔记" }).click();
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expanded.getByLabel("笔记标题", { exact: true }).fill("唯一展开编辑器");
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("从展开层继续写作");
-  await expect(panel.getByRole("textbox", { name: "笔记正文" })).toHaveText("从展开层继续写作");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
-  await page.screenshot({ path: "test-results/shared-note-card.png" });
-  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
-  await expect(card).toHaveCount(0);
-  await expect(panel.getByRole("textbox", { name: "笔记正文" })).toHaveText("从展开层继续写作");
+  await expect(card).toContainText("从展开层继续写作");
+  await expect(panel).toContainText("从展开层继续写作");
+  await expect(card).toContainText("唯一展开编辑器");
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await panel.getByRole("button", { name: "放到画布", exact: true }).click();
   await expect.poll(async () => ({ cards: await card.count(), dialogs })).toEqual({ cards: 1, dialogs: [] });
-  await panel.getByRole("button", { name: "删除笔记", exact: true }).click();
+  await page.screenshot({ path: "test-results/shared-note-card.png" });
+  await expect(panel).toContainText("从展开层继续写作");
+  await card.getByRole("button", { name: "移出工作台，保留材料" }).click();
   await expect(card).toHaveCount(0);
-  await panel.getByRole("button", { name: "撤销批注操作" }).click();
+  await expect(panel.getByRole("button", { name: "将唯一展开编辑器放回工作台" })).toBeVisible();
+  await panel.getByRole("button", { name: "将唯一展开编辑器放回工作台" }).click();
   await expect(card).toHaveCount(1);
-  await page.reload();
-  await page.locator(".book-card").first().click();
-  await expect(card).toHaveCount(1);
-  await expect(card).toContainText("从展开层继续写作");
-  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
   await page.getByRole("button", { name: "返回书库" }).click();
   await expect(page.locator(".book-card").first()).toBeVisible();
 });
@@ -303,32 +331,35 @@ test("card, sidebar and expanded editor share one note; removal preserves conten
 test("replacing card text after a failed save never restores the previous draft", async ({ page }) => {
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
+  await closeFloatingChat(page);
   if (!(await page.locator(".notes-panel").isVisible()))
     await page.getByLabel("笔记", { exact: true }).click();
-  await page.getByRole("button", { name: "新建笔记", exact: true }).click();
   const panel = page.locator(".notes-panel");
-  await panel.getByLabel("笔记标题", { exact: true }).fill("卡片替换回归");
-  const panelEditor = panel.getByRole("textbox", { name: "笔记正文" });
-  await panelEditor.fill("Initial saved content.");
-  await expect(panel.getByRole("status")).toHaveText("已保存");
-  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+  await panel.getByRole("button", { name: "新建笔记", exact: true }).click();
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expanded.getByLabel("笔记标题", { exact: true }).fill("卡片替换回归");
+  const expandedEditor = expanded.getByRole("textbox", { name: "笔记正文" });
+  await expandedEditor.fill("Initial saved content.");
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
+  await page.route("**/api/v2/books/*/commands", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 503, json: { error: "Simulated save failure" } }) : route.continue());
-  await panelEditor.fill("Draft retained after failure.");
-  await expect(panel.getByRole("status")).toContainText("保存失败");
-  await page.unroute("**/api/books/*/notes/*");
-  await panel.getByRole("button", { name: "重试保存" }).click();
-  await expect(panel.getByRole("status")).toHaveText("已保存");
+  await expandedEditor.fill("Draft retained after failure.");
+  await expect(expanded.getByRole("status")).toContainText("保存失败");
+  await page.unroute("**/api/v2/books/*/commands");
+  await expanded.getByRole("button", { name: "重试保存" }).click();
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await panel.getByRole("button", { name: "放到画布", exact: true }).click();
-  const card = page.locator(".workspace-card.note");
+  const card = page.locator(".workspace-card.note").filter({ hasText: "卡片替换回归" });
   await expect(card).toHaveCount(1);
-  const cardEditor = card.getByRole("textbox", { name: "笔记正文" });
-  await expect(cardEditor).toBeVisible();
-  await cardEditor.click({ modifiers: ["Shift"] });
+  await expect(card.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
+  await card.getByRole("button", { name: "展开卡片笔记" }).click();
   for (const replacement of ["The same note from its card.", "A second complete replacement."]) {
-    await cardEditor.fill(replacement);
-    await expect(cardEditor).toHaveText(replacement);
-    await expect(panelEditor).toHaveText(replacement);
-    await expect(panel.getByRole("status")).toHaveText("已保存");
+    await expandedEditor.fill(replacement);
+    await expect(expandedEditor).toHaveText(replacement);
+    await expect(card).toContainText(replacement);
+    await expect(panel).toContainText(replacement);
+    await expect(expanded.getByRole("status")).toHaveText("已保存");
   }
   const response = await page.request.get(`http://127.0.0.1:43120/api/books/${bookId}/notes`,
     { headers: { Origin: "http://127.0.0.1:43120" } });
@@ -340,63 +371,41 @@ test("replacing card text after a failed save never restores the previous draft"
   await expect(card).toHaveCount(0);
 });
 
-test("excerpt keeps original source visible while its comment uses the shared editor", async ({ page }) => {
+test("excerpt keeps immutable source text beside its associated note", async ({ page }) => {
   const workspaces = new Workspaces(core.library);
   const snapshot = workspaces.get(bookId);
   const id = "ui-excerpt-comment";
   workspaces.save(bookId, { ...snapshot, cards: [...snapshot.cards, {
-    id, kind: "excerpt", title: "原文卡片", text: "不可编辑的书中原文", comment: "先前写下的理解",
-    x: 2000, y: 80, width: 320, height: 290,
+    id, kind: "excerpt", title: "原文卡片", text: "不可编辑的书中原文", comment: "",
+    x: 80, y: 80, width: 320, height: 290,
     source: { fingerprint: core.library.book(bookId).fingerprint,
       anchors: [{ page: 1, rects: [[20, 30, 130, 60]] }] },
   }] });
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
+  await closeFloatingChat(page);
   const card = page.locator(`[data-card-id="${id}"]`);
+  await card.scrollIntoViewIfNeeded();
   await expect(card).toContainText("不可编辑的书中原文");
-  await expect(card).toContainText("先前写下的理解");
-  await page.locator(".workspace-scroll").evaluate((element) => { element.scrollLeft = 1800; });
-  await card.getByRole("button", { name: "编辑评论" }).click();
+  await expect(card).toContainText("尚无关联笔记");
+  await card.click({ position: { x: 40, y: 36 } });
+  await card.getByRole("button", { name: "写笔记" }).click();
   await expect(card).toContainText("不可编辑的书中原文");
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
-  await expect(expanded.getByRole("textbox", { name: "笔记正文" })).toHaveText("先前写下的理解");
+  await expect(expanded.getByRole("textbox", { name: "笔记正文" })).toBeEmpty();
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("修改后的个人理解");
-  await expect(card).toContainText("修改后的个人理解");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await expect(expanded).toContainText("不可编辑的书中原文");
+  await expect(card).toContainText("关联笔记 · 1");
+  await expect(card).not.toContainText("修改后的个人理解");
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(card).toContainText("不可编辑的书中原文");
-  expect((await card.locator("blockquote").boundingBox())?.height).toBeGreaterThanOrEqual(46);
+  expect((await card.locator("blockquote").boundingBox())?.height).toBeGreaterThanOrEqual(24);
   await page.screenshot({ path: "test-results/excerpt-comment-note.png" });
-  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
-  await expect(card).toHaveCount(0);
   const panel = page.locator(".notes-panel");
   if (!(await panel.isVisible())) await page.getByLabel("笔记", { exact: true }).click();
-  await panel.locator(".notes-list button").filter({ hasText: "摘录评论" }).last().click();
+  await panel.locator(".notes-list button").filter({ hasText: "原文卡片" }).last().click();
   await expect(panel).toContainText("不可编辑的书中原文");
   await expect(panel).toContainText("修改后的个人理解");
-});
-
-test("a legacy personal card moves into one Note before editing", async ({ page }) => {
-  const workspaces = new Workspaces(core.library);
-  const snapshot = workspaces.get(bookId);
-  const id = "ui-personal-legacy";
-  workspaces.save(bookId, { ...snapshot, cards: [...snapshot.cards, {
-    id, kind: "note", title: "旧卡片标题", text: "旧卡片正文", comment: "",
-    x: 2000, y: 80, width: 320, height: 290,
-  }] });
-  await page.goto("http://127.0.0.1:5173/");
-  await page.locator(".book-card").first().click();
-  await page.locator(".workspace-scroll").evaluate((element) => { element.scrollLeft = 1800; });
-  const card = page.locator(`[data-card-id="${id}"]`);
-  await expect(card).toContainText("旧卡片正文");
-  await card.getByRole("button", { name: "编辑笔记" }).click();
-  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
-  await expect(expanded.getByRole("textbox", { name: "笔记正文" })).toHaveText("旧卡片正文");
-  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("Note 是唯一正文");
-  await expect(card).toContainText("Note 是唯一正文");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
-  await expect(card.getByRole("button", { name: "编辑笔记" })).toHaveCount(0);
-  await card.getByRole("button", { name: "移除卡片，保留笔记" }).click();
-  await expect(card).toHaveCount(0);
 });
 
 test("the tool handle drags across the real reader and keeps its dock on reopen", async ({ page }) => {
@@ -473,46 +482,75 @@ test("a focused clean note editor accepts a genuinely newer server revision", as
 });
 
 test("expanded note stays editable beside chat and keeps the material draft synchronized", async ({ page }) => {
+  const sourceNote = core.library.store.list<Note>("note", bookId).find((note) => !note.deletedAt)!;
+  core.library.store.put("note", sourceNote.id, bookId, { ...sourceNote,
+    sourceReferences: [...sourceNote.sourceReferences, {
+      id: "ui-source-reference", kind: "annotation", targetId: "ui-source-annotation",
+      title: "复杂度定义", text: "算法复杂度的原文定义",
+      source: { fingerprint: core.library.book(bookId).fingerprint,
+        anchors: [{ page: 1, rects: [[20, 30, 140, 62]] }] },
+    }],
+  });
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
+  await closeFloatingChat(page);
   await expect(page.locator(".reader-body")).toBeVisible();
   if (!(await page.locator(".notes-panel").isVisible())) await page.getByLabel("笔记", { exact: true }).click();
-  await page.locator(".notes-list button").first().click();
+  await page.locator(`.notes-list [data-note-id="${sourceNote.id}"]`).click();
   await page.getByRole("button", { name: "展开编辑笔记" }).click();
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("展开与列表共用同一份草稿");
-  await expect(page.locator(".notes-panel .tiptap")).toHaveText("展开与列表共用同一份草稿");
+  await expect(page.locator(".notes-panel .tiptap")).toHaveCount(0);
+  await expect(page.locator(".notes-panel")).toContainText("展开与列表共用同一份草稿");
+  await expanded.locator(".expanded-note-sources > summary").click();
+  await expanded.locator(".expanded-note-source").filter({ hasText: "算法复杂度的原文定义" })
+    .getByRole("button", { name: "插入正文" }).click();
+  const sourceReference = expanded.locator('[data-reference-id="ui-source-reference"]');
+  await expect(sourceReference).toHaveCount(1);
+  await sourceReference.click();
+  await expect(page.locator(".workspace-source-focus")).toHaveCount(1);
+  await expanded.getByTitle("链接", { exact: true }).click();
+  await expanded.getByLabel("笔记链接地址").press("Escape");
+  await expect(expanded.getByLabel("笔记链接地址")).toHaveCount(0);
+  await expanded.getByTitle("行内公式", { exact: true }).click();
+  await expanded.getByLabel("LaTeX 公式").fill("E=mc^2");
+  await expanded.getByRole("button", { name: "应用公式" }).click();
+  const inlineMath = expanded.locator('[data-type="inline-math"]');
+  await expect(inlineMath).toHaveAttribute("data-latex", "E=mc^2");
+  await expanded.getByTitle("插入表格", { exact: true }).click();
+  await expect(expanded.locator(".tiptap table")).toHaveCount(1);
   const chatButton = page.getByRole("button", { name: "问答", exact: true }).first();
   if ((await chatButton.getAttribute("aria-pressed")) !== "true") await chatButton.click();
   await expect(page.locator(".navigation .notes-panel")).toBeVisible();
   await expect(page.locator(".floating-chat .chat")).toBeVisible();
   await expect(expanded).toBeVisible();
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("问答打开时仍可写笔记");
-  await expanded.getByTitle("链接", { exact: true }).click();
-  await expanded.getByLabel("笔记链接地址").press("Escape");
-  await expect(expanded.getByLabel("笔记链接地址")).toHaveCount(0);
   await expect(expanded).toBeVisible();
   await page.screenshot({ path: "test-results/expanded-note-and-chat.png" });
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await closeFloatingChat(page);
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(expanded).toHaveCount(0);
-  await expect(page.locator(".notes-panel .tiptap")).toHaveText("问答打开时仍可写笔记");
+  await expect(page.locator(".notes-panel .tiptap")).toHaveCount(0);
+  await expect(page.locator(".notes-panel")).toContainText("问答打开时仍可写笔记");
 });
 
 test("failed saves retain the shared draft and prevent closing the expanded editor", async ({ page }) => {
   await page.goto("http://127.0.0.1:5173/");
   await page.locator(".book-card").first().click();
+  await closeFloatingChat(page);
   await expect(page.locator(".reader-body")).toBeVisible();
   if (!(await page.locator(".notes-panel").isVisible())) await page.getByLabel("笔记", { exact: true }).click();
   await page.locator(".notes-list button").first().click();
   await page.getByRole("button", { name: "展开编辑笔记" }).click();
-  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+  await page.route("**/api/v2/books/*/commands", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 503, json: { error: "暂时无法保存" } }) : route.continue());
   const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("失败后两处保留草稿");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(expanded.getByRole("status")).toContainText("保存失败");
-  await expect(page.locator(".notes-panel .tiptap")).toHaveText("失败后两处保留草稿");
-  await page.unroute("**/api/books/*/notes/*");
+  await expect(page.locator(".notes-panel .tiptap")).toHaveCount(0);
+  await expect(page.locator(".notes-panel")).toContainText("失败后两处保留草稿");
+  await page.unroute("**/api/v2/books/*/commands");
   await expanded.getByRole("button", { name: "重试保存" }).click();
   await expect(expanded.getByRole("status")).toHaveText("已保存");
   await expanded.getByRole("textbox", { name: "笔记正文" }).press("Escape");
@@ -523,7 +561,7 @@ test("refreshing a dirty note cannot silently adopt a conflicting remote revisio
   await page.goto(`http://127.0.0.1:5173/tests/note-editors.html?book=${bookId}`);
   const first = page.getByRole("region", { name: "列表编辑器" }).getByRole("textbox", { name: "笔记正文" });
   await expect(first).toBeVisible();
-  await page.route("**/api/books/*/notes/*", (route) => route.request().method() === "POST"
+  await page.route("**/api/v2/books/*/commands", (route) => route.request().method() === "POST"
     ? route.fulfill({ status: 503, json: { error: "暂时无法保存" } }) : route.continue());
   await first.fill("保留的本地草稿");
   await expect(page.getByRole("status")).toContainText("保存失败");
@@ -541,7 +579,7 @@ test("refreshing a dirty note cannot silently adopt a conflicting remote revisio
   await page.getByRole("button", { name: "刷新记录" }).click();
   await refreshed;
   await expect(first).toHaveText("保留的本地草稿");
-  await page.unroute("**/api/books/*/notes/*");
+  await page.unroute("**/api/v2/books/*/commands");
   await page.getByRole("button", { name: "重试保存" }).click();
   await expect(page.getByRole("status")).toContainText("保存失败");
   expect(JSON.stringify((await (await page.request.get(url, { headers })).json() as { id: string; document: unknown }[])
@@ -561,7 +599,7 @@ test("a lost response for an older edit never drops a newer draft", async ({ pag
   let committed!: () => void;
   const committedRequest = new Promise<void>((resolveCommit) => { committed = resolveCommit; });
   let dropped = false;
-  await page.route("**/api/books/*/notes/*", async (route) => {
+  await page.route("**/api/v2/books/*/commands", async (route) => {
     if (route.request().method() !== "POST" || dropped) { await route.continue(); return; }
     dropped = true;
     await route.fetch(); committed();
@@ -609,7 +647,8 @@ test("creating a note still refreshes the list when another note saves during th
   try {
     await page.getByRole("button", { name: "新建笔记", exact: true }).click();
     await fetched;
-    const saved = page.waitForResponse((response) => /\/notes\/[^/]+$/.test(response.url()) && response.request().method() === "POST");
+    const saved = page.waitForResponse((response) => /\/api\/v2\/books\/[^/]+\/commands$/.test(response.url()) &&
+      response.request().method() === "POST");
     await first.fill("新建期间继续编辑原笔记");
     expect((await saved).status()).toBe(200);
     await expect(page.getByRole("status")).toHaveText("已保存");

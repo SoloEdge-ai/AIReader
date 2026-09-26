@@ -1,0 +1,51 @@
+/* One desk: surfaces keep their own scrolling, tools sit above the content. */
+.desk-surface { background: var(--workspace-bg, var(--bg)); }
+.desk-surface .reader-pane-header { background: transparent; border: 0; height: 38px; flex-basis: 38px; padding: 0 10px; }
+.desk-surface .board-pane > .reader-pane-header > span { display: none; }
+.desk-surface .board-pane > .reader-pane-header { justify-content: flex-end; }
+.desk-adjacent .reader-pane-separator { flex-basis: 5px; width: 5px; border: 0; background: color-mix(in srgb, var(--muted) 12%, transparent); }
+.desk-adjacent .reader-pane { background: transparent; }
+.desk-spatial .board-pane { width: 100%; height: 100%; }
+.desk-spatial .pdf-pane { position: absolute; z-index: 5; flex: none; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--surface); box-shadow: 0 12px 38px #0002; }
+.desk-spatial .pdf-pane > .reader-pane-header { cursor: grab; touch-action: none; }
+.desk-spatial .pdf-pane > .reader-pane-header:active { cursor: grabbing; }
+.desk-document-resize { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px;
+  cursor: nwse-resize; touch-action: none; border-bottom: 3px solid var(--muted); border-right: 3px solid var(--muted); border-radius: 0 0 10px; }
+.desk-card-check { position: absolute; left: 6px; top: 3px; z-index: 5; }
+.desk-card-check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.desk-surface .workspace-card { border-radius: 7px; box-shadow: 0 5px 22px #0000000d; }
+.desk-surface .workspace-card > header { min-height: 22px; padding: 3px 18px; border-bottom: 0; background: transparent; }
+.desk-surface .workspace-card > header > span { opacity: 0; font-size: 11px; }
+.desk-surface .workspace-card:hover > header > span, .desk-surface .workspace-card.selected > header > span { opacity: 1; }
+.desk-surface .workspace-card-body { padding: 0 24px; }
+.desk-surface .workspace-card-body > input[aria-label="卡片标题"] { display: none; }
+.desk-surface .workspace-card blockquote { border: 0; padding: 0; margin: 0; font-size: 15px; line-height: 1.75; }
+.desk-surface .workspace-card-association { display: none; }
+.desk-surface .workspace-card.selected .workspace-card-association { display: flex; }
+.desk-surface .workspace-card > footer { border: 0; background: transparent; padding: 8px 18px; }
+.desk-surface .workspace-card-actions { visibility: hidden; }
+.desk-surface .workspace-card:hover .workspace-card-actions, .desk-surface .workspace-card.selected .workspace-card-actions { visibility: visible; }
+.pending-question-materials { border: 1px dashed var(--accent); border-radius: 10px; padding: 12px; display: grid; gap: 8px; margin-bottom: 10px; }
+.pending-question-materials ul { margin: 0; padding-left: 18px; max-height: 100px; overflow: auto; }
+.pending-question-materials small { color: var(--muted); }
+
+.desk-excerpt-drag { position: fixed; z-index: 1000; pointer-events: none; width: 300px; max-height: 140px;
+  overflow: hidden; border-radius: 8px; padding: 18px; background: var(--surface); box-shadow: 0 12px 35px #0003;
+  font-size: 14px; line-height: 1.7; opacity: .9; }
+
+.desk-paper-bridges { position: absolute; inset: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.desk-paper-bridges path { fill: var(--surface); }
+.desk-paper-bridges path.pending { fill: color-mix(in srgb, var(--accent) 18%, var(--surface)); stroke: var(--accent); stroke-dasharray: 4 5; }
+.desk-surface .workspace-group.paper-cluster:not(.collapsed) { border: 0; background: transparent; box-shadow: none; pointer-events: none; }
+.desk-surface .paper-cluster > header, .desk-surface .paper-cluster .workspace-group-actions { pointer-events: auto; }
+
+.desk-surface .workspace-card.selected .workspace-card-body > input[aria-label="卡片标题"] { display: block; }
+
+.desk-surface .reader-pane-actions button { font: inherit; font-size: 12px; font-weight: 400; color: var(--muted); padding: 6px 8px; }
+.desk-surface .reader-pane-actions button[aria-pressed="true"] { background: var(--soft); color: var(--accent); }
+.desk-surface .pdf-pane .pdf-world { min-width: 100%; }
+.desk-surface .pdf-pane .workspace-scroll { background: var(--surface); background-image: none; }
+.desk-surface .workspace-card.selected { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+
+.desk-surface .workspace-card:focus-within .workspace-card-actions { visibility: visible; }

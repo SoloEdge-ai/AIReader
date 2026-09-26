@@ -695,61 +695,6 @@ progress::-webkit-progress-value {
 .splitter:focus-visible::after {
   background: var(--accent);
 }
-.floating-chat {
-  position: absolute;
-  container-type: size;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  min-height: 0;
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--floating-panel-radius);
-  box-shadow: var(--floating-panel-shadow);
-  overflow: hidden;
-}
-.floating-chat-header {
-  height: 42px;
-  flex-shrink: 0;
-  padding: 0 8px 0 11px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid var(--line);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-.floating-chat-header:active { cursor: grabbing; }
-.floating-chat-header:focus-visible,
-.floating-chat-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
-.floating-chat-header > svg { width: 15px; color: var(--muted); }
-.floating-chat-header strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-.floating-chat-hint { color: var(--muted); font-size: 11px; margin-left: auto; }
-.floating-chat-header button { width: 36px; height: 36px; padding: 9px; border-radius: 8px; cursor: pointer; }
-.floating-chat-resize { position: absolute; z-index: 2; touch-action: none; }
-.floating-chat-resize[data-edge="n"] { top: 0; left: 12px; right: 12px; height: 7px; cursor: ns-resize; }
-.floating-chat-resize[data-edge="s"] { bottom: 0; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
-.floating-chat-resize[data-edge="e"] { right: 0; top: 12px; bottom: 12px; width: 8px; cursor: ew-resize; }
-.floating-chat-resize[data-edge="w"] { left: 0; top: 12px; bottom: 12px; width: 8px; cursor: ew-resize; }
-.floating-chat-resize[data-edge="ne"] { right: 0; top: 0; width: 13px; height: 13px; cursor: nesw-resize; }
-.floating-chat-resize[data-edge="nw"] { left: 0; top: 0; width: 13px; height: 13px; cursor: nwse-resize; }
-.floating-chat-resize[data-edge="se"] { right: 0; bottom: 0; width: 17px; height: 17px; cursor: nwse-resize; }
-.floating-chat-resize[data-edge="sw"] { left: 0; bottom: 0; width: 13px; height: 13px; cursor: nesw-resize; }
-.floating-chat-resize[data-edge="se"]::after {
-  content: "";
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  width: 6px;
-  height: 6px;
-  border-right: 1px solid var(--muted);
-  border-bottom: 1px solid var(--muted);
-}
 .floating-chat .messages { min-height: 0; }
 .floating-chat .composer {
   display: flex;
@@ -1065,6 +1010,11 @@ progress::-webkit-progress-value {
 .question-material-item-head span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .question-material-item button { border: 0; background: transparent; color: var(--muted); padding: 3px; }
 .question-material-item button:hover { color: var(--text); }
+.question-material-source-status {
+  margin: 5px 0 0; color: var(--text); font-size: 11px; line-height: 1.45;
+  padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface-raised, var(--surface));
+}
 .question-material-item details { margin-top: 5px; color: var(--muted); }
 .question-material-item details p { margin: 5px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .question-material-item details small { margin-right: 6px; color: var(--accent); }
@@ -1542,6 +1492,9 @@ summary {
   border-radius: 0;
   width: 100%;
 }
+.search-hit-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
+.search-hit-row .search-hit { flex: 1; min-width: 0; border-bottom: 0; }
+.search-hit-row > button:last-child { flex: 0 0 auto; min-width: 48px; min-height: 36px; color: var(--accent); font-size: 12px; }
 .search-hit small {
   display: block;
   color: var(--accent);

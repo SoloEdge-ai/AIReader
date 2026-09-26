@@ -4,6 +4,36 @@ import type { SourceAnchor } from "./reading";
 import type { ChatImage } from "./images";
 import type { WorkspaceCard } from "./workspace";
 
+const noteIdentity = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
+const pdfCoordinate = z.number().finite().min(-200000).max(200000);
+export const NoteReferenceRegionSchema = z.object({
+  fingerprint: z.string().min(1).max(128),
+  page: z.number().int().positive().max(100000),
+  rect: z.tuple([pdfCoordinate, pdfCoordinate, pdfCoordinate, pdfCoordinate]),
+  assetId: noteIdentity,
+  includePersonalMarks: z.boolean(),
+}).strict();
+export const NoteSourceReferenceSchema = z.object({
+  id: noteIdentity,
+  kind: z.enum(["card", "annotation"]),
+  targetId: noteIdentity,
+  title: z.string().max(200),
+  text: z.string().max(20000),
+  source: z.object({
+    fingerprint: z.string().min(1).max(128),
+    anchors: z.array(PdfAnchorSchema).min(1).max(50),
+  }).strict().optional(),
+  region: NoteReferenceRegionSchema.optional(),
+  regionAssetKind: z.enum(["workspace", "annotation"]).optional(),
+}).strict().superRefine((reference, context) => {
+  if (reference.kind === "annotation" && !reference.source)
+    context.addIssue({ code: "custom", message: "标记来源必须保留 PDF 锚点" });
+  if (Boolean(reference.region) !== Boolean(reference.regionAssetKind))
+    context.addIssue({ code: "custom", message: "图片来源必须说明资源归属" });
+});
+export type NoteSourceReference = z.infer<typeof NoteSourceReferenceSchema>;
+export const NoteSourceReferencesSchema = z.array(NoteSourceReferenceSchema).max(500);
+
 export const AnnotationInputSchema = z.object({
   kind: z.enum(["highlight", "underline", "strike", "sticky", "region"]),
   color: z.enum(["yellow", "green", "blue", "pink"]).default("yellow"),
@@ -15,6 +45,8 @@ export const AnnotationInputSchema = z.object({
     .optional(),
 });
 export interface RichNode {
+  /** Core-validated Tiptap JSON. Supported content includes tables and
+   * explicit inlineMath/blockMath nodes; formula source lives in attrs.latex. */
   type: string;
   text?: string;
   attrs?: Record<string, unknown>;
@@ -41,6 +73,8 @@ export interface Note {
   sourceCard?: Pick<WorkspaceCard, "kind" | "title" | "text" | "source" | "region"> & { cardId: string };
   /** Read-only source projection, including a deleted annotation's provenance. */
   annotationSource?: Annotation;
+  /** Frozen Core-owned projections. Rich text only stores the reference id. */
+  sourceReferences: NoteSourceReference[];
   /** Frozen, Core-owned provenance; user edits never rewrite this metadata. */
   origin?: {
     kind: "chat";

@@ -9,8 +9,8 @@
   font-weight: 600;
 }
 .material-card-list h3 small { color: var(--muted); font-weight: 400; }
-.material-catalog-controls { display: flex; gap: 6px; margin-bottom: 6px; }
-.material-catalog-controls select { min-width: 0; flex: 1; font-size: 12px; }
+.material-catalog-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+.material-catalog-controls select { min-width: 0; width: 100%; font-size: 12px; }
 .material-card-list p { color: var(--muted); font-size: 12px; margin: 7px 0; }
 .material-card-row { display: flex; align-items: stretch; flex-wrap: wrap; gap: 2px; }
 .material-card-row > button:first-child {
@@ -26,4 +26,5 @@
 .material-card-row span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .material-card-row small { color: var(--muted); font-size: 11px; }
 .material-card-add { align-self: center; min-width: 28px; min-height: 28px; }
+.material-card-restore { align-self: center; min-height: 36px; padding: 4px 8px; }
 .material-card-error { flex-basis: 100%; color: var(--danger); overflow-wrap: anywhere; }

@@ -2,8 +2,8 @@ import { z } from "zod";
 import { WorkspaceCommandBatchSchema, WorkspaceCommandSchema } from "./workspace";
 
 export const WorkspaceCommandV2Schema = WorkspaceCommandBatchSchema.omit({ expectedVersion: true }).extend({
-  // Difference between two maximal workspaces: 2 * (500 cards + 5000 objects + 1000 links).
-  changes: z.array(WorkspaceCommandSchema).min(1).max(13000),
+  // Difference between two maximal workspaces: 2 * (500 cards + 5000 objects + 500 groups + 1000 links).
+  changes: z.array(WorkspaceCommandSchema).min(1).max(14000),
   expectedContentVersion: z.number().int().nonnegative(),
   payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
@@ -14,8 +14,8 @@ export const WorkspaceReceiptSchema = z.object({
   payloadHash: WorkspaceCommandV2Schema.shape.payloadHash,
   previousVersion: z.number().int().nonnegative(),
   contentVersion: z.number().int().positive(),
-  changes: z.array(WorkspaceCommandSchema).max(13000),
-  inverse: z.array(WorkspaceCommandSchema).max(13000),
+  changes: z.array(WorkspaceCommandSchema).max(14000),
+  inverse: z.array(WorkspaceCommandSchema).max(14000),
 }).strict();
 export type WorkspaceReceipt = z.infer<typeof WorkspaceReceiptSchema>;
 

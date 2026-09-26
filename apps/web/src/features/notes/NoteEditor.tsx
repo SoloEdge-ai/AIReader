@@ -1,12 +1,57 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { mergeAttributes, Node as TiptapNode } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { Mathematics } from "@tiptap/extension-mathematics";
+import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
+import "katex/dist/katex.min.css";
 import type { Note, RichNode } from "../../../../../packages/protocol/src";
 import type { BookNotes } from "./useBookNotes";
 import { canonicalDocument } from "./NoteEditingSession";
 
-export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes, "edit" | "getSnapshot"> }) {
+const SourceReference = TiptapNode.create({
+  name: "sourceReference",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      referenceId: {
+        default: "",
+        parseHTML: (element) => element.getAttribute("data-reference-id") ?? "",
+        renderHTML: (attributes) => ({ "data-reference-id": attributes.referenceId }),
+      },
+    };
+  },
+  parseHTML() { return [{ tag: "span[data-source-reference]" }]; },
+  renderHTML({ HTMLAttributes }) {
+    return ["span", mergeAttributes(HTMLAttributes, {
+      "data-source-reference": "",
+      class: "note-source-reference",
+      contenteditable: "false",
+      role: "link",
+      tabindex: "0",
+      title: "打开笔记来源",
+    }), "〔来源〕"];
+  },
+});
+
+export interface NoteEditorHandle {
+  insertSourceReference: (referenceId: string) => void;
+}
+
+export const NoteEditor = forwardRef<NoteEditorHandle, {
+  note: Note;
+  state: Pick<BookNotes, "edit" | "getSnapshot">;
+  onOpenSource?: (referenceId: string) => void;
+}>(function NoteEditor({ note, state, onOpenSource }, ref) {
   const [link, setLink] = useState<string | undefined>();
+  const [math, setMath] = useState<{
+    kind: "inline" | "block";
+    latex: string;
+    pos?: number;
+  }>();
   const titleRef = useRef(note.title),
     composition = useRef(false),
     localDocument = useRef<string | undefined>(undefined);
@@ -19,6 +64,24 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
         heading: { levels: [1, 2, 3] },
         link: { openOnClick: false, protocols: ["https", "http", "mailto"] },
       }),
+      TableKit.configure({
+        table: {
+          resizable: false,
+          HTMLAttributes: { class: "note-table" },
+        },
+      }),
+      Mathematics.configure({
+        inlineOptions: {
+          onClick: (node, pos) =>
+            setMath({ kind: "inline", latex: String(node.attrs.latex ?? ""), pos }),
+        },
+        blockOptions: {
+          onClick: (node, pos) =>
+            setMath({ kind: "block", latex: String(node.attrs.latex ?? ""), pos }),
+        },
+        katexOptions: { throwOnError: false, trust: false, maxSize: 20 },
+      }),
+      SourceReference,
     ],
     content: note.document,
     onUpdate: ({ editor }) => {
@@ -91,6 +154,14 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
       .setMeta("addToHistory", false).run();
     localDocument.current = undefined;
   }, [editor, note.document]);
+  useImperativeHandle(ref, () => ({
+    insertSourceReference(referenceId: string) {
+      editor?.chain().focus().insertContent({
+        type: "sourceReference",
+        attrs: { referenceId },
+      }).run();
+    },
+  }), [editor]);
   if (!editor) return null;
   return (
     <>
@@ -106,6 +177,7 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
       />
       <div className="editor-toolbar" role="toolbar" aria-label="笔记格式">
         <button
+          type="button"
           title="粗体"
           aria-pressed={editor.isActive("bold")}
           onClick={() => editor.chain().focus().toggleBold().run()}
@@ -113,13 +185,17 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
           <b>B</b>
         </button>
         <button
+          type="button"
           title="斜体"
+          aria-pressed={editor.isActive("italic")}
           onClick={() => editor.chain().focus().toggleItalic().run()}
         >
           <i>I</i>
         </button>
         <button
+          type="button"
           title="标题"
+          aria-pressed={editor.isActive("heading", { level: 2 })}
           onClick={() =>
             editor.chain().focus().toggleHeading({ level: 2 }).run()
           }
@@ -127,30 +203,39 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
           H
         </button>
         <button
+          type="button"
           title="无序列表"
+          aria-pressed={editor.isActive("bulletList")}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
         >
           • 列表
         </button>
         <button
+          type="button"
           title="有序列表"
+          aria-pressed={editor.isActive("orderedList")}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
         >
           1. 列表
         </button>
         <button
+          type="button"
           title="引用"
+          aria-pressed={editor.isActive("blockquote")}
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
         >
           ❞
         </button>
         <button
+          type="button"
           title="代码块"
+          aria-pressed={editor.isActive("codeBlock")}
           onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         >
           &lt;/&gt;
         </button>
         <button
+          type="button"
           title="链接"
           onClick={() =>
             setLink(editor.getAttributes("link").href ?? "https://")
@@ -158,7 +243,45 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
         >
           链接
         </button>
+        <span className="editor-toolbar-separator" aria-hidden="true" />
         <button
+          type="button"
+          title="行内公式"
+          onClick={() => setMath({ kind: "inline", latex: "" })}
+        >
+          ƒx
+        </button>
+        <button
+          type="button"
+          title="公式块"
+          onClick={() => setMath({ kind: "block", latex: "" })}
+        >
+          ∑
+        </button>
+        <button
+          type="button"
+          title="插入表格"
+          onClick={() =>
+            editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+          }
+        >
+          表格
+        </button>
+        {editor.isActive("table") && <>
+          <button type="button" title="在下方添加一行"
+            onClick={() => editor.chain().focus().addRowAfter().run()}>＋行</button>
+          <button type="button" title="在右侧添加一列"
+            onClick={() => editor.chain().focus().addColumnAfter().run()}>＋列</button>
+          <button type="button" title="删除当前行"
+            onClick={() => editor.chain().focus().deleteRow().run()}>－行</button>
+          <button type="button" title="删除当前列"
+            onClick={() => editor.chain().focus().deleteColumn().run()}>－列</button>
+          <button type="button" title="删除表格"
+            onClick={() => editor.chain().focus().deleteTable().run()}>删表</button>
+        </>}
+        <span className="editor-toolbar-separator" aria-hidden="true" />
+        <button
+          type="button"
           title="撤销编辑"
           onClick={() => editor.chain().focus().undo().run()}
         >
@@ -204,7 +327,62 @@ export function NoteEditor({ note, state }: { note: Note; state: Pick<BookNotes,
           </button>
         </form>
       )}
-      <EditorContent editor={editor} />
+      {math && (
+        <form
+          className="note-math-form"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setMath(undefined);
+            editor.commands.focus();
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const latex = math.latex.trim();
+            if (!latex) return;
+            const chain = editor.chain().focus();
+            if (math.kind === "inline") {
+              if (math.pos === undefined) chain.insertInlineMath({ latex }).run();
+              else chain.updateInlineMath({ latex, pos: math.pos }).run();
+            } else if (math.pos === undefined) chain.insertBlockMath({ latex }).run();
+            else chain.updateBlockMath({ latex, pos: math.pos }).run();
+            setMath(undefined);
+          }}
+        >
+          <label htmlFor={`note-math-${note.id}`}>
+            {math.pos === undefined ? "插入" : "编辑"}{math.kind === "inline" ? "行内公式" : "公式块"}
+          </label>
+          <textarea
+            id={`note-math-${note.id}`}
+            autoFocus
+            aria-label="LaTeX 公式"
+            value={math.latex}
+            maxLength={20000}
+            rows={math.kind === "inline" ? 2 : 4}
+            placeholder="输入 LaTeX，不包含 $ 分隔符"
+            onChange={(event) => setMath({ ...math, latex: event.target.value })}
+          />
+          <div>
+            <button type="submit" disabled={!math.latex.trim()}>应用公式</button>
+            <button type="button" onClick={() => setMath(undefined)}>取消</button>
+          </div>
+        </form>
+      )}
+      <div onClick={(event) => {
+        const target = (event.target as HTMLElement).closest<HTMLElement>("[data-source-reference]");
+        const referenceId = target?.dataset.referenceId;
+        if (referenceId) onOpenSource?.(referenceId);
+      }} onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const target = (event.target as HTMLElement).closest<HTMLElement>("[data-source-reference]");
+        const referenceId = target?.dataset.referenceId;
+        if (!referenceId) return;
+        event.preventDefault();
+        onOpenSource?.(referenceId);
+      }}>
+        <EditorContent editor={editor} />
+      </div>
     </>
   );
-}
+});

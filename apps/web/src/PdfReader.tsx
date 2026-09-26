@@ -7,6 +7,7 @@ import {
 } from "react";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { loadPagesProgressively } from "./features/pdf/progressive-pages";
 import "pdfjs-dist/web/pdf_viewer.css";
 import type {
   Annotation,
@@ -21,6 +22,7 @@ import { zoomWorkspaceAtPointer } from "../../../packages/workspace-engine/src/v
 import type { InkPoint } from "../../../packages/workspace-engine/src/ink";
 import type { WorkspacePage } from "../../../packages/workspace-engine/src/surfaces";
 import type { InkStroke, WorkspaceObject } from "../../../packages/protocol/src/workspace";
+import type { PdfView } from "../../../packages/protocol/src/preferences";
 import {
   WORKSPACE_DOCUMENT_X,
   type WorkspaceCamera,
@@ -542,8 +544,11 @@ export interface PdfReaderProps {
   initialPage: number;
   zoom: number;
   onZoom?: (zoom: number) => void;
+  zoomLimits?: { min: number; max: number };
   rotation?: number;
   onPage: (page: number) => void;
+  initialView?: PdfView;
+  onView?: (view: PdfView) => void;
   onSelection: (selection: ReadingSelection | undefined) => void;
   highlight?: SourceAnchor;
   annotations?: Annotation[];
@@ -553,6 +558,7 @@ export interface PdfReaderProps {
   onQuestionRegion?: (region: QuestionRegion) => void;
   onRegionAction?: (region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) => void | Promise<void>;
   workspace?: {
+    mode?: "document" | "board";
     ready: boolean;
     onDocumentWidth: (width: number) => void;
     camera?: WorkspaceCamera;
@@ -585,6 +591,9 @@ export function PdfReader({
   onZoom,
   rotation = 0,
   onPage,
+  zoomLimits,
+  initialView,
+  onView,
   onSelection,
   highlight,
   annotations = [],
@@ -598,7 +607,7 @@ export function PdfReader({
   const [pages, setPages] = useState<pdfjs.PDFPageProxy[]>([]),
     [error, setError] = useState("");
   const scroll = useRef<HTMLDivElement>(null),
-    position = useRef({ page: initialPage, x: 0, y: 0 }),
+    position = useRef(initialView ?? { page: initialPage, x: 0, y: 0 }),
     views = useRef<View[]>([]);
   const pan = useRef<
     | {
@@ -646,11 +655,12 @@ export function PdfReader({
   const worldCamera = useRef<
     { left: number; top: number; zoom: number } | undefined
   >(undefined);
+  const previousPageCount = useRef(0);
   const wheelPosition = useRef<{ left: number; top: number } | undefined>(
     undefined,
   );
-  const wheelState = useRef({ zoom, onZoom });
-  wheelState.current = { zoom, onZoom };
+  const wheelState = useRef({ zoom, onZoom, zoomLimits });
+  wheelState.current = { zoom, onZoom, zoomLimits };
   useEffect(() => {
     const el = scroll.current;
     if (!el) return;
@@ -667,6 +677,7 @@ export function PdfReader({
         top: next?.top ?? el.scrollTop,
         x: event.clientX - bounds.left,
         y: event.clientY - bounds.top,
+        limits: current.zoomLimits,
         deltaY: event.deltaY,
         deltaMode: event.deltaMode,
         viewportHeight: el.clientHeight,
@@ -691,7 +702,7 @@ export function PdfReader({
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (!workspace || event.code !== "Space" || event.isComposing || event.repeat) return;
-      if ((event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable],[aria-modal='true']")) return;
+      if ((event.target as HTMLElement)?.closest("a,button,summary,input,textarea,select,[contenteditable],[role='button'],[role='tab'],[role='menuitem'],[aria-modal='true']")) return;
       event.preventDefault();
       space.current = true;
       setPanReady(true);
@@ -758,6 +769,7 @@ export function PdfReader({
   }, [onSelection]);
   // All page dimensions are known before mounting: later lazy rendering cannot move earlier pages.
   useEffect(() => {
+    if (workspace?.mode === "board") return;
     let active = true;
     const task = pdfjs.getDocument({
       url: fileUrl(id),
@@ -766,18 +778,7 @@ export function PdfReader({
     });
     void (async () => {
       const doc = await task.promise;
-      const result: pdfjs.PDFPageProxy[] = [];
-      for (let i = 1; i <= doc.numPages; i += 16) {
-        result.push(
-          ...(await Promise.all(
-            Array.from({ length: Math.min(16, doc.numPages - i + 1) }, (_, n) =>
-              doc.getPage(i + n),
-            ),
-          )),
-        );
-        if (!active) return;
-      }
-      setPages(result);
+      await loadPagesProgressively(doc.numPages, (page) => doc.getPage(page), setPages, () => active);
     })().catch((e) => {
       if (active) setError(e.message);
     });
@@ -785,7 +786,7 @@ export function PdfReader({
       active = false;
       void task.destroy().catch(() => {});
     };
-  }, [id]);
+  }, [id, workspace?.mode]);
   const cache = useRef<
     | {
         pages: pdfjs.PDFPageProxy[];
@@ -795,11 +796,20 @@ export function PdfReader({
       }
     | undefined
   >(undefined);
+  const previousViews = cache.current;
   if (
-    !cache.current ||
-    cache.current.pages !== pages ||
-    cache.current.zoom !== zoom ||
-    cache.current.rotation !== rotation
+    previousViews && previousViews.zoom === zoom && previousViews.rotation === rotation &&
+    previousViews.pages.length < pages.length &&
+    previousViews.pages.every((page, index) => pages[index] === page)
+  )
+    cache.current = {
+      pages, zoom, rotation,
+      value: [...previousViews.value, ...pages.slice(previousViews.pages.length).map((page) =>
+        page.getViewport({ scale: zoom, rotation: (page.rotate + rotation) % 360 }))],
+    };
+  else if (
+    !previousViews || previousViews.pages !== pages ||
+    previousViews.zoom !== zoom || previousViews.rotation !== rotation
   )
     cache.current = {
       pages,
@@ -809,7 +819,7 @@ export function PdfReader({
         p.getViewport({ scale: zoom, rotation: (p.rotate + rotation) % 360 }),
       ),
     };
-  views.current = cache.current.value;
+  views.current = cache.current!.value;
   const documentWidth = Math.max(
     0,
     ...views.current.map((view) => view.width / zoom),
@@ -817,11 +827,12 @@ export function PdfReader({
   useLayoutEffect(() => {
     if (documentWidth) workspace?.onDocumentWidth(documentWidth);
   }, [documentWidth]);
-  let bottom = 40;
+  const documentInset = workspace?.mode === "document" ? 16 : WORKSPACE_DOCUMENT_X;
+  let bottom = workspace?.mode === "document" ? 16 : 40;
   const worldPages = views.current.map((view, index) => {
     const page = {
       page: index + 1,
-      x: WORKSPACE_DOCUMENT_X + (documentWidth - view.width / zoom) / 2,
+      x: documentInset + (documentWidth - view.width / zoom) / 2,
       y: bottom,
       width: view.width / zoom,
       height: view.height / zoom,
@@ -858,7 +869,11 @@ export function PdfReader({
     const el = scroll.current,
       p = position.current,
       node = el?.querySelector<HTMLElement>(`[data-page="${p.page}"]`);
-    if (workspace && (!workspace.ready || !pages.length)) return;
+    const pagesAdded = pages.length > previousPageCount.current;
+    previousPageCount.current = pages.length;
+    if (workspace && (!workspace.ready || (workspace.mode !== "board" && !pages.length))) return;
+    if (workspace?.mode === "document" && !restoredCamera.current &&
+        pages.length < (initialView?.page ?? initialPage)) return;
     if (el && workspace && !restoredCamera.current) {
       const camera = workspace.camera;
       if (camera && Math.abs(camera.zoom - zoom) > 0.001 && onZoom) {
@@ -866,14 +881,16 @@ export function PdfReader({
         return;
       }
       restoredCamera.current = true;
+      const initialNode = workspace.mode === "document" && initialView ? node : undefined;
       el.scrollTo({
-        left: camera
-          ? camera.x * zoom
-          : (WORKSPACE_DOCUMENT_X + documentWidth / 2) * zoom -
-            el.clientWidth / 2,
-        top: camera
-          ? camera.y * zoom
-          : (worldPages[initialPage - 1]?.y ?? 40) * zoom - 20,
+        left: camera ? camera.x * zoom : initialNode ?
+          Math.max(0, initialNode.offsetLeft + position.current.x * initialNode.offsetWidth - el.clientWidth / 2) :
+          workspace.mode === "board" ? 0 :
+          (documentInset + documentWidth / 2) * zoom - el.clientWidth / 2,
+        top: camera ? camera.y * zoom : initialNode ?
+          Math.max(0, initialNode.offsetTop + position.current.y * initialNode.offsetHeight - 20) :
+          workspace.mode === "board" ? 0 :
+          (worldPages[initialPage - 1]?.y ?? 40) * zoom - 20,
       });
       captureCamera(el);
       return;
@@ -889,6 +906,16 @@ export function PdfReader({
     if (el && wheelPosition.current) {
       el.scrollTo(wheelPosition.current);
       wheelPosition.current = undefined;
+      captureCamera(el);
+      return;
+    }
+    if (el && workspace?.mode === "document" && pagesAdded && node && restoredCamera.current) {
+      // A later, wider page can change horizontal centering. Keep the current
+      // page and its relative reading position stable while pages stream in.
+      el.scrollTo({
+        left: Math.max(0, node.offsetLeft + p.x * node.offsetWidth - el.clientWidth / 2),
+        top: Math.max(0, node.offsetTop + p.y * node.offsetHeight - 20),
+      });
       captureCamera(el);
       return;
     }
@@ -915,6 +942,7 @@ export function PdfReader({
   const report = () => {
     const el = scroll.current;
     if (!el) return;
+    if (workspace?.mode === "document" && !restoredCamera.current) return;
     if (workspace) captureCamera(el);
     const top = el.scrollTop + 20,
       node = Array.from(el.querySelectorAll<HTMLElement>("[data-page]")).find(
@@ -928,7 +956,12 @@ export function PdfReader({
           node.offsetWidth,
         y: Math.max(0, (top - node.offsetTop) / node.offsetHeight),
       };
-      onPage(position.current.page);
+      if (workspace?.mode !== "board") {
+        onPage(position.current.page);
+        onView?.({ page: position.current.page,
+          x: Math.max(0, Math.min(1, position.current.x)),
+          y: Math.max(0, Math.min(1, position.current.y)) });
+      }
     }
   };
   return (
@@ -1150,7 +1183,7 @@ export function PdfReader({
         }
         if (anchors.length)
           onSelection({
-            text: selectedText.join(" ").slice(0, 12000),
+            text: selectedText.join(" "),
             page: anchors[0].page,
             anchors,
             screen: { x: e.clientX, y: e.clientY },
@@ -1160,24 +1193,22 @@ export function PdfReader({
     >
       {error ? (
         <p className="error">PDF 无法打开：{error}</p>
-      ) : pages.length ? (
+      ) : pages.length || workspace?.mode === "board" ? (
         <div
           className={workspace ? "pdf-world" : undefined}
           style={
             workspace
               ? {
                   position: "relative",
-                  width:
-                    Math.max(
-                      workspace.width,
-                      WORKSPACE_DOCUMENT_X * 2 + documentWidth,
-                    ) * zoom,
-                  height: Math.max(workspace.height, bottom + 40) * zoom,
+                  width: (workspace.mode === "document" ? documentWidth + documentInset * 2 : workspace.mode === "board" ? workspace.width :
+                    Math.max(workspace.width, WORKSPACE_DOCUMENT_X * 2 + documentWidth)) * zoom,
+                  height: (workspace.mode === "board" ? workspace.height :
+                    Math.max(workspace.height, bottom + 40)) * zoom,
                 }
               : undefined
           }
         >
-          {pages.map((p, i) => (
+          {workspace?.mode !== "board" && pages.map((p, i) => (
             <Page
               key={p.pageNumber}
               proxy={p}
@@ -1203,7 +1234,7 @@ export function PdfReader({
               }
             />
           ))}
-          {workspace?.render(worldPages, scroll.current)}
+          {workspace?.render(workspace.mode === "board" ? [] : worldPages, scroll.current)}
         </div>
       ) : (
         <p className="loading">正在打开 PDF…</p>

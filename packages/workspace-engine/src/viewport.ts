@@ -1,6 +1,7 @@
 /** Viewport coordinates are CSS pixels; all workspace content shares the zoom. */
 export function zoomWorkspaceAtPointer(input: {
   zoom: number;
+  limits?: { min: number; max: number };
   left: number;
   top: number;
   x: number;
@@ -17,9 +18,9 @@ export function zoomWorkspaceAtPointer(input: {
         ? input.viewportHeight
         : 1);
   const zoom = Math.max(
-    0.4,
+    input.limits?.min ?? 0.4,
     Math.min(
-      3,
+      input.limits?.max ?? 3,
       input.zoom * Math.exp(-Math.max(-300, Math.min(300, pixels)) * 0.002),
     ),
   );

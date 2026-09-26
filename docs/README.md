@@ -8,6 +8,7 @@ PR #24 的重构基线已于 2026-09-25 合入 main（eaa2403）；未完成的�
 
 [实施计划](plans/architecture-refactor.md) 描述已接受目标，按进度表判断是否实现；[边界决策](decisions/0001-refactor-boundaries.md) 和[跨实体命令决策](decisions/0002-book-edit-commands.md) 解释实现方向；verification 只证明特定提交实际检查过的内容。archive/2026-09 全部是历史材料，不作为现行要求。
 [问答浮窗决策](decisions/0003-floating-chat.md) 记录 PR #24 合入后从固定右栏改为应用内浮窗的行为边界。
+[主题组与格式升级决策](decisions/0004-workspace-groups-and-format-v6.md) 记录主题组身份、关系端点和不迁移旧数据的格式边界。
 
 最近的 [Core 边界与阅读 UI 切片验证](verification/2026-09-25-http-ui-slice.md) 列出已跑的真实测试、Windows CI 与未完成项。
 [提问材料并发重试验证](verification/2026-09-25-question-material-retry.md) 记录冻结材料的书籍隔离和原子回执回归。
@@ -26,6 +27,10 @@ PR #24 的重构基线已于 2026-09-25 合入 main（eaa2403）；未完成的�
 | 构建/安装/发布 | 开发、测试与发布 |
 
 [开发指南](development.md) · [测试与发布](testing-release.md) · [用户指南](user-guide.md)
+
+[连续阅读桌面决策](decisions/0006-continuous-desk.md) 记录认可原型落地的布局、浮动笔记、接触分组和材料多选边界。
+
+[连续阅读桌面验证](verification/2026-09-26-continuous-desk.md) 记录本轮实际测试及尚未覆盖的压力、DPI 与发布边界。
 
 ## 同步
 
