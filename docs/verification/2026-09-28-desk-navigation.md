@@ -8,4 +8,11 @@
 
 本地 Windows／Node 24：typecheck 及协议、引擎边界检查通过；liquidtext-reader 的 16 项真实 Core 浏览器验收通过，包括新增独立导航、远距离／不可见来源线、折叠及重开记忆。Windows 保留了 5173 端口，因此本轮使用 Core 在 43120 提供的正式构建页（AIREADER_TEST_URL），没有改变 CORS 或模拟服务。测试仅使用生成 PDF。
 
-Portable 构建与实际启动结果在完成后补充。完整 DPI、压力测试未在本轮重跑；PR 保持未合并。
+最终构建后新增三项浏览器回归再次通过（包括真实滚轮）；Core HTTP 和连线几何共 7 项通过。Portable 构建、真实 EXE 导入／索引／笔记保存／主题切换及正常退出通过，使用隔离临时数据目录。
+
+- 构建源码：6ad92f59fa2244326813a99a669116914a4d00dc，干净工作树，development。
+- 本地产物：release/desk-fixes/AIReader-Portable-0.1.0-x64.exe，118,952,989 bytes。
+- SHA-256：0F5310B349F422767B29FF3B8B9F5526D0C01BA3986B800854CBF875A5174CA0。
+- DB 6／archive 4／API 2。完整 Windows Actions 尚在执行，不将本地通过等同于安装升级通过。
+
+完整 DPI、压力测试未在本轮重跑；PR 保持未合并。
