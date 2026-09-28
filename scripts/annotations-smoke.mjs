@@ -77,9 +77,11 @@ try {
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
   if (!(await page.locator(".notes-panel").isVisible()))
     await page.getByLabel("笔记", { exact: true }).click();
-  await page.getByRole("button", { name: /Reading experiment/ }).click();
-  await expect(page.locator(".tiptap")).toContainText("A saved observation.");
-  await page.route("**/api/books/*/notes/*", (route) =>
+  await page.locator(".notes-list").getByRole("button", { name: /Reading experiment/ }).click();
+  await page.locator(".notes-panel").getByRole("button", { name: "展开编辑笔记" }).click();
+  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expect(expanded.locator(".tiptap")).toContainText("A saved observation.");
+  await page.route("**/api/v2/books/*/commands", (route) =>
     route.request().method() === "POST"
       ? route.fulfill({
           status: 500,
@@ -88,62 +90,58 @@ try {
         })
       : route.continue(),
   );
-  await page.locator(".tiptap").fill("Draft retained after failure.");
-  await expect(page.getByText(/保存失败，草稿仍保留/)).toBeVisible();
+  await expanded.locator(".tiptap").fill("Draft retained after failure.");
+  await expect(expanded.getByRole("status")).toContainText("保存失败");
   await app.evaluate(({ app, dialog }) => {
     dialog.showMessageBoxSync = () => 0;
     app.quit();
   });
-  await expect(page.locator(".tiptap")).toContainText(
+  await expect(expanded.locator(".tiptap")).toContainText(
     "Draft retained after failure.",
   );
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("关闭前保存失败");
   await page.screenshot({ path: ".local/screenshots/save-failure-toast.png" });
   await page.getByRole("button", { name: "返回书库" }).click();
-  await expect(page.locator(".tiptap")).toContainText(
+  await expect(expanded.locator(".tiptap")).toContainText(
     "Draft retained after failure.",
   );
-  await page.unroute("**/api/books/*/notes/*");
-  await page.getByRole("button", { name: "重试保存" }).click();
-  await expect(page.locator(".notes-panel").getByText("已保存", { exact: true })).toBeVisible();
+  await page.unroute("**/api/v2/books/*/commands");
+  await expanded.getByRole("button", { name: "重试保存" }).click();
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByRole("button", { name: "放到画布", exact: true }).click();
   const noteCard = page.locator(".workspace-card.note");
   await expect(noteCard).toHaveCount(1);
-  await noteCard.getByRole("textbox", { name: "笔记正文" }).click({ modifiers: ["Shift"] });
-  await expect(noteCard.getByRole("textbox", { name: "笔记正文" })).toBeVisible();
-  await noteCard.getByRole("textbox", { name: "笔记正文" }).fill("The same note from its card.");
-  await expect(noteCard.getByRole("textbox", { name: "笔记正文" })).toHaveText("The same note from its card.");
-  await expect(page.locator(".notes-panel .tiptap")).toHaveText("The same note from its card.");
-  await expect(page.locator(".notes-panel").getByText("已保存", { exact: true })).toBeVisible();
+  await expect(noteCard.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
   await noteCard.getByRole("button", { name: "展开卡片笔记" }).click();
-  const expanded = page.getByRole("dialog", { name: "展开笔记编辑" });
+  await expanded.getByRole("textbox", { name: "笔记正文" }).fill("The same note from its card.");
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
+  await expect(noteCard).toContainText("The same note from its card.");
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("Draft retained after failure.");
-  await expanded.getByRole("button", { name: "收起笔记编辑" }).click();
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.screenshot({ path: ".local/screenshots/shared-note-card-packaged.png" });
-  await noteCard.getByRole("button", { name: "移除卡片，保留笔记" }).click();
+  await noteCard.getByRole("button", { name: "移出工作台，保留材料" }).click();
   await expect(noteCard).toHaveCount(0);
-  await expect(page.locator(".notes-panel .tiptap")).toHaveText("Draft retained after failure.");
-  await expect(
-    page.locator(".notes-panel").getByText("已保存", { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator(".notes-panel")).toContainText("Draft retained after failure.");
   let dropped = false;
-  await page.route("**/api/books/*/notes/*", async (route) => {
+  await page.route("**/api/v2/books/*/commands", async (route) => {
     if (route.request().method() === "POST" && !dropped) {
       dropped = true;
       await route.fetch();
       await route.abort("failed");
     } else await route.continue();
   });
-  await page.locator(".tiptap").fill("Committed despite a lost response.");
-  await expect(
-    page.locator(".notes-panel").getByText("已保存", { exact: true }),
-  ).toBeVisible();
-  await page.unroute("**/api/books/*/notes/*");
+  await page.locator(".notes-panel").getByRole("button", { name: "展开编辑笔记" }).click();
+  await expanded.locator(".tiptap").fill("Committed despite a lost response.");
+  await expect(expanded.getByRole("status")).toHaveText("已保存");
+  await page.unroute("**/api/v2/books/*/commands");
+  await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.getByLabel("批注颜色", { exact: true }).selectOption("green");
   await page.getByRole("button", { name: "删除批注", exact: true }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(0);
-  await expect(page.locator(".tiptap")).toContainText("Committed despite a lost response.");
+  await expect(page.locator(".notes-panel")).toContainText("Committed despite a lost response.");
   await expect(page.getByText("源标注已删除，以下保留原文位置与摘录。")).toBeVisible();
   await page.getByRole("button", { name: "撤销批注操作" }).click();
   await expect(page.locator(".annotation-highlight")).toHaveCount(1);
@@ -152,7 +150,7 @@ try {
   await page.getByLabel("页码", { exact: true }).fill("6");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("6");
-  await page.getByRole("button", { name: "放大", exact: true }).click();
+  await page.getByRole("button", { name: "放大原文" }).click();
   await expect(page.getByLabel("页码", { exact: true })).toHaveValue("6");
   await page.screenshot({ path: ".local/screenshots/annotations.png" });
   await page.getByLabel("页码", { exact: true }).fill("3");
@@ -189,7 +187,11 @@ try {
   await page.getByRole("button", { name: "添加文本或卡片" }).click();
   await page.getByRole("menuitem", { name: "页内便签" }).click();
   const rotated = await page.locator("#page-3").boundingBox();
-  await page.mouse.click(rotated.x + 200, Math.max(80, rotated.y + 150));
+  const pdfViewport = await page.locator(".pdf-pane .pdf-scroll").boundingBox();
+  await page.mouse.click((Math.max(rotated.x, pdfViewport.x) +
+    Math.min(rotated.x + rotated.width, pdfViewport.x + pdfViewport.width)) / 2,
+  (Math.max(rotated.y, pdfViewport.y) +
+    Math.min(rotated.y + rotated.height, pdfViewport.y + pdfViewport.height)) / 2);
   await expect(page.locator(".annotation-sticky")).toHaveCount(1);
   await page.getByRole("button", { name: "收起导航" }).click();
   await page.getByRole("button", { name: "设置", exact: true }).click();
@@ -206,7 +208,7 @@ try {
   for (let i = 0; i < 3; i++)
     await page.getByRole("button", { name: "旋转页面" }).click();
   for (let i = 0; i < 8; i++)
-    await page.getByRole("button", { name: "缩小", exact: true }).click();
+    await page.getByRole("button", { name: "缩小原文" }).click();
   await page.getByLabel("页码", { exact: true }).fill("1");
   await page.getByLabel("页码", { exact: true }).press("Enter");
   await page.getByRole("button", { name: "选择文字（T）" }).click();

@@ -2,13 +2,13 @@
 
 行为边界：Core HTTP、真实临时SQLite/文件、PDF提取/渲染、上下文、模拟外部Codex。几何按纯输入输出验证。不得用内部mock掩盖事务或来源问题。
 
-基线d7fcbc2在规划时typecheck及23文件/40测试通过，不代表重构验收。verification记录每次真实命令、提交、环境、结果和限制。
+历史基线的测试记录不代表本次 LiquidText 对齐验收。`verification` 记录每次真实命令、提交、环境、结果和限制；本次使用生成 PDF、真实 Core HTTP／SQLite／PDF.js 与浏览器界面。
 
 ## PR 检查与发布
 
 PR #24 已合入 main；后续功能继续使用 `codex/*` 分支、PR 检查和 squash merge。PR 更新自动检查／构建并提供可下载安装包，不发正式 Release。main 合入从合并提交重建正式版。手动分支预发布工作流目前只允许 `codex/architecture-refactor`，新分支不可假定自动具备预发布权限。
 
-数字版本 `0.2.<run_number>`，同一安装身份；preview 设置 prerelease=true/latest=false。关于和包内 `dist/build-info.json` 显示 channel/SHA/实际数据和协议版本。产物为 Setup、Portable、SHA256SUMS.txt、build-info.json。当前数据库 v5／归档 v3；API 最高支持版本为 v2（工作区增量命令，其余仍为 v1），不代表所有接口迁移完成。标签绑定实际构建 SHA，不能覆盖其他提交的同版本。普通检查 contents:read，发布 job 单独 contents:write。
+数字版本 `0.2.<run_number>`，同一安装身份；preview 设置 prerelease=true/latest=false。关于和包内 `dist/build-info.json` 显示 channel/SHA/实际数据和协议版本。产物为 Setup、Portable、SHA256SUMS.txt、build-info.json。当前数据库 v6／工作区快照 v5／布局 v3／归档 v4；API v2 包含工作区及书籍级原子命令，其余接口仍逐步迁移。标签绑定实际构建 SHA，不能覆盖其他提交的同版本。普通检查 contents:read，发布 job 单独 contents:write。
 
 若仍需为允许的历史重构分支手动预发布，可执行 `gh workflow run windows-release.yml --ref codex/architecture-refactor`，并核对 prerelease、Latest 和 SHA；其他新分支需先明确扩展工作流规则。工作流接入和本地测试不等于远端发版已验证。
 
@@ -26,6 +26,4 @@ PR #24 已合入 main；后续功能继续使用 `codex/*` 分支、PR 检查和
 
 公开截图只用生成样本。安装验证覆盖preview→preview→stable，分支不改变Latest。
 
-本次旧测试库仅在实际切换新格式时清理一次，不备份/迁移。核实绝对目标并停机；限AIReader测试内容，不含账号/runtime或Downloads原始PDF。安装器不通用清空数据。
-
-当前代码已启用 v5，未自动执行本机旧库清理。所有分支本机测试必须指定隔离数据目录；旧目录会被只读版本检查拒绝。后续安装前另行完成已批准范围的数据处理，不能把拒绝旧库当成“已自动迁移”。
+用户已明确允许放弃旧笔记／工作区兼容。本分支启用 v6，但安装器和运行时代码不自动删除或重写旧目录；旧库由版本检查拒绝。所有本地和 CI 测试指定隔离数据目录。旧数据处理与安装升级验收分别记录，不能把拒绝旧库当成迁移成功。

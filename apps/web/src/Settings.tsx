@@ -60,6 +60,15 @@ export function Settings({
         </header>
         <h3>外观</h3>
         <label className="setting-row">
+          界面风格
+          <select aria-label="界面风格" value={prefs.visualStyle}
+            onChange={(event) => onChange({ ...prefs,
+              visualStyle: event.target.value as ReaderPreferences["visualStyle"] })}>
+            <option value="professional">专业中性</option>
+            <option value="paper">温暖纸感</option>
+          </select>
+        </label>
+        <label className="setting-row">
           主题
           <select
             aria-label="主题"

@@ -16,6 +16,7 @@ interface MarkdownNode {
   checked?: boolean | null;
   start?: number | null;
   lang?: string | null;
+  align?: ("left" | "right" | "center" | null)[] | null;
   position?: { start: { offset?: number }; end: { offset?: number } };
 }
 
@@ -89,10 +90,9 @@ export function answerDocument(
           marks: [{ type: "code" }],
         }));
       case "inlineMath":
-        return text(`$${node.value ?? ""}$`).map((n) => ({
-          ...n,
-          marks: [{ type: "code" }],
-        }));
+        return node.value
+          ? [{ type: "inlineMath", attrs: { latex: node.value } }]
+          : [];
       case "link":
       case "linkReference": {
         const url = node.url ?? definitions.get(node.identifier) ?? "";
@@ -172,15 +172,29 @@ export function answerDocument(
         ];
       case "thematicBreak":
         return [{ type: "horizontalRule" }];
-      case "table":
+      case "table": {
+        const rows = (node.children ?? []).map((row, rowIndex) => ({
+          type: "tableRow",
+          content: (row.children ?? []).map((cell, cellIndex) => ({
+            type: rowIndex === 0 ? "tableHeader" : "tableCell",
+            attrs: {
+              colspan: 1,
+              rowspan: 1,
+              colwidth: null,
+              align: node.align?.[cellIndex] ?? null,
+            },
+            content: [{
+              type: "paragraph",
+              content: (cell.children ?? []).flatMap(inline),
+            }],
+          })),
+        }));
+        return rows.length ? [{ type: "table", content: rows }] : [];
+      }
       case "math":
-        return [
-          {
-            type: "codeBlock",
-            attrs: { language: null },
-            content: text(raw(node)),
-          },
-        ];
+        return node.value
+          ? [{ type: "blockMath", attrs: { latex: node.value } }]
+          : [];
       default:
         return [paragraph(raw(node) || node.value || "")];
     }

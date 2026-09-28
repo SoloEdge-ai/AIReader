@@ -6,8 +6,10 @@ import type {
   ReadingSelection,
   SourceAnchor,
   Note,
+  Annotation,
   PdfAnchor,
 } from "../../../packages/protocol/src";
+import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
 import { MAX_QUESTION_MATERIALS, questionMaterialCount } from "../../../packages/protocol/src";
 import { api, post, base } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
@@ -18,6 +20,7 @@ import { SelectionContext } from "./SelectionContext";
 import { ChatImageList } from "./ChatImageList";
 import type { QuestionDraft, QuestionDraftStore } from "./QuestionDrafts";
 import { mergeTurnSnapshot, upsertTurn, type ObservedTurn } from "./features/chat/turn-sync";
+import { questionMaterialSourceStatus } from "./features/chat/material-status";
 export type SelectionAction = {
   name: string;
   nonce: number;
@@ -35,6 +38,11 @@ export function ChatPanel({
   onPickSelection,
   onCitation,
   notes,
+  annotations,
+  materialCatalog,
+  pendingMaterialIds = [],
+  onAddPendingMaterials,
+  materialSourcesReady,
   onNoteSaved,
   onStartRegion,
   onSessionChange,
@@ -52,6 +60,11 @@ export function ChatPanel({
   onPickSelection: () => void;
   onCitation: (page: number, anchor: SourceAnchor) => void;
   notes: Note[];
+  annotations: Annotation[];
+  materialCatalog?: Pick<BookWorkspace, "cards" | "objects" | "links">;
+  pendingMaterialIds?: string[];
+  onAddPendingMaterials?: () => Promise<boolean>;
+  materialSourcesReady: boolean;
   onNoteSaved: (note: Note) => Promise<void>;
   onStartRegion: (sessionId: string) => void;
   onSessionChange: (sessionId: string) => void;
@@ -484,11 +497,21 @@ export function ChatPanel({
         }}
       >
         <div className="composer-materials">
+          {!!pendingMaterialIds.length && <section className="pending-question-materials" aria-label="待加入材料">
+            <strong>待加入 · {pendingMaterialIds.length} 份材料</strong>
+            <ul>{pendingMaterialIds.map((id) => <li key={id}>{materialCatalog?.cards.find((card) => card.id === id)?.title || "所选绘图材料"}</li>)}</ul>
+            <button type="button" disabled={!!preparing} onClick={() => void onAddPendingMaterials?.()}>加入本轮问题</button>
+            <small>加入后保留此刻的内容，选择变化不会替换已加入材料。</small>
+          </section>}
           {(!!materials.length || !!images.length || !!attachment) &&
             <span className="question-material-heading">本轮材料 · {materialCount} 项</span>}
           {!!materials.length && <div className="question-material-list" aria-label="本轮材料">
             {materials.map((material) => {
               const anchors = material.sections.flatMap((section) => section.anchors ?? []);
+              const sourceStatus = questionMaterialSourceStatus(material, { bookId: book.id,
+                catalog: materialCatalog,
+                notes: materialSourcesReady ? notes : undefined,
+                annotations: materialSourcesReady ? annotations : undefined });
               return <div className="question-material-item" key={material.id}>
                 <div className="question-material-item-head">
                   <span>{material.title} · {material.itemCount} 项</span>
@@ -497,6 +520,12 @@ export function ChatPanel({
                     materials: materials.filter((item) => item.id !== material.id), materialError: undefined,
                   })}>移除</button>
                 </div>
+                {sourceStatus.kind === "updated" && <p className="question-material-source-status" role="status">
+                  原内容已更新 · 提问仍使用加入时的版本
+                </p>}
+                {sourceStatus.kind === "removed" && <p className="question-material-source-status" role="status">
+                  原内容已移除 · 提问仍使用加入时的版本
+                </p>}
                 <details><summary>查看将发送的内容</summary>
                   {material.sections.map((section, index) => <p key={index}>
                     <small>{section.kind === "book-excerpt" ? "原文摘录" :

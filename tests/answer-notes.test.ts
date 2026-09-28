@@ -454,7 +454,12 @@ test("saved answers preserve editable Markdown while unsafe HTML and links remai
     expect(serialized).toContain('"type":"link"');
     expect(serialized).toContain("https://example.com");
     expect(serialized).not.toContain('"href":"javascript:');
-    expect(serialized).not.toMatch(/"type":"(html|image|table|math)"/);
+    expect(serialized).not.toMatch(/"type":"(html|image|math)"/);
+    expect(serialized).toContain('"type":"inlineMath"');
+    expect(serialized).toContain('"type":"blockMath"');
+    expect(serialized).toContain('"type":"table"');
+    expect(serialized).toContain('"type":"tableHeader"');
+    expect(serialized).toContain('"type":"tableCell"');
     expect(serialized).toContain("n^2");
     expect(serialized).toContain("E=mc^2");
     expect(serialized).toContain("Input");

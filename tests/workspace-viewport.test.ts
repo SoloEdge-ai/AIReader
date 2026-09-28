@@ -49,3 +49,17 @@ test("wheel units normalize and zoom stops at reader limits without drifting", (
     zoomWorkspaceAtPointer({ ...input, zoom: 1, deltaY: -1, deltaMode: 1 }),
   ).toEqual(zoomWorkspaceAtPointer({ ...input, zoom: 1, deltaY: -16 }));
 });
+
+
+test("document wheel zoom respects intrinsic limits under a scaled desk", () => {
+  for (const scale of [.4, 3]) {
+    const limits = { min: .4 * scale, max: 3 * scale };
+    for (const [zoom, deltaY] of [[limits.min, 999], [limits.max, -999]]) {
+      const result = zoomWorkspaceAtPointer({ zoom, limits, left: 120, top: 80, x: 20, y: 40,
+        deltaY, deltaMode: 0, viewportHeight: 700 });
+      expect(result.zoom).toBeGreaterThanOrEqual(limits.min);
+      expect(result.zoom).toBeLessThanOrEqual(limits.max);
+      expect(result.left).toBeCloseTo(120);
+    }
+  }
+});

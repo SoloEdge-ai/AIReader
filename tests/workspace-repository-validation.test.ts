@@ -9,12 +9,12 @@ test("workspace repository validates untrusted writes and rows even when Core sk
   const directory = await mkdtemp(join(tmpdir(), "aireader-workspace-boundary-"));
   const storage = new Storage(directory);
   try {
-    expect(() => storage.workspaces.save({ bookId: "book", revision: 0, formatVersion: 4,
-      layoutVersion: 2, cards: [], objects: [], links: [], unexpected: true } as unknown as BookWorkspace))
+    expect(() => storage.workspaces.save({ bookId: "book", revision: 0, formatVersion: 5,
+      layoutVersion: 3, cards: [], objects: [], groups: [], links: [], unexpected: true } as unknown as BookWorkspace))
       .toThrow();
-    storage.workspaces.save({ bookId: "book", revision: 0, formatVersion: 4,
-      layoutVersion: 2, cards: [{ id: "card", kind: "note", title: "Note", text: "", comment: "",
-        x: 50, y: 60, width: 250, height: 170 }], objects: [], links: [] });
+    storage.workspaces.save({ bookId: "book", revision: 0, formatVersion: 5,
+      layoutVersion: 3, cards: [{ id: "card", kind: "note", title: "Note", text: "", comment: "",
+        x: 50, y: 60, width: 250, height: 170 }], objects: [], groups: [], links: [] });
     expect(storage.workspaces.get("book")?.cards).toHaveLength(1);
     storage.db.prepare("UPDATE workspace_entities SET value=? WHERE book_id=? AND id=?")
       .run(JSON.stringify({ id: "card", kind: "note", title: "Note", x: "not a coordinate" }), "book", "card");

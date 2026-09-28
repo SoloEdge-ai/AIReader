@@ -10,6 +10,7 @@ import type { Annotation, Note } from "../../../packages/protocol/src";
 import { createHash } from "node:crypto";
 import { WorkspaceCommandV2Schema, commandPayload, type WorkspaceReceipt } from "../../../packages/protocol/src/workspace-commands";
 import { applyWorkspaceChanges, workspaceDifference } from "../../../packages/workspace-engine/src/commands";
+import { validateWorkspaceGroups } from "./workspace-groups";
 
 export class WorkspaceConflict extends Error {
   constructor(message: string, readonly code = "CONTENT_VERSION_CONFLICT") { super(message); }
@@ -34,8 +35,9 @@ export class Workspaces {
     return WorkspaceSchema.parse({
         bookId,
         revision: 0,
-        layoutVersion: 2,
+        layoutVersion: 3,
         cards: [],
+        groups: [],
         links: [],
       });
   }
@@ -53,6 +55,8 @@ export class Workspaces {
     if (hash !== batch.payloadHash) throw new WorkspacePayloadError("命令内容与校验摘要不匹配");
     let receipt!: WorkspaceReceipt;
     this.library.store.transaction(() => {
+      if (this.library.store.getForBook("book-command", `${bookId}:${batch.commandId}`, bookId))
+        throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
       const previous = this.library.store.workspaces.receipt(bookId, batch.commandId);
       if (previous) {
         if (previous.payloadHash !== hash) throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
@@ -87,6 +91,8 @@ export class Workspaces {
     const hash = receiptHash ?? createHash("sha256").update(JSON.stringify(batch)).digest("hex");
     let result: BookWorkspace | undefined;
     this.library.store.transaction(() => {
+      if (this.library.store.getForBook("book-command", `${bookId}:${batch.commandId}`, bookId))
+        throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
       const previous = this.commandReceipt(bookId, batch.commandId);
       if (previous) {
         if (previous.payloadHash && previous.payloadHash !== hash)
@@ -134,6 +140,7 @@ export class Workspaces {
       new Set(value.links.map((link) => link.id)).size !== value.links.length
     )
       throw new Error("卡片或连接标识重复");
+    validateWorkspaceGroups(value);
     const placedNotes = new Set<string>();
     for (const card of value.cards) {
       if (card.noteId) {
@@ -144,8 +151,10 @@ export class Workspaces {
           JSON.stringify(note.sourceCard.source) !== JSON.stringify(card.source) ||
           JSON.stringify(note.sourceCard.region) !== JSON.stringify(card.region)))
           throw new Error("摘录评论与原文来源不匹配");
-        if (placedNotes.has(card.noteId)) throw new Error("此笔记已经放到画布，请定位已有卡片");
-        placedNotes.add(card.noteId);
+        if (card.kind === "note") {
+          if (placedNotes.has(card.noteId)) throw new Error("此笔记已经放到画布，请定位已有卡片");
+          placedNotes.add(card.noteId);
+        }
       }
       // Deleted region provenance is Core-owned, not supplied by the undo request.
       const previous = current.cards.find((old) => old.id === card.id) ??

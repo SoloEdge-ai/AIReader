@@ -11,6 +11,9 @@ function escapeText(value: string) {
 }
 function inline(node: RichNode): string {
   if (node.type === "hardBreak") return "  \n";
+  if (node.type === "inlineMath") return `$${String(node.attrs?.latex ?? "")}$`;
+  if (node.type === "sourceReference")
+    return `[^source-${String(node.attrs?.referenceId ?? "")}]`;
   let value = escapeText(node.text ?? "");
   for (const mark of node.marks ?? []) {
     if (mark.type === "code") {
@@ -32,6 +35,41 @@ function inline(node: RichNode): string {
     }
   }
   return value;
+}
+function tableCell(node: RichNode): string {
+  const value = (node.content ?? [])
+    .map(block)
+    .join("\n\n")
+    .replace(/\r?\n/g, "<br>")
+    .replace(/(?<!\\)\|/g, "\\|");
+  return value || " ";
+}
+function plainContent(node: RichNode): string {
+  if (node.type === "hardBreak") return "\n";
+  if (node.type === "inlineMath") return `$${String(node.attrs?.latex ?? "")}$`;
+  if (node.type === "blockMath") return `$$${String(node.attrs?.latex ?? "")}$$`;
+  if (node.type === "sourceReference")
+    return `〔来源 ${String(node.attrs?.referenceId ?? "")}〕`;
+  const separator = ["paragraph", "heading", "listItem", "codeBlock"].includes(node.type) ? "\n" : "";
+  return (node.text ?? "") + (node.content ?? []).map(plainContent).join("") + separator;
+}
+function htmlEscape(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function htmlTable(rows: RichNode[]): string {
+  return ["<table>", ...rows.map((row) => `  <tr>${(row.content ?? []).map((cell) => {
+    const tag = cell.type === "tableHeader" ? "th" : "td";
+    const colspan = Number(cell.attrs?.colspan ?? 1);
+    const rowspan = Number(cell.attrs?.rowspan ?? 1);
+    const align = String(cell.attrs?.align ?? "");
+    const attributes = [colspan > 1 ? ` colspan="${colspan}"` : "",
+      rowspan > 1 ? ` rowspan="${rowspan}"` : "",
+      align ? ` align="${htmlEscape(align)}"` : ""].join("");
+    const content = htmlEscape((cell.content ?? []).map(plainContent).join("\n").trim())
+      .replace(/\r?\n/g, "<br>");
+    return `<${tag}${attributes}>${content}</${tag}>`;
+  }).join("")}</tr>`), "</table>"].join("\n");
 }
 function block(node: RichNode): string {
   const content = node.content ?? [];
@@ -77,6 +115,37 @@ function block(node: RichNode): string {
       );
       return `${fence}${node.attrs?.language ?? ""}\n${code}\n${fence}`;
     }
+    case "blockMath":
+      return `$$\n${String(node.attrs?.latex ?? "")}\n$$`;
+    case "table": {
+      const rowNodes = content.filter((row) => row.type === "tableRow");
+      const first = rowNodes[0]?.content ?? [];
+      const simpleHeader = first.length > 0 && first.every((cell) => cell.type === "tableHeader") &&
+        rowNodes.slice(1).every((row) => (row.content ?? []).every((cell) => cell.type === "tableCell"));
+      const simpleCells = rowNodes.every((row) => (row.content ?? []).every((cell) =>
+        Number(cell.attrs?.colspan ?? 1) === 1 && Number(cell.attrs?.rowspan ?? 1) === 1));
+      const columnAlign = first.map((cell) => cell.attrs?.align ?? null);
+      const stableAlign = rowNodes.every((row) => (row.content ?? []).every((cell, index) =>
+        (cell.attrs?.align ?? null) === (columnAlign[index] ?? null)));
+      if (!simpleHeader || !simpleCells || !stableAlign) return htmlTable(rowNodes);
+      const rows = rowNodes.map((row) => (row.content ?? []).map(tableCell));
+      const columns = Math.max(0, ...rows.map((row) => row.length));
+      if (!rows.length || !columns) return "";
+      const line = (row: string[]) =>
+        `| ${Array.from({ length: columns }, (_, index) => row[index] ?? " ").join(" | ")} |`;
+      const separator = Array.from({ length: columns }, (_, index) => {
+        const align = columnAlign[index];
+        if (align === "left") return ":---";
+        if (align === "center") return ":---:";
+        if (align === "right") return "---:";
+        return "---";
+      });
+      return [
+        line(rows[0]),
+        line(separator),
+        ...rows.slice(1).map(line),
+      ].join("\n");
+    }
     default:
       return "";
   }
@@ -102,6 +171,25 @@ export function exportNoteArchive(
     );
   }
   lines.push("## 笔记正文", block(note.document));
+  if (note.sourceReferences.length) {
+    lines.push("## 关联来源");
+    for (const reference of note.sourceReferences) {
+      const pages = reference.source?.anchors.map((anchor) => anchor.page) ??
+        (reference.region ? [reference.region.page] : []);
+      const location = pages.length ? `；物理页：${pages.join("、")}` : "；工作台材料";
+      const provenance = reference.source
+        ? `；文档指纹：\`${reference.source.fingerprint}\``
+        : reference.region ? `；文档指纹：\`${reference.region.fingerprint}\`` : "";
+      const details = escapeText(reference.text).split("\n")
+        .map((line) => `    ${line}`).join("\n");
+      lines.push(
+        `[^source-${reference.id}]: ${escapeText(reference.title)}（${reference.kind === "annotation" ? "原文标记" : "材料卡片"}${location}${provenance}）`,
+        details || "    （无文字快照）",
+      );
+      if (reference.region)
+        lines.push(`    ![${escapeText(reference.title)}](assets/source-${reference.id}.png)`);
+    }
+  }
   if (note.origin) {
     lines.push("## 书中原文");
     if (!note.origin.sources.length)
@@ -165,7 +253,8 @@ export function exportNoteArchive(
         ? "以下为原问题附图及本轮选定材料图片，不自动视为已核验的书中原文。"
         : "以下为关联的页内区域摘录。",
     );
-    assets.filter((asset) => asset.name !== "assets/excerpt-region.png").forEach((asset, index) => {
+    assets.filter((asset) => asset.name !== "assets/excerpt-region.png" &&
+      !asset.name.startsWith("assets/source-")).forEach((asset, index) => {
       lines.push(`![关联图片 ${index + 1}](${asset.name})`);
       const source = note.origin?.images?.[index]?.source;
       if (source)

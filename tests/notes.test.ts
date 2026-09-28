@@ -71,8 +71,31 @@ test("book annotations and rich notes persist, reject stale or unsafe edits, and
         content: [
           {
             type: "paragraph",
-            content: [{ type: "text", text: "My observation" }],
+            content: [
+              { type: "text", text: "Capacity is " },
+              { type: "inlineMath", attrs: { latex: "O(n)" } },
+            ],
           },
+          {
+            type: "table",
+            content: [
+              {
+                type: "tableRow",
+                content: [
+                  { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Input" }] }] },
+                  { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Output" }] }] },
+                ],
+              },
+              {
+                type: "tableRow",
+                content: [
+                  { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "n" }] }] },
+                  { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "inlineMath", attrs: { latex: "n^2" } }] }] },
+                ],
+              },
+            ],
+          },
+          { type: "blockMath", attrs: { latex: "\\sum_{i=1}^n i" } },
         ],
       },
     });
@@ -87,6 +110,18 @@ test("book annotations and rich notes persist, reject stale or unsafe edits, and
       ).status,
     ).toBe(400);
     const current = await updated.json();
+    expect(
+      (
+        await request(`books/${book.id}/notes/${note.id}`, {
+          revision: current.revision,
+          title: "invalid formula",
+          document: {
+            type: "doc",
+            content: [{ type: "blockMath", attrs: { latex: 42 } }],
+          },
+        })
+      ).status,
+    ).toBe(400);
     const otherPdf = await PDFDocument.create();
     otherPdf.addPage([300, 300]);
     const other = await (
@@ -200,9 +235,15 @@ test("book annotations and rich notes persist, reject stale or unsafe edits, and
     const restored = await (await request(`books/${book.id}/notes`)).json();
     const original = restored.find((n: any) => n.id === note.id);
     expect(original.title).toBe("Capacity notes");
-    expect(original.document.content[0].content[0].text).toBe(
-      "My observation",
-    );
+    expect(original.document.content[0].content[1]).toEqual({
+      type: "inlineMath",
+      attrs: { latex: "O(n)" },
+    });
+    expect(original.document.content[1].type).toBe("table");
+    expect(original.document.content[2]).toEqual({
+      type: "blockMath",
+      attrs: { latex: "\\sum_{i=1}^n i" },
+    });
     expect(
       Buffer.from(
         await (

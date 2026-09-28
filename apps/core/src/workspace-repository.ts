@@ -17,6 +17,11 @@ CREATE TABLE workspace_entities(
   kind TEXT NOT NULL CHECK(kind IN ('card','object')),id TEXT NOT NULL,ordinal INTEGER NOT NULL,value TEXT NOT NULL,
   PRIMARY KEY(book_id,kind,id));
 CREATE INDEX workspace_entity_order ON workspace_entities(book_id,kind,ordinal);
+CREATE TABLE workspace_groups(
+  book_id TEXT NOT NULL REFERENCES workspace_books(book_id) ON DELETE CASCADE,
+  id TEXT NOT NULL,ordinal INTEGER NOT NULL,value TEXT NOT NULL,
+  PRIMARY KEY(book_id,id));
+CREATE INDEX workspace_group_order ON workspace_groups(book_id,ordinal);
 CREATE TABLE workspace_links(
   book_id TEXT NOT NULL REFERENCES workspace_books(book_id) ON DELETE CASCADE,
   id TEXT NOT NULL,ordinal INTEGER NOT NULL,from_id TEXT NOT NULL,to_id TEXT NOT NULL,label TEXT NOT NULL,directed INTEGER,
@@ -90,6 +95,9 @@ export class WorkspaceRepository {
     const links = this.db
       .prepare("SELECT * FROM workspace_links WHERE book_id=? ORDER BY ordinal")
       .all(bookId);
+    const groups = this.db
+      .prepare("SELECT value FROM workspace_groups WHERE book_id=? ORDER BY ordinal")
+      .all(bookId);
     return WorkspaceSchema.parse({
       bookId,
       revision: meta.revision,
@@ -101,6 +109,7 @@ export class WorkspaceRepository {
       objects: entities
         .filter((row) => row.kind === "object")
         .map((row) => JSON.parse(String(row.value))),
+      groups: groups.map((row) => JSON.parse(String(row.value))),
       links: links.map((row) => ({
         id: row.id,
         from: row.from_id,
@@ -134,6 +143,7 @@ export class WorkspaceRepository {
         );
       this.entities(value.bookId, "card", value.cards);
       this.entities(value.bookId, "object", value.objects);
+      this.groups(value.bookId, value.groups);
       const existing = new Map(
         this.db
           .prepare(
@@ -183,28 +193,43 @@ export class WorkspaceRepository {
     kind: "card" | "object",
     values: { id: string }[],
   ) {
-    const existing = new Map(
-      this.db
-        .prepare(
-          "SELECT id,ordinal,value FROM workspace_entities WHERE book_id=? AND kind=?",
-        )
-        .all(bookId, kind)
-        .map((row) => [String(row.id), row]),
-    );
     const write = this.db
       .prepare(`INSERT INTO workspace_entities VALUES(?,?,?,?,?) ON CONFLICT(book_id,kind,id)
       DO UPDATE SET ordinal=excluded.ordinal,value=excluded.value`);
-    for (const [ordinal, value] of values.entries()) {
-      const encoded = JSON.stringify(value),
-        old = existing.get(value.id);
-      if (!old || old.ordinal !== ordinal || old.value !== encoded)
-        write.run(bookId, kind, value.id, ordinal, encoded);
-      existing.delete(value.id);
-    }
     const remove = this.db.prepare(
       "DELETE FROM workspace_entities WHERE book_id=? AND kind=? AND id=?",
     );
-    for (const id of existing.keys()) remove.run(bookId, kind, id);
+    this.synchronizeRows(values,
+      this.db.prepare("SELECT id,ordinal,value FROM workspace_entities WHERE book_id=? AND kind=?")
+        .all(bookId, kind),
+      (value, ordinal, encoded) => write.run(bookId, kind, value.id, ordinal, encoded),
+      (id) => remove.run(bookId, kind, id));
+  }
+
+  private groups(bookId: string, values: { id: string }[]) {
+    const write = this.db.prepare(`INSERT INTO workspace_groups VALUES(?,?,?,?) ON CONFLICT(book_id,id)
+      DO UPDATE SET ordinal=excluded.ordinal,value=excluded.value`);
+    const remove = this.db.prepare("DELETE FROM workspace_groups WHERE book_id=? AND id=?");
+    this.synchronizeRows(values,
+      this.db.prepare("SELECT id,ordinal,value FROM workspace_groups WHERE book_id=?").all(bookId),
+      (value, ordinal, encoded) => write.run(bookId, value.id, ordinal, encoded),
+      (id) => remove.run(bookId, id));
+  }
+
+  private synchronizeRows(
+    values: { id: string }[],
+    rows: Record<string, unknown>[],
+    write: (value: { id: string }, ordinal: number, encoded: string) => void,
+    remove: (id: string) => void,
+  ) {
+    const existing = new Map(rows.map((row) => [String(row.id), row]));
+    for (const [ordinal, value] of values.entries()) {
+      const encoded = JSON.stringify(value), old = existing.get(value.id);
+      if (!old || Number(old.ordinal) !== ordinal || String(old.value) !== encoded)
+        write(value, ordinal, encoded);
+      existing.delete(value.id);
+    }
+    for (const id of existing.keys()) remove(id);
   }
 
   camera(bookId: string): WorkspaceCamera | undefined {
@@ -218,7 +243,7 @@ export class WorkspaceRepository {
     this.db.exec("SAVEPOINT workspace_view");
     try {
       this.db
-        .prepare("INSERT OR IGNORE INTO workspace_books VALUES(?,0,4,2)")
+        .prepare("INSERT OR IGNORE INTO workspace_books VALUES(?,0,5,3)")
         .run(bookId);
       this.db
         .prepare(

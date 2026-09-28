@@ -71,6 +71,9 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
         { type: "upsert-link", link: { id: "link", from: card.id, to: "second-card", label: "supports" } },
         { type: "upsert-link", link: { id: "ink-link", from: "cross-page-ink", to: card.id,
           label: "sketched from" } },
+        { type: "upsert-group", group: { id: "archive-group", title: "Evidence",
+          color: "#56789a", x: 840, y: 40, width: 1400, height: 320,
+          memberIds: [card.id, "second-card"], collapsed: true } },
       ],
     });
     await request(`books/${book.id}/workspace/camera`, { x: 800, y: 20, zoom: 1.2 }, "PUT");
@@ -121,7 +124,7 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
     const download = await request(`books/${book.id}/workspace/archive`);
     expect(download.status).toBe(200);
     const archive = new Uint8Array(await download.arrayBuffer());
-    expect(JSON.parse(strFromU8(unzipSync(archive)["workspace.json"])).version).toBe(3);
+    expect(JSON.parse(strFromU8(unzipSync(archive)["workspace.json"])).version).toBe(4);
     const restoredResponse = await request("workspace-archives", archive);
     expect(restoredResponse.status).toBe(201);
     const restored = await restoredResponse.json();
@@ -146,6 +149,12 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
     expect(restoredWorkspace.links[0]).toMatchObject({
       from: restoredWorkspace.cards[0].id, to: restoredWorkspace.cards[1].id, label: "supports",
     });
+    expect(restoredWorkspace.groups).toEqual([{
+      id: expect.any(String), title: "Evidence", color: "#56789a",
+      x: 840, y: 40, width: 1400, height: 320,
+      memberIds: [restoredWorkspace.cards[0].id, restoredWorkspace.cards[1].id], collapsed: true,
+    }]);
+    expect(restoredWorkspace.groups[0].id).not.toBe("archive-group");
     expect(restoredWorkspace.objects).toHaveLength(1);
     expect(restoredWorkspace.objects[0].id).not.toBe("cross-page-ink");
     expect(restoredWorkspace.objects[0].segments).toEqual([
@@ -191,7 +200,7 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
     expect(
       (await (await request(`books/${book.id}/annotations`)).json())[0].id,
     ).toBe(annotation.id);
-    for (const oldVersion of [1, 2]) {
+    for (const oldVersion of [1, 2, 3]) {
       const oldFiles = unzipSync(archive);
       const oldManifest = JSON.parse(strFromU8(oldFiles["workspace.json"]));
       oldManifest.version = oldVersion;
@@ -200,6 +209,14 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
       expect(oldResponse.status).toBe(400);
       expect((await oldResponse.json()).error).toContain("归档版本");
     }
+    const invalidGroupFiles = unzipSync(archive);
+    const invalidGroupManifest = JSON.parse(strFromU8(invalidGroupFiles["workspace.json"]));
+    invalidGroupManifest.workspace.groups[0].memberIds = ["missing-member"];
+    invalidGroupFiles["workspace.json"] = strToU8(JSON.stringify(invalidGroupManifest));
+    const invalidGroupResponse = await request("workspace-archives", zipSync(invalidGroupFiles));
+    expect(invalidGroupResponse.status).toBe(400);
+    expect((await invalidGroupResponse.json()).error).toContain("主题组成员");
+    expect(await (await request("books")).json()).toHaveLength(2);
     const incompleteFiles = unzipSync(archive);
     const incompleteManifest = JSON.parse(strFromU8(incompleteFiles["workspace.json"]));
     delete incompleteManifest.workspace.objects;
@@ -228,12 +245,12 @@ test("workspace package restores PDF, notes, region image, cross-page ink, links
     );
     delete files["../outside.txt"];
     const manifest = JSON.parse(strFromU8(files["workspace.json"]));
-    manifest.version = 4;
+    manifest.version = 5;
     files["workspace.json"] = strToU8(JSON.stringify(manifest));
     const newer = await request("workspace-archives", zipSync(files));
     expect(newer.status).toBe(400);
     expect((await newer.json()).error).toContain("归档版本");
-    manifest.version = 3;
+    manifest.version = 4;
     manifest.fingerprint = "0".repeat(64);
     files["workspace.json"] = strToU8(JSON.stringify(manifest));
     expect((await request("workspace-archives", zipSync(files))).status).toBe(

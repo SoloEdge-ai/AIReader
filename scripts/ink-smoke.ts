@@ -11,6 +11,7 @@ const core = createCore(data, resolve("dist/web"));
 const pdf = await PDFDocument.create();
 pdf.addPage([400, 300]).drawText("First page", { x: 30, y: 240 });
 pdf.addPage([400, 300]).drawText("Second page", { x: 30, y: 240 });
+pdf.addPage([400, 300]).drawText("Scroll continuation", { x: 30, y: 240 });
 const book = await core.library.import(Buffer.from(await pdf.save()), "Ink acceptance.pdf");
 await core.library.waitForBook(book.id);
 await new Promise<void>((done) => core.server.listen(0, "127.0.0.1", done));
@@ -30,7 +31,9 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: /Ink acceptance/ }).click();
   await expect(page.locator("#page-2")).toHaveAttribute("data-render-ready", "true");
-  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  const deskLayoutButton = page.getByRole("button", { name: "切换桌面布局" });
+  if ((await deskLayoutButton.textContent()) === "空间") await deskLayoutButton.click();
+  await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   const first = (await page.locator("#page-1").boundingBox())!;
   const second = (await page.locator("#page-2").boundingBox())!;
   await page.getByRole("button", { name: "画笔（P）" }).click();
@@ -47,7 +50,7 @@ try {
     const snapshot = await (await page.request.get(endpoint)).json();
     throw new Error(`First ink stroke was not saved: ${JSON.stringify({
       revision: snapshot.revision, objects: snapshot.objects.length,
-      workspaceReady: await page.locator(".pdf-scroll").getAttribute("data-workspace-ready"),
+      workspaceReady: await page.locator(".board-pane .pdf-scroll").getAttribute("data-workspace-ready"),
       feedback: await page.locator(".workspace-feedback").allTextContents(),
       commandResponses, pageErrors: errors,
     })}`, { cause });
@@ -67,7 +70,7 @@ try {
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "画笔（P）" }).click();
   await expect(page.getByRole("button", { name: "画笔（P）" })).toHaveAttribute("aria-pressed", "true");
-  const reading = (await page.locator(".reading").boundingBox())!;
+  const reading = (await page.locator(".board-pane .pdf-scroll").boundingBox())!;
   await page.mouse.move(reading.x + 160, reading.y + 250);
   await page.mouse.down();
   await page.mouse.move(reading.x + 220, reading.y + 270, { steps: 8 });
@@ -84,7 +87,7 @@ try {
   await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(2);
   await page.reload();
   await page.getByRole("button", { name: /Ink acceptance/ }).click();
-  await expect(page.locator(".pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
+  await expect(page.locator(".board-pane .pdf-scroll")).toHaveAttribute("data-workspace-ready", "true", { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "指针（V）" })).toHaveAttribute("aria-pressed", "true");
   expect((await (await page.request.get(endpoint)).json()).objects).toHaveLength(2);
   await page.getByRole("button", { name: "画笔（P）" }).click();
@@ -103,28 +106,31 @@ try {
   await page.mouse.up();
   expect((await (await page.request.get(endpoint)).json()).objects).toHaveLength(2);
   await page.getByRole("button", { name: "画笔（P）" }).click();
+  // Bounded document panes pan vertically when the page already fits their width.
+  await page.locator(".pdf-pane .pdf-scroll").evaluate((el) => { el.scrollTop = 80; });
   const beforePan = (await page.locator("#page-1").boundingBox())!;
   await page.mouse.move(beforePan.x + 90, beforePan.y + 170);
   await page.mouse.down({ button: "left" });
   await page.mouse.move(beforePan.x + 110, beforePan.y + 175, { steps: 4 });
   await page.mouse.down({ button: "right" });
-  await page.mouse.move(beforePan.x + 145, beforePan.y + 175, { steps: 3 });
-  await page.mouse.move(beforePan.x + 210, beforePan.y + 175, { steps: 5 });
+  await page.mouse.move(beforePan.x + 145, beforePan.y + 145, { steps: 3 });
+  await page.mouse.move(beforePan.x + 210, beforePan.y + 85, { steps: 5 });
   await page.mouse.up({ button: "right" });
   await page.mouse.up({ button: "left" });
   await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(3);
-  expect((await page.locator("#page-1").boundingBox())!.x - beforePan.x).toBeGreaterThan(45);
+  expect(beforePan.y - (await page.locator("#page-1").boundingBox())!.y).toBeGreaterThan(45);
   await expect(page.getByRole("button", { name: "画笔（P）" })).toHaveAttribute("aria-pressed", "true");
+  await page.locator(".pdf-pane .pdf-scroll").evaluate((el) => { el.scrollTop = 80; });
   const beforeSpace = (await page.locator("#page-1").boundingBox())!;
   await page.mouse.move(beforeSpace.x + 70, beforeSpace.y + 150);
   await page.mouse.down();
   await page.mouse.move(beforeSpace.x + 85, beforeSpace.y + 153, { steps: 3 });
   await page.keyboard.down("Space");
-  await page.mouse.move(beforeSpace.x + 160, beforeSpace.y + 153, { steps: 5 });
+  await page.mouse.move(beforeSpace.x + 160, beforeSpace.y + 73, { steps: 5 });
   await page.keyboard.up("Space");
   await page.mouse.up();
   await expect.poll(async () => (await (await page.request.get(endpoint)).json()).objects.length).toBe(4);
-  expect((await page.locator("#page-1").boundingBox())!.x - beforeSpace.x).toBeGreaterThan(55);
+  expect(beforeSpace.y - (await page.locator("#page-1").boundingBox())!.y).toBeGreaterThan(55);
   async function excerpt(includeInk: boolean) {
     const before = await page.locator(".workspace-card.region").count();
     await page.getByRole("button", { name: "区域摘录（R）" }).click();

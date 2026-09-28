@@ -14,11 +14,13 @@ import {
   type Book,
 } from "../../../packages/protocol/src";
 import { WorkspaceCardSchema, WorkspaceObjectSchema, WorkspaceSchema } from "../../../packages/protocol/src/workspace";
+import { NoteSourceReferencesSchema } from "../../../packages/protocol/src/notes";
 import { Library } from "./library";
 import { richDocument } from "./notes";
 import { Workspaces } from "./workspace";
 import { ChatImages, decodeImage } from "./chat-images";
 import type { WorkspaceAssets } from "./workspace-assets";
+import { validateWorkspaceGroups } from "./workspace-groups";
 
 export const MAX_WORKSPACE_ARCHIVE_BYTES = 384 * 1024 * 1024;
 const id = z
@@ -89,6 +91,7 @@ const note = z
       source: WorkspaceCardSchema.shape.source,
       region: WorkspaceCardSchema.shape.region,
     }).strict().optional(),
+    sourceReferences: NoteSourceReferencesSchema,
     title: z.string().max(200),
     document: z.unknown().transform(richDocument),
     revision: z.number().int().nonnegative(),
@@ -122,8 +125,8 @@ const note = z
   })
   .strict();
 const archiveWorkspace = WorkspaceSchema.safeExtend({
-  formatVersion: z.literal(4),
-  layoutVersion: z.literal(2),
+  formatVersion: z.literal(5),
+  layoutVersion: z.literal(3),
   objects: WorkspaceObjectSchema.array().max(5000),
 });
 const manifestSchema = z
@@ -175,7 +178,8 @@ export class WorkspaceArchives {
     const annotations = allAnnotations.filter(
       (a) =>
         !a.deletedAt ||
-        allNotes.some((n) => !n.deletedAt && n.annotationId === a.id),
+        allNotes.some((n) => !n.deletedAt && (n.annotationId === a.id ||
+          n.sourceReferences.some((reference) => reference.kind === "annotation" && reference.targetId === a.id))),
     );
     const files: Record<string, Uint8Array> = {
       "document.pdf": await readFile(this.library.file(bookId)),
@@ -214,6 +218,16 @@ export class WorkspaceArchives {
         files[`assets/${assetId}.png`] = bytes;
         assets[assetId] = sha(bytes);
       }
+    for (const n of values)
+      for (const reference of n.sourceReferences)
+        if (reference.region && !assets[reference.region.assetId]) {
+          const assetId = id.parse(reference.region.assetId);
+          const bytes = reference.regionAssetKind === "annotation"
+            ? await readFile(join(this.library.directory, "annotations", bookId, assetId + ".png"))
+            : await this.workspaceAssets.read(bookId, assetId);
+          files[`assets/${assetId}.png`] = bytes;
+          assets[assetId] = sha(bytes);
+        }
     const manifest = manifestSchema.parse({
       format: "AIReader-workspace",
       version: formatVersions.archiveVersion,
@@ -340,6 +354,34 @@ export class WorkspaceArchives {
           referencedAssets.add(source.region.assetId);
         }
       }
+      if (new Set(n.sourceReferences.map((reference) => reference.id)).size !== n.sourceReferences.length)
+        throw new Error("笔记来源引用重复");
+      for (const reference of n.sourceReferences) {
+        if (reference.source) {
+          if (reference.source.fingerprint !== data.fingerprint)
+            throw new Error("笔记来源不属于此文档");
+          reference.source.anchors.forEach(validAnchor);
+        }
+        if (reference.region) {
+          if (reference.region.fingerprint !== data.fingerprint || reference.region.page > data.pages ||
+              reference.region.rect[2] <= reference.region.rect[0] ||
+              reference.region.rect[3] <= reference.region.rect[1])
+            throw new Error("笔记图片来源无效");
+          if (reference.regionAssetKind === "annotation" &&
+              !data.annotations.some((annotation) => annotation.id === reference.targetId &&
+                annotation.assetId === reference.region?.assetId))
+            throw new Error("笔记区域标记来源不匹配");
+          referencedAssets.add(reference.region.assetId);
+        }
+      }
+      const referenceIds = new Set(n.sourceReferences.map((reference) => reference.id));
+      const pending = [n.document];
+      while (pending.length) {
+        const node = pending.pop()!;
+        if (node.type === "sourceReference" && !referenceIds.has(String(node.attrs?.referenceId ?? "")))
+          throw new Error("笔记正文引用了不存在的来源");
+        pending.push(...(node.content ?? []));
+      }
       for (const s of n.origin?.sources ?? []) {
         if (
           s.anchor.bookId !== data.bookId ||
@@ -376,6 +418,7 @@ export class WorkspaceArchives {
         throw new Error("书签不属于此文档");
     const cards = new Set(data.workspace.cards.map((card) => card.id));
     const objectIds = new Set(data.workspace.objects.map((object) => object.id));
+    const groupIds = new Set(data.workspace.groups.map((group) => group.id));
     if (
       cards.size !== data.workspace.cards.length ||
       objectIds.size !== data.workspace.objects.length ||
@@ -384,18 +427,19 @@ export class WorkspaceArchives {
         data.workspace.links.length
     )
       throw new Error("卡片或关系标识重复");
+    validateWorkspaceGroups(data.workspace);
     const placedNotes = new Set<string>();
     for (const card of data.workspace.cards) {
       if (card.noteId) {
         const content = data.notes.find((note) => note.id === card.noteId);
-        if (!content || content.deletedAt || placedNotes.has(card.noteId))
+        if (!content || content.deletedAt || card.kind === "note" && placedNotes.has(card.noteId))
           throw new Error("笔记位置引用缺失、已删除或重复的笔记");
         if (card.kind !== "note" && (content.sourceCard?.cardId !== card.id ||
             content.sourceCard.kind !== card.kind || content.sourceCard.text !== card.text ||
             JSON.stringify(content.sourceCard.source) !== JSON.stringify(card.source) ||
             JSON.stringify(content.sourceCard.region) !== JSON.stringify(card.region) || card.comment))
           throw new Error("摘录评论与卡片不匹配");
-        placedNotes.add(card.noteId);
+        if (card.kind === "note") placedNotes.add(card.noteId);
       }
       if (card.source) {
         if (card.source.fingerprint !== data.fingerprint)
@@ -450,14 +494,23 @@ export class WorkspaceArchives {
         throw new Error("工作区 PDF 无法解析或页数不匹配");
       const bookId = book.id;
       const ids = new Map(
-        [...noteIds, ...annotationIds, ...referencedAssets, ...cards,
-          ...data.notes.flatMap((note) => note.sourceCard ? [note.sourceCard.cardId] : []), ...objectIds,
+        [...noteIds, ...annotationIds, ...referencedAssets, ...cards, ...groupIds,
+          ...data.notes.flatMap((note) => [
+            ...(note.sourceCard ? [note.sourceCard.cardId] : []),
+            ...note.sourceReferences.flatMap((reference) => [reference.id, reference.targetId]),
+          ]), ...objectIds,
           ...data.workspace.links.map((link) => link.id)].map((old) => [
           old,
           randomUUID(),
         ]),
       );
       const mapped = (old: string) => ids.get(old)!;
+      const remapReferenceNodes = (node: Note["document"]): Note["document"] => ({
+        ...node,
+        attrs: node.type === "sourceReference" && node.attrs?.referenceId
+          ? { ...node.attrs, referenceId: mapped(String(node.attrs.referenceId)) } : node.attrs,
+        content: node.content?.map(remapReferenceNodes),
+      });
       const restoredNotes: Note[] = data.notes.map((n) => ({
         ...n,
         id: mapped(n.id),
@@ -470,6 +523,13 @@ export class WorkspaceArchives {
           region: n.sourceCard.region ? { ...n.sourceCard.region,
             assetId: mapped(n.sourceCard.region.assetId) } : undefined,
         } : undefined,
+        sourceReferences: n.sourceReferences.map((reference) => ({
+          ...reference,
+          id: mapped(reference.id), targetId: mapped(reference.targetId),
+          region: reference.region ? { ...reference.region,
+            assetId: mapped(reference.region.assetId) } : undefined,
+        })),
+        document: remapReferenceNodes(n.document),
         origin: n.origin
           ? {
               ...n.origin,
@@ -541,6 +601,8 @@ export class WorkspaceArchives {
       const workspaceAssets = new Set([
         ...data.workspace.cards.flatMap((card) => card.region ? [card.region.assetId] : []),
         ...data.notes.flatMap((note) => note.sourceCard?.region ? [note.sourceCard.region.assetId] : []),
+        ...data.notes.flatMap((note) => note.sourceReferences.flatMap((reference) =>
+          reference.region && reference.regionAssetKind !== "annotation" ? [reference.region.assetId] : [])),
       ]);
       for (const assetId of workspaceAssets)
         await writeFile(join(this.library.directory, "workspace-assets", bookId,
@@ -576,6 +638,11 @@ export class WorkspaceArchives {
             region: card.region ? { ...card.region, assetId: mapped(card.region.assetId) } : undefined,
           })),
           objects: data.workspace.objects.map((object) => ({ ...object, id: mapped(object.id) })),
+          groups: data.workspace.groups.map((group) => ({
+            ...group,
+            id: mapped(group.id),
+            memberIds: group.memberIds.map(mapped),
+          })),
           links: data.workspace.links.map((link) => ({
             ...link, id: mapped(link.id), from: mapped(link.from), to: mapped(link.to),
           })),

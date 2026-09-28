@@ -12,7 +12,7 @@ import { RuntimeManager } from "./runtime";
 import { AiService } from "./ai-service";
 import { handleAiRoutes } from "./ai-routes";
 import { Notes } from "./notes";
-import { send } from "./http";
+import { jsonBody, send } from "./http";
 import { handleNoteRoutes } from "./note-routes";
 import { handleBookChatRoutes } from "./chat-routes";
 import { handleBookCollectionRoutes, handleBookReaderRoutes } from "./book-routes";
@@ -25,6 +25,7 @@ import { WorkspaceAssets } from "./workspace-assets";
 import { QuestionMaterials } from "./question-materials";
 import { WorkspaceArchives } from "./workspace-archive";
 import { handleBookWorkspaceRoutes, handleGlobalWorkspaceRoutes } from "./workspace-routes";
+import { BookCommands } from "./book-commands";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export function createCore(
@@ -44,6 +45,7 @@ export function createCore(
   const workspaces = new Workspaces(library);
   const workspaceAssets = new WorkspaceAssets(library, workspaces);
   const notes = new Notes(library, workspaceAssets);
+  const bookCommands = new BookCommands(library);
   const questionMaterials = new QuestionMaterials(library, workspaces, notes, workspaceAssets);
   const workspaceArchives = new WorkspaceArchives(library, workspaceAssets);
   const workspaceRoutes = { workspaces, assets: workspaceAssets, materials: questionMaterials,
@@ -127,6 +129,11 @@ export function createCore(
         }
         if (parts[1] === "health") {
           send(res, { ok: true });
+          return;
+        }
+        if (parts[1] === "v2" && parts[2] === "books" && parts[3] &&
+            parts[4] === "commands" && parts.length === 5 && req.method === "POST") {
+          send(res, bookCommands.execute(parts[3], await jsonBody(req, 8 * 1024 * 1024)));
           return;
         }
         if (await handleGlobalWorkspaceRoutes(req, res, parts, workspaceRoutes)) return;

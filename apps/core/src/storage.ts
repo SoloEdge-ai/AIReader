@@ -20,8 +20,8 @@ export class Storage {
       } finally {
         probe.close();
       }
-      if (version > 5) throw new Error("数据库来自较新版本，请更新 AIReader。");
-      if (version < 5)
+      if (version > 6) throw new Error("数据库来自较新版本，请更新 AIReader。");
+      if (version < 6)
         throw new Error(
           "此预览版不支持旧版数据；请使用独立数据目录。旧数据未修改，重置须另行确认。",
         );
@@ -35,7 +35,7 @@ export class Storage {
         CREATE INDEX IF NOT EXISTS passages_book ON passages(book_id,page);
         CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(id UNINDEXED,book_id UNINDEXED,tokens);
         ${workspaceTables}
-        PRAGMA user_version=5;
+        PRAGMA user_version=6;
         COMMIT;`);
       }
       this.db.exec(

@@ -1,10 +1,12 @@
 import type { Annotation, Note, RichNode } from "../../../../../packages/protocol/src";
+import type { BookChange } from "../../../../../packages/protocol/src/book-commands";
 import { notesClient } from "../../client/notes";
 
 type Draft = Pick<Note, "title" | "document">;
 type Snapshot = {
   notes: Note[];
   annotations: Annotation[];
+  loaded: boolean;
   selected?: string;
   selectedAnnotation?: string;
   status: string;
@@ -26,11 +28,20 @@ export class NoteEditingSession {
   private pending?: Promise<boolean>;
   private undo: (() => Promise<unknown>)[] = [];
   private historyPending?: Promise<void>;
+  private updateAttempts = new Map<string, { commandId: string; sent: Draft; revision: number }>();
+  private deleteAttempts = new Map<string, string>();
   private refreshSequence = 0;
   private committedGeneration = 0;
-  private snapshot: Snapshot = { notes: [], annotations: [], status: "已保存", dirty: false, canUndo: false };
+  private snapshot: Snapshot = {
+    notes: [], annotations: [], loaded: false, status: "已保存", dirty: false, canUndo: false,
+  };
 
-  constructor(readonly bookId?: string) { this.client = bookId ? notesClient(bookId) : undefined; }
+  constructor(readonly bookId?: string,
+    private readonly submitNoteChange?: (change: BookChange, commandId: string) => Promise<Note>,
+    private readonly resolveCommandAttempt?: (commandId: string) => Promise<void> | void,
+    private readonly cancelCommandAttempt?: (commandId: string) => Promise<void> | void) {
+    this.client = bookId ? notesClient(bookId) : undefined;
+  }
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -54,6 +65,7 @@ export class NoteEditingSession {
     const note = await this.client.comment(id);
     await this.refresh();
     this.setSelected(note.id);
+    return note;
   };
   promoteCard = async (id: string) => {
     if (!this.client || !(await this.flush())) return;
@@ -81,7 +93,7 @@ export class NoteEditingSession {
         ...this.records.filter((note) => this.drafts.has(note.id) && !present.has(note.id)),
       ];
       this.annotations = annotations;
-      this.publish();
+      this.publish({ loaded: true });
     } catch (error) {
       this.publish({ status: `加载失败：${String(error)}` });
       throw error;
@@ -104,7 +116,7 @@ export class NoteEditingSession {
   flush = async (): Promise<boolean> => {
     clearTimeout(this.timer);
     if (this.pending) return this.pending;
-    if (!this.client || !this.drafts.size) return true;
+    if ((!this.client && !this.submitNoteChange) || !this.drafts.size) return true;
     this.pending = this.saveDrafts();
     try { return await this.pending; }
     finally { this.pending = undefined; }
@@ -113,12 +125,21 @@ export class NoteEditingSession {
     this.publish({ status: "保存中…" });
     try {
       while (this.drafts.size) {
-        const [id, sent] = this.drafts.entries().next().value!;
+        const [id, current] = this.drafts.entries().next().value!;
         const original = this.records.find((note) => note.id === id);
         if (!original) throw new Error("草稿对应的笔记不存在，请保留内容");
+        const attempt = this.updateAttempts.get(id) ?? {
+          commandId: crypto.randomUUID(), sent: current, revision: original.revision,
+        };
+        if (this.submitNoteChange && !this.updateAttempts.has(id)) this.updateAttempts.set(id, attempt);
+        const sent = this.submitNoteChange ? attempt.sent : current;
         const title = sent.title.trim() || "未命名笔记";
         try {
-          const saved = await this.client!.update(id, { ...sent, title, revision: original.revision });
+          const saved = this.submitNoteChange
+            ? await this.submitNoteChange({ type: "update-note", noteId: id,
+              expectedRevision: attempt.revision, title, document: sent.document }, attempt.commandId)
+            : await this.client!.update(id, { ...sent, title, revision: original.revision });
+          this.updateAttempts.delete(id);
           this.accept(saved, sent);
         } catch (error) {
           // Reconcile the exact request, not the newer draft typed while it was in flight.
@@ -126,6 +147,10 @@ export class NoteEditingSession {
           const saved = latest.find((note) => note.id === id);
           if (!saved || saved.title !== title || canonicalDocument(saved.document) !== canonicalDocument(sent.document))
             throw error;
+          if (this.submitNoteChange) {
+            await this.resolveCommandAttempt?.(attempt.commandId);
+            this.updateAttempts.delete(id);
+          }
           this.accept(saved, sent);
         }
       }
@@ -136,7 +161,13 @@ export class NoteEditingSession {
       return false;
     }
   }
-  retryWithLatest = async () => { await this.refresh(true); return this.flush(); };
+  retryWithLatest = async () => {
+    for (const attempt of this.updateAttempts.values())
+      await this.cancelCommandAttempt?.(attempt.commandId);
+    this.updateAttempts.clear();
+    await this.refresh(true);
+    return this.flush();
+  };
   create = async () => {
     if (!this.client || !(await this.flush())) return;
     const note = await this.client.create();
@@ -151,8 +182,17 @@ export class NoteEditingSession {
   remove = async (note: Note) => {
     if (!this.client || !(await this.flush())) return;
     if (note.bookId !== this.bookId) throw new Error("笔记不属于此编辑会话");
-    await this.client.remove("notes", note.id);
-    this.recordUndo(() => this.client!.restore("notes", note.id));
+    if (this.submitNoteChange) {
+      const key = `${note.id}:${note.revision}`;
+      const commandId = this.deleteAttempts.get(key) ?? crypto.randomUUID();
+      this.deleteAttempts.set(key, commandId);
+      await this.submitNoteChange({ type: "delete-note", noteId: note.id,
+        expectedRevision: note.revision }, commandId);
+      this.deleteAttempts.delete(key);
+    } else {
+      await this.client.remove("notes", note.id);
+      this.recordUndo(() => this.client!.restore("notes", note.id));
+    }
     this.setSelected(undefined);
     await this.refresh();
   };
