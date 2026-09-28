@@ -609,7 +609,7 @@ test("board navigation leaves the document stationary and reading position intac
 });
 
 test("source connectors disappear for distant cards and invisible source text", async ({ page }) => {
-  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent", pdfZoom: 1, splitRatio: .3 });
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent", pdfZoom: 1, splitRatio: .4 });
   const store = new Workspaces(core.library), prior = store.get(bookId);
   store.save(bookId, { ...prior, camera: { x: 0, y: 0, zoom: 1 }, cards: prior.cards.map(card =>
     card.id === 'excerpt-definition' ? { ...card, x: 10, y: 70, placed: true } : card) });
@@ -617,8 +617,8 @@ test("source connectors disappear for distant cards and invisible source text", 
   await page.getByRole('textbox', { name: '页码' }).fill('1');
   await page.getByRole('textbox', { name: '页码' }).press('Enter');
   const card = page.locator('[data-card-id="excerpt-definition"]');
-  await card.locator('blockquote').click();
   const line = page.locator('[data-connection-id="source-excerpt-definition"]');
+  await expect(card).not.toHaveClass(/selected/);
   await expect(line).toHaveCount(1);
   const box = await card.boundingBox();
   await page.mouse.move(box!.x + 80, box!.y + 12); await page.mouse.down();

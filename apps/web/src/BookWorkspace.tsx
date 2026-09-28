@@ -1,4 +1,4 @@
-import { sourceConnectorVisible } from "./features/connections/source-visibility";
+import { nearbySourceRect } from "./features/connections/source-visibility";
 import { nearestContact, paperBridge } from "../../../packages/workspace-engine/src/contact";
 import {
   forwardRef,
@@ -1644,23 +1644,28 @@ export const BookWorkspace = forwardRef<
       }
       const pdfPaneRect = pdfViewport.current?.getBoundingClientRect();
       const worldRect = pdfViewport.current?.querySelector<HTMLElement>(".pdf-world")?.getBoundingClientRect();
-      for (const id of selectedIds) {
-        const card = cards.find((entry) => entry.id === id && (entry.source || entry.region));
-        if (!card) continue;
+      for (const card of cards) {
+        if (!card.source && !card.region) continue;
         const from = cardRect(card);
-        if (!from) continue;
-        const anchor = card.region ? { page: card.region.page, rects: [card.region.rect] } : card.source?.anchors[0];
-        const rect = anchor?.rects[0];
-        const page = pdfPages.current.find((entry) => entry.page === anchor?.page);
-        if (!anchor || !rect || !page) continue;
-        const point = page.toWorld([(rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2]);
-        const projected = worldRect && { x: Math.round(worldRect.left + point[0] * documentZoom),
-          y: Math.round(worldRect.top + point[1] * documentZoom) };
-        const visible = showPdf && projected && pdfPaneRect && projected.x >= pdfPaneRect.left &&
-          projected.x <= pdfPaneRect.right && projected.y >= pdfPaneRect.top &&
-          projected.y <= pdfPaneRect.bottom;
-        if (!visible || !projected || !sourceConnectorVisible(from, projected, hostRect)) continue;
-        connections.push({ id: `source-${id}`, from, to: projected, kind: "source", selected: true });
+        if (!from || !showPdf || !pdfPaneRect || !worldRect) continue;
+        const anchors = card.region ? [{ page: card.region.page, rects: [card.region.rect] }] : card.source?.anchors ?? [];
+        let target: ReturnType<typeof nearbySourceRect>;
+        for (const anchor of anchors) {
+          const page = pdfPages.current.find((entry) => entry.page === anchor.page);
+          if (!page) continue;
+          for (const rect of anchor.rects) {
+            const points = [[rect[0], rect[1]], [rect[0], rect[3]], [rect[2], rect[1]], [rect[2], rect[3]]]
+              .map(([x, y]) => page.toWorld([x, y]));
+            const xs = points.map(([x]) => worldRect.left + x * documentZoom);
+            const ys = points.map(([, y]) => worldRect.top + y * documentZoom);
+            target = nearbySourceRect(from, { left: Math.min(...xs), top: Math.min(...ys),
+              width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) }, pdfPaneRect, hostRect);
+            if (target) break;
+          }
+          if (target) break;
+        }
+        if (target) connections.push({ id: `source-${card.id}`, from, to: target, kind: "source",
+          selected: selectedIds.includes(card.id) });
       }
       const next = { container: hostRect, connections };
       const signature = JSON.stringify(next);

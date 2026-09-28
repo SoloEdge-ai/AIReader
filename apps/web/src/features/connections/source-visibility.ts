@@ -1,13 +1,21 @@
-import type { ConnectionPoint, ConnectionRect } from "./geometry";
+import type { ConnectionRect } from "./geometry";
 
-/** Source hints are local and transient; semantic and AI links use their own policies. */
-export function sourceConnectorVisible(card: ConnectionRect, source: ConnectionPoint,
-  viewport: ConnectionRect, maxDistance = 480): boolean {
-  const right = viewport.left + viewport.width, bottom = viewport.top + viewport.height;
-  if (source.x < viewport.left || source.x > right || source.y < viewport.top || source.y > bottom ||
-      card.left >= right || card.top >= bottom || card.left + card.width <= viewport.left ||
-      card.top + card.height <= viewport.top) return false;
-  const x = Math.max(card.left, Math.min(card.left + card.width, source.x));
-  const y = Math.max(card.top, Math.min(card.top + card.height, source.y));
-  return Math.hypot(source.x - x, source.y - y) <= maxDistance;
+function intersection(a: ConnectionRect, b: ConnectionRect): ConnectionRect | undefined {
+  const left = Math.max(a.left, b.left), top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  return right > left && bottom > top ? { left, top, width: right - left, height: bottom - top } : undefined;
+}
+
+/** Page margins must not make a nearby excerpt look distant. The endpoint remains on the source. */
+export function nearbySourceRect(card: ConnectionRect, source: ConnectionRect,
+  document: ConnectionRect, viewport: ConnectionRect, maxDistance = 480): ConnectionRect | undefined {
+  const page = intersection(document, viewport);
+  if (!page || !intersection(card, viewport)) return;
+  const visibleSource = intersection(source, page);
+  if (!visibleSource) return;
+  const dx = Math.max(0, page.left - card.left - card.width, card.left - page.left - page.width);
+  const dy = Math.max(0, visibleSource.top - card.top - card.height,
+    card.top - visibleSource.top - visibleSource.height);
+  return Math.hypot(dx, dy) <= maxDistance ? visibleSource : undefined;
 }
