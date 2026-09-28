@@ -546,6 +546,8 @@ export function App() {
     setBusy(true);
     setError("");
     try {
+      // A file can be chosen or dropped before the background startup handshake completes.
+      await post("session", {});
       const b = await api<Book>("books", {
         method: "POST",
         headers: {

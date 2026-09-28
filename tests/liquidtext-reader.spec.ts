@@ -650,3 +650,19 @@ test("reading chrome collapses without losing the document and persists per book
   await page.getByRole('button', { name: '展开阅读工具栏' }).click();
   await expect(page.getByRole('button', { name: '新建笔记', exact: true })).toBeVisible();
 });
+
+
+test("immediate PDF import establishes its session before the startup handshake finishes", async ({ page }) => {
+  await page.route('**/api/session', async route => {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await route.continue(); // Delay timing only; the real Core authenticates every request.
+  });
+  const pdf = await PDFDocument.create();
+  pdf.addPage().drawText('Startup session import fixture.');
+  await page.goto(base);
+  await page.locator('input[type=file][accept="application/pdf"]').setInputFiles({
+    name: 'Startup session import.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()),
+  });
+  await expect(page.locator('[data-book-status="ready"]')).toBeVisible();
+  await expect(page.getByText('ApiRequestError: Session required', { exact: true })).toHaveCount(0);
+});
