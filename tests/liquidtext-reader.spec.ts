@@ -7,7 +7,7 @@ import { createCore } from "../apps/core/src/server";
 import { Workspaces } from "../apps/core/src/workspace";
 import { Preferences } from "../apps/core/src/preferences";
 
-const base = "http://127.0.0.1:5173/";
+const base = process.env.AIREADER_TEST_URL ?? "http://127.0.0.1:5173/";
 let directory: string;
 let core: ReturnType<typeof createCore>;
 let bookId: string;
@@ -539,7 +539,7 @@ test("real PDF selection drags directly and contact grouping commits on release"
 });
 
 
-test("Escape cancels document and note gestures; return to document restores a distant desk", async ({ page }) => {
+test("Escape cancels document and note gestures; board pan leaves the document in place", async ({ page }) => {
   new Preferences(core.library).saveForBook(bookId, { deskLayout: "spatial" });
   await page.setViewportSize({ width: 1600, height: 1000 }); await openBook(page);
   const pdf = page.locator('.pdf-pane'), handle = page.getByLabel('移动文档', { exact: true });
@@ -549,7 +549,7 @@ test("Escape cancels document and note gestures; return to document restores a d
   await page.keyboard.press('Escape'); await page.mouse.up();
   expect((await pdf.boundingBox())!.x).toBeCloseTo(original!.x, 0);
   await page.locator('.board-pane .pdf-scroll').evaluate((el) => el.scrollTo(1400, 900));
-  await expect.poll(async () => (await pdf.boundingBox())!.x).toBeLessThan(0);
+  await expect.poll(async () => (await pdf.boundingBox())!.x).toBeCloseTo(original!.x, 0);
   await page.getByRole('button', { name: '回到文档', exact: true }).click();
   await expect.poll(async () => (await pdf.boundingBox())!.x).toBeGreaterThanOrEqual(0);
   await page.getByRole('button', { name: '新建笔记', exact: true }).click();
@@ -581,4 +581,72 @@ test("native excerpt drag crosses the narrow workspace tab", async ({ page }) =>
   const board = await page.locator('.board-normal-view').boundingBox();
   await page.mouse.move(board!.x + 120, board!.y + 300, { steps: 10 }); await page.mouse.up();
   await expect.poll(() => new Workspaces(core.library).get(bookId).cards.some((card) => card.text === source.text)).toBe(true);
+});
+
+
+test("board navigation leaves the document stationary and reading position intact", async ({ page }) => {
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "spatial", pdfZoom: 1,
+    documentRect: { x: 40, y: 64, width: 620, height: 720 } });
+  await page.setViewportSize({ width: 1600, height: 1000 }); await openBook(page);
+  const pdf = page.locator('.pdf-pane'), scroll = pdf.locator('.pdf-scroll');
+  const before = await pdf.boundingBox(), reading = await scroll.evaluate(el => el.scrollTop);
+  const board = page.locator('.board-pane .pdf-scroll');
+  const boardBounds = await board.boundingBox();
+  await page.mouse.move(boardBounds!.x + boardBounds!.width - 50, boardBounds!.y + 300);
+  await page.mouse.wheel(0, 180);
+  await expect.poll(() => board.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+  expect((await pdf.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+  await board.evaluate(el => el.scrollTo(500, 350));
+  await expect.poll(() => board.evaluate(el => el.scrollTop)).toBe(350);
+  await expect.poll(async () => (await pdf.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+  expect((await pdf.boundingBox())!.x).toBeCloseTo(before!.x, 0);
+  expect(await scroll.evaluate(el => el.scrollTop)).toBe(reading);
+  await page.getByRole('button', { name: '放大工作台', exact: true }).click();
+  expect((await pdf.boundingBox())!.width).toBeCloseTo(before!.width, 0);
+  expect(await scroll.evaluate(el => el.scrollTop)).toBe(reading);
+  await page.getByRole('button', { name: '放大原文', exact: true }).click();
+  await expect(page.getByLabel('原文缩放', { exact: true })).toHaveText('110%');
+});
+
+test("source connectors disappear for distant cards and invisible source text", async ({ page }) => {
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "adjacent", pdfZoom: 1, splitRatio: .3 });
+  const store = new Workspaces(core.library), prior = store.get(bookId);
+  store.save(bookId, { ...prior, camera: { x: 0, y: 0, zoom: 1 }, cards: prior.cards.map(card =>
+    card.id === 'excerpt-definition' ? { ...card, x: 10, y: 70, placed: true } : card) });
+  await page.setViewportSize({ width: 2400, height: 1000 }); await openBook(page);
+  await page.getByRole('textbox', { name: '页码' }).fill('1');
+  await page.getByRole('textbox', { name: '页码' }).press('Enter');
+  const card = page.locator('[data-card-id="excerpt-definition"]');
+  await card.locator('blockquote').click();
+  const line = page.locator('[data-connection-id="source-excerpt-definition"]');
+  await expect(line).toHaveCount(1);
+  const box = await card.boundingBox();
+  await page.mouse.move(box!.x + 80, box!.y + 12); await page.mouse.down();
+  await page.mouse.move(box!.x + 880, box!.y + 12, { steps: 12 }); await page.mouse.up();
+  await expect(line).toHaveCount(0);
+  await page.keyboard.press('Control+z');
+  await card.locator('blockquote').click();
+  await expect(line).toHaveCount(1);
+  await page.locator('.pdf-pane .pdf-scroll').evaluate(el => el.scrollTo(0, 600));
+  await expect(line).toHaveCount(0);
+});
+
+
+test("reading chrome collapses without losing the document and persists per book", async ({ page }) => {
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "spatial", chromeCollapsed: false });
+  await page.setViewportSize({ width: 1600, height: 1000 }); await openBook(page);
+  const scroll = page.locator('.pdf-pane .pdf-scroll');
+  const before = await scroll.evaluate(el => el.scrollTop);
+  await page.getByRole('button', { name: '折叠阅读工具栏' }).click();
+  await expect(page.locator('.reader > .toolbar')).toBeHidden();
+  await expect(page.locator('.board-pane > .reader-pane-header')).toBeHidden();
+  await expect(page.locator('.pdf-pane .reader-pane-actions')).toBeHidden();
+  await expect(page.locator('.pdf-pane')).toBeVisible();
+  await page.screenshot({ path: '.local/desk-collapsed.png' });
+  expect(await scroll.evaluate(el => el.scrollTop)).toBe(before);
+  await expect.poll(() => new Preferences(core.library).forBook(bookId).chromeCollapsed).toBe(true);
+  await page.reload(); await page.locator('.book-card').filter({ hasText: 'LiquidText alignment fixture' }).click();
+  await expect(page.getByRole('button', { name: '展开阅读工具栏' })).toBeVisible();
+  await page.getByRole('button', { name: '展开阅读工具栏' }).click();
+  await expect(page.getByRole('button', { name: '新建笔记', exact: true })).toBeVisible();
 });

@@ -3,8 +3,9 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 export type DocumentRect = { x: number; y: number; width: number; height: number };
 export const initialDocumentRect: DocumentRect = { x: 40, y: 64, width: 620, height: 720 };
 
-/** Geometry is in desk units. Pointer motion is temporary; only release saves preferences. */
-export function useDocumentObject(saved: DocumentRect | undefined, zoom: number,
+/** Document geometry is relative to the reading surface, independent of the board camera.
+ * Pointer motion is temporary; only release saves preferences. */
+export function useDocumentObject(saved: DocumentRect | undefined,
   onCommit: (rect: DocumentRect) => void) {
   const rect = saved ?? initialDocumentRect;
   const [draft, setDraft] = useState<DocumentRect>();
@@ -28,7 +29,7 @@ export function useDocumentObject(saved: DocumentRect | undefined, zoom: number,
   function project(event: PointerEvent<HTMLElement>) {
     const active = pointer.current;
     if (!active || active.id !== event.pointerId) return;
-    const dx = (event.clientX - active.x) / zoom, dy = (event.clientY - active.y) / zoom;
+    const dx = event.clientX - active.x, dy = event.clientY - active.y;
     return active.resize ? { ...active.rect, width: Math.max(360, Math.min(1600, active.rect.width + dx)),
       height: Math.max(320, Math.min(2000, active.rect.height + dy)) } : { ...active.rect,
       x: Math.max(0, Math.min(10000, active.rect.x + dx)), y: Math.max(0, Math.min(10000, active.rect.y + dy)) };

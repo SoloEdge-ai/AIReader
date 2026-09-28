@@ -29,6 +29,7 @@ export const ReaderPreferencesSchema = z.object({
   noteWindow: ChatWindowRectSchema.optional(),
   deskLayout: z.enum(["spatial", "adjacent"]).default("spatial"),
   documentRect: ChatWindowRectSchema.optional(),
+  chromeCollapsed: z.boolean().default(false),
   splitRatio: z.number().finite().min(0.3).max(0.7).default(0.5),
   readerPaneMode: z.enum(["split", "pdf", "board"]).default("split"),
   pdfZoom: z.number().finite().min(0.4).max(3).default(1.1),

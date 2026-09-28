@@ -51,3 +51,5 @@ Note.document 使用 Core 校验后的 Tiptap JSON。允许基础段落／标题
 归档只支持 v4；v1、v2、v3 和未知较新版本在导入前明确拒绝。保留大小、路径、hash、图片及跨书验证；恢复独立副本并重映射引用。账号、执行文件和完整聊天不入包。旧版 `.aireader` 包需用生成它的旧版应用处理，本分支不提供转换。
 
 阅读偏好增加 `deskLayout: spatial | adjacent`（默认 spatial）、`documentRect` 和 `noteWindow`。文档矩形位于桌面单位，浮窗矩形位于窗口像素；两者均不增加内容版本。`WorkspaceGroup.presentation` 可为 frame 或 cluster，缺省按 frame 显示；软连接从 cluster 成员与位置派生，不另存永久关系。此处为当前格式内的可选字段扩展，格式版本仍为 DB v6／工作区 v5／布局 v3／归档 v4。
+
+阅读偏好增加 `chromeCollapsed`（默认 false），按书存储，不属于内容撤销。`documentRect` 使用阅读表面的屏幕单位，与工作区相机独立。

@@ -712,11 +712,16 @@ export function App() {
         </main>
       ) : (
         <div
-          className="reader"
+          className={`reader${layout.chromeCollapsed ? " reader-chrome-collapsed" : ""}`}
           ref={setReaderHost}
           data-book-status={book.status}
           inert={navigating}
         >
+          <button className="reader-chrome-toggle" aria-label={layout.chromeCollapsed ? "展开阅读工具栏" : "折叠阅读工具栏"}
+            aria-expanded={!layout.chromeCollapsed}
+            onClick={() => updateLayout({ ...layout, chromeCollapsed: !layout.chromeCollapsed })}>
+            {layout.chromeCollapsed ? "⌄" : "⌃"}
+          </button>
           <header className="toolbar">
             <button
               aria-label="返回书库"

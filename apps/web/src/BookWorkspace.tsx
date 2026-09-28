@@ -1,3 +1,4 @@
+import { sourceConnectorVisible } from "./features/connections/source-visibility";
 import { nearestContact, paperBridge } from "../../../packages/workspace-engine/src/contact";
 import {
   forwardRef,
@@ -151,8 +152,8 @@ export const BookWorkspace = forwardRef<
   const [documentWidth, setDocumentWidth] = useState(0);
   const [narrow, setNarrow] = useState(false);
   const spatial = props.deskLayout === "spatial" && !narrow && props.readerPaneMode === "split";
-  const documentObject = useDocumentObject(props.documentRect, props.zoom, props.onDocumentRect);
-  const documentZoom = props.pdfZoom * (spatial ? props.zoom : 1);
+  const documentObject = useDocumentObject(props.documentRect, props.onDocumentRect);
+  const documentZoom = props.pdfZoom;
   const [narrowPane, setNarrowPane] = useState<"pdf" | "board">("pdf");
   const [splitDraft, setSplitDraft] = useState(props.splitRatio);
   const splitRoot = useRef<HTMLDivElement>(null);
@@ -267,12 +268,10 @@ export const BookWorkspace = forwardRef<
   }
   function revealDocument() {
     if (props.deskLayout !== "spatial" || narrow) return;
-    const el = viewport.current;
+    const host = splitRoot.current;
     const rect = documentObject.rect;
-    if (el && (rect.x * props.zoom < el.scrollLeft || rect.y * props.zoom < el.scrollTop ||
-      (rect.x + rect.width) * props.zoom > el.scrollLeft + el.clientWidth ||
-      (rect.y + rect.height) * props.zoom > el.scrollTop + el.clientHeight))
-      navigate(rect.x - 24, rect.y - 24);
+    if (host && (rect.x >= host.clientWidth - 48 || rect.y >= host.clientHeight - 48))
+      props.onDocumentRect({ ...rect, x: 24, y: 48 });
   }
   function locateDocument() {
     revealDocument();
@@ -290,7 +289,7 @@ export const BookWorkspace = forwardRef<
     const el = viewport.current;
     if (!el) return;
     const cards = state.value?.cards.filter((card) => card.placed !== false) ?? [];
-    const bounds = [...cards, ...(state.value?.groups ?? []), ...(spatial ? [documentObject.rect] : [])];
+    const bounds = [...cards, ...(state.value?.groups ?? [])];
     if (!bounds.length) return;
     const left = Math.min(...bounds.map((item) => item.x)) - 40;
     const top = Math.min(...bounds.map((item) => item.y)) - 40;
@@ -360,7 +359,7 @@ export const BookWorkspace = forwardRef<
       text: selection.text,
       comment: "",
       x: point ? Math.max(0, point[0]) : selectedGroup ? (state.value.groups.find((group) => group.id === selectedGroup)?.x ?? 16) + 24 :
-        Math.max(spatial ? documentObject.rect.x + documentObject.rect.width + 36 : 40, (el?.scrollLeft ?? 0) / props.zoom + 60),
+        Math.max(spatial ? (documentObject.rect.x + documentObject.rect.width + 36) / props.zoom + (state.value?.camera?.x ?? 0) : 40, (el?.scrollLeft ?? 0) / props.zoom + 60),
       y: point ? Math.max(0, point[1]) : selectedGroup ? (state.value.groups.find((group) => group.id === selectedGroup)?.y ?? 6) + 54 :
         Math.max(40, (el?.scrollTop ?? 0) / props.zoom + 60),
       width: 320,
@@ -407,7 +406,7 @@ export const BookWorkspace = forwardRef<
       let card: WorkspaceCard = { id: pendingCreateNote.current?.changes[0]?.type === "create-note"
           ? pendingCreateNote.current.changes[0].placement.id : crypto.randomUUID(), kind: "note", noteId: existing?.id,
         title: "", text: "", comment: "", x: point ? Math.max(0, point[0] + 20) : group ? group.x + 24 :
-          Math.max(spatial ? documentObject.rect.x + documentObject.rect.width + 36 : 40, (viewport.current?.scrollLeft ?? 0) / props.zoom + 60),
+          Math.max(spatial ? (documentObject.rect.x + documentObject.rect.width + 36) / props.zoom + (state.value?.camera?.x ?? 0) : 40, (viewport.current?.scrollLeft ?? 0) / props.zoom + 60),
         y: point ? Math.max(0, point[1]) : group ? group.y + 54 :
           Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60),
         width: 340, height: 220 };
@@ -1643,8 +1642,7 @@ export const BookWorkspace = forwardRef<
             kind: "ai-preview", selected: true, convergeKey: "question-materials" });
         }
       }
-      const pdfPane = host.querySelector<HTMLElement>(".pdf-pane");
-      const pdfPaneRect = pdfPane?.getBoundingClientRect();
+      const pdfPaneRect = pdfViewport.current?.getBoundingClientRect();
       const worldRect = pdfViewport.current?.querySelector<HTMLElement>(".pdf-world")?.getBoundingClientRect();
       for (const id of selectedIds) {
         const card = cards.find((entry) => entry.id === id && (entry.source || entry.region));
@@ -1659,15 +1657,10 @@ export const BookWorkspace = forwardRef<
         const projected = worldRect && { x: Math.round(worldRect.left + point[0] * documentZoom),
           y: Math.round(worldRect.top + point[1] * documentZoom) };
         const visible = showPdf && projected && pdfPaneRect && projected.x >= pdfPaneRect.left &&
-          projected.x <= pdfPaneRect.right && projected.y >= pdfPaneRect.top + 44 &&
+          projected.x <= pdfPaneRect.right && projected.y >= pdfPaneRect.top &&
           projected.y <= pdfPaneRect.bottom;
-        const to = visible ? projected! : {
-          x: Math.round(showPdf && pdfPaneRect?.width ? pdfPaneRect.right - 12 : hostRect.left + 12),
-          y: Math.round(Math.max(hostRect.top + 68, Math.min(hostRect.top + hostRect.height - 18,
-            projected?.y ?? from.top + from.height / 2))),
-        };
-        connections.push({ id: `source-${id}`, from, to, kind: "source", selected: true,
-          label: visible ? undefined : `第 ${props.book.labels[anchor.page - 1] ?? anchor.page} 页` });
+        if (!visible || !projected || !sourceConnectorVisible(from, projected, hostRect)) continue;
+        connections.push({ id: `source-${id}`, from, to: projected, kind: "source", selected: true });
       }
       const next = { container: hostRect, connections };
       const signature = JSON.stringify(next);
@@ -1705,9 +1698,8 @@ export const BookWorkspace = forwardRef<
             onClick={() => { setNarrowPane("board"); props.onReaderPaneMode("split"); }}>工作台</button>
         </div>}
         <section className="reader-pane pdf-pane" aria-label="原文" hidden={!showPdf}
-          style={spatial ? { left: (documentObject.rect.x - (state.value?.camera?.x ?? 0)) * props.zoom,
-            top: (documentObject.rect.y - (state.value?.camera?.y ?? 0)) * props.zoom,
-            width: documentObject.rect.width * props.zoom, height: documentObject.rect.height * props.zoom } : undefined}>
+          style={spatial ? { left: documentObject.rect.x, top: documentObject.rect.y,
+            width: documentObject.rect.width, height: documentObject.rect.height } : undefined}>
           <header className="reader-pane-header" {...(spatial ? documentObject.move : {})}
             tabIndex={spatial ? 0 : undefined} aria-label={spatial ? "移动文档" : undefined}
             onKeyDown={(event) => {
@@ -1729,7 +1721,7 @@ export const BookWorkspace = forwardRef<
             </div>
           </header>
           <div className="pdf-normal-view" hidden={!!focusAnchors}>
-          <PdfReader {...props} zoomLimits={{ min: .4 * (spatial ? props.zoom : 1), max: 3 * (spatial ? props.zoom : 1) }} zoom={documentZoom} onZoom={(zoom) => props.onPdfZoom(Math.max(.4, Math.min(3, zoom / (spatial ? props.zoom : 1))))} onRegionAction={regionAction}
+          <PdfReader {...props} zoomLimits={{ min: .4, max: 3 }} zoom={documentZoom} onZoom={(zoom) => props.onPdfZoom(Math.max(.4, Math.min(3, zoom)))} onRegionAction={regionAction}
             workspace={{
               mode: "document", ready: !!state.value, onDocumentWidth: setDocumentWidth,
               onCamera: () => {}, width: WORKSPACE_DOCUMENT_X * 2 + documentWidth,
@@ -1881,8 +1873,8 @@ export const BookWorkspace = forwardRef<
                   state.value.camera?.zoom !== camera.zoom))
                   state.change((current) => ({ ...current, camera }), false);
               },
-              width: Math.max(2400, spatial ? documentObject.rect.x + documentObject.rect.width + 200 : 0, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.x + card.width + 200) ?? [])),
-              height: Math.max(1800, spatial ? documentObject.rect.y + documentObject.rect.height + 200 : 0, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.y + card.height + 200) ?? [])),
+              width: Math.max(2400, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.x + card.width + 200) ?? [])),
+              height: Math.max(1800, ...(state.value?.cards.filter((card) => card.placed !== false).map((card) => card.y + card.height + 200) ?? [])),
               render: overlay,
               onInkStart: (point) => { beginSurface("board"); return startInk(point); },
               onInkMove: moveInk, onInkEnd: finishInk, onInkCancel: cancelInk,

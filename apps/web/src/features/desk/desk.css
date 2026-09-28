@@ -49,3 +49,16 @@
 .desk-surface .workspace-card.selected { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
 
 .desk-surface .workspace-card:focus-within .workspace-card-actions { visibility: visible; }
+
+/* One persisted switch hides chrome without unmounting either reading surface. */
+.reader { position: relative; }
+.reader-chrome-toggle { position: absolute; z-index: 60; top: 8px; right: 8px;
+  width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--muted); cursor: pointer; }
+.reader > .toolbar { padding-right: 52px; }
+.reader-chrome-collapsed > .toolbar,
+.reader-chrome-collapsed .board-pane > .reader-pane-header { display: none; }
+.reader-chrome-collapsed .pdf-pane > .reader-pane-header { height: 24px; flex-basis: 24px; }
+.reader-chrome-collapsed .pdf-pane > .reader-pane-header > * { display: none; }
+.reader-chrome-collapsed .pdf-pane > .reader-pane-header::after { content: "";
+  width: 32px; height: 4px; border-radius: 4px; background: var(--line); margin: auto; }
