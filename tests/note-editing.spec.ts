@@ -160,6 +160,8 @@ test("leaving material navigation keeps an unsaved note draft visible", async ({
 });
 
 test("chat receives book-scoped events, recovers a missed final event and stops polling completed turns", async ({ page }) => {
+  // Sequential polling, offline recovery and Core restart each retain their own deadline.
+  test.setTimeout(60_000);
   let turnReads = 0;
   page.on("request", (request) => {
     if (request.method() === "GET" && /\/books\/[^/]+\/turns\?session=/.test(request.url())) turnReads++;
