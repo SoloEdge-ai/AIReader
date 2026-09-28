@@ -20,3 +20,7 @@
 ## 后续：靠近时自动显线
 
 用户截图揭示前版的选中限制及按文字中心算距离不符合“靠近文档”的观感。真实 Core 浏览器回归先确认未选中的近邻卡片没有线；修改后无需选中即可显线，移远和原文滚出仍收起。宽页面距离不再包含页内留白；实际连线端点仍落在可见原文矩形。多页摘录选择首个可见的对应区域，旋转使用四角投影。新的几何回归采用与截图相同的页面、卡片及来源尺寸，未使用用户 PDF。
+
+此后续修复的 typecheck、7 项连线几何、完整 16 项阅读浏览器回归、bundled Core smoke 均通过。Windows unpacked 和 Portable 分别实际启动，导入生成 PDF、保存笔记、切换主题及正常退出通过。
+
+后续构建源码：61f59148fab6811ebe7159eb95b0eee534145ced（干净工作树，development）；产物 release/source-hints/AIReader-Portable-0.1.0-x64.exe；SHA-256：934E43A16393222A5D844DE1D7F63DC3A4528A2F30BFF2104F576561F0C393AC。完整 Windows CI 仍以最新 Actions 为准。
