@@ -75,6 +75,13 @@ try {
     ? await app.firstWindow()
     : (browser.contexts()[0].pages()[0] ??
       (await browser.contexts()[0].waitForEvent("page")));
+  const smokeViewport = process.env.AIREADER_SMOKE_VIEWPORT ?? "1024x768";
+  {
+    const [width, height] = smokeViewport.split("x").map(Number);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 640 || height < 480)
+      throw new Error("Invalid AIREADER_SMOKE_VIEWPORT; expected WIDTHxHEIGHT");
+    await page.setViewportSize({ width, height });
+  }
   await page
     .getByRole("heading", { name: "书库", exact: true })
     .waitFor({ timeout: 15000 });
@@ -131,6 +138,13 @@ try {
     ).toHaveText("已保存", { timeout: 20_000 });
   }
   await page.screenshot({ path: ".local/screenshots/desktop.png" });
+  // Complete note editing before clicking controls in a potentially overlapping window.
+  // Use the real close/save barrier; never force clicks through a foreground window.
+  const closeNote = page.getByRole("button", { name: "关闭笔记浮窗" });
+  if (await closeNote.isVisible()) {
+    await closeNote.click();
+    await expect(page.getByRole("complementary", { name: "笔记浮窗", exact: true })).toBeHidden();
+  }
   const collapseSidebar = page.getByRole("button", { name: "关闭问答浮窗" });
   for (let attempt = 0; attempt < 3 && !(await collapseSidebar.isVisible()); attempt++) {
     await page.getByRole("button", { name: "问答", exact: true }).click();
