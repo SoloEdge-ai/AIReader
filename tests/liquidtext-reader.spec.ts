@@ -162,6 +162,7 @@ test("cards compare, focus the original PDF, and organize into a group", async (
   await expect(document.locator(".pdf-page").first()).toBeVisible();
   await preview.getByRole("button", { name: "聚焦原文" }).click();
   await expect(document.getByLabel("原文聚焦")).toBeVisible();
+  await page.screenshot({ path: "test-results/compact-focus-reading.png" });
   await document.getByRole("button", { name: "返回阅读" }).click();
   await expect(document.locator(".pdf-page").first()).toBeVisible();
 
@@ -171,6 +172,7 @@ test("cards compare, focus the original PDF, and organize into a group", async (
   await board.getByRole("menuitem", { name: "并排比较" }).click();
   await expect(board.getByLabel("并排比较")).toContainText("A graph is a set of vertices and edges.");
   await expect(board.getByLabel("并排比较")).toContainText("Shortest paths obey optimal substructure.");
+  await page.screenshot({ path: "test-results/compact-compare-reading.png" });
   await board.getByRole("button", { name: "关闭比较并返回工作台" }).click();
   await expect(first).toBeVisible();
   await expect(second).toBeVisible();

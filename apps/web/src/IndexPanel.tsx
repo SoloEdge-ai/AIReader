@@ -36,7 +36,6 @@ export function IndexPanel({ book, page }: { book: Book; page: number }) {
       <summary>
         语义索引 · {state.nodes.length} / {book.chapters.length} 节
       </summary>
-      <p>按需处理当前章节。索引摘要用于导航，回答仍回查原文。</p>
       <button disabled={book.status !== "ready"} onClick={() => run(false)}>
         索引当前章节
       </button>

@@ -215,9 +215,6 @@ export function AccountControls() {
         </>
       ) : (
         <>
-          <p>
-            AIReader 单独保存登录状态，不会使用或更改其他 Codex 客户端的账号。
-          </p>
           <button className="primary" onClick={() => void ai.operate("login")}>
             登录 ChatGPT
           </button>

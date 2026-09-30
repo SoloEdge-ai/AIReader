@@ -712,9 +712,6 @@ progress::-webkit-progress-value {
 }
 .floating-chat .composer-scope,
 .floating-chat .composer-actions { flex-shrink: 0; }
-@container (max-height: 380px) {
-  .floating-chat .composer-hint { display: none; }
-}
 .chat {
   display: flex;
   flex: 1;
@@ -772,15 +769,6 @@ progress::-webkit-progress-value {
 }
 .chat-welcome {
   padding: 16px 0; color: var(--muted); font-size: 13px; line-height: 1.7;
-}
-.chat-welcome h3 {
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 500;
-  margin-bottom: 8px;
-}
-.chat-welcome p {
-  margin-bottom: 12px;
 }
 .chat-welcome button {
   display: flex;
@@ -1119,10 +1107,6 @@ progress::-webkit-progress-value {
   overflow: auto;
   line-height: 1.8;
 }
-.reasoning-caption {
-  margin: 6px 0 0 14px;
-  font-size: 10px;
-}
 .retrieval-details {
   color: var(--muted);
   font-size: 11px;
@@ -1270,13 +1254,6 @@ progress::-webkit-progress-value {
 }
 .composer-send:disabled {
   opacity: 0.22;
-}
-.composer-hint {
-  flex-shrink: 0;
-  text-align: center;
-  color: var(--muted);
-  font-size: 11px;
-  padding: 7px 12px 9px;
 }
 .chat blockquote {
   font-size: 12px;

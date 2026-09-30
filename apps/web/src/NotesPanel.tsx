@@ -275,10 +275,7 @@ export function NotesPanel({
         <div className="note-detail" data-note-id={selected.id}>
           {selected.origin && (
             <div className="note-origin">
-              <p className="note-origin-label">AI 生成 · 可编辑的回答笔记</p>
-              <p>
-                下方正文可以修改；出处保留保存时的原文，不代表你的修改已获核验。
-              </p>
+              <p className="note-origin-label">AI 回答笔记</p>
               <details>
                 <summary>
                   原问题与出处 · {selected.origin.sources.length} 处原文
@@ -293,11 +290,11 @@ export function NotesPanel({
                   </div>
                 ))}
                 {!selected.origin.sources.length && (
-                  <p>此回答没有已校验的书中出处，请自行核对。</p>
+                  <p>暂无已核验出处</p>
                 )}
                 {!!questionImages.length && (
                   <>
-                    <p>原问题附图 · 用户提供的材料，不是已校验的书中引文</p>
+                    <p>原问题附图</p>
                     <ChatImageList
                       images={questionImages.map((image) => ({
                         ...image,
@@ -307,7 +304,7 @@ export function NotesPanel({
                   </>
                 )}
                 {!!selected.origin.materials?.length && <div className="note-origin-materials">
-                  <p>本轮选定材料 · 加入时的冻结内容；个人笔记和标注不是作者原文</p>
+                  <p>本轮材料快照</p>
                   {selected.origin.materials.map((material, index) => <div key={index}>
                     <strong>{material.title}</strong>
                     {material.sections.map((section, sectionIndex) => <p key={sectionIndex}>
@@ -359,7 +356,6 @@ export function NotesPanel({
             </div>
           )}
           {selected.sourceCard && <div className="note-source">
-            <p>摘录来源 · 下方评论是个人内容，不是书中原文</p>
             <button onClick={() => jumpPdf(selected.sourceCard!.region
               ? [{ page: selected.sourceCard!.region.page, rects: [selected.sourceCard!.region.rect] }]
               : selected.sourceCard!.source!.anchors)}>

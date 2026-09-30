@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { PdfAnchor } from "../../../../../packages/protocol/src/anchors";
+import { Icon } from "../../ui/Icon";
 import { buildFocusPlan, DEFAULT_FOCUS_CONTEXT, FOCUS_BATCH_SIZE,
   type FocusRegion, type PdfPageBox } from "./focus-model";
 import "./compare-focus.css";
@@ -23,9 +24,9 @@ export function FocusReadingView({ anchors, pageBoxes, pageLabels, renderPdfRegi
     [anchors, pageBoxes, extraContext, fullPages, visibleLimit]);
   const pageLabel = (page: number) => pageLabels?.[page - 1] ?? String(page);
   return <section className="focus-reading-view" aria-label="原文聚焦">
-    <header className="focus-reading-header"><div><span className="comparison-view-eyebrow">阅读 / 原文聚焦</span>
-      <h2>原文聚焦</h2><p>保留原始 PDF 页面与坐标；省略处可回到完整原文。</p></div>
-      <button type="button" onClick={onClose}>返回阅读</button></header>
+    <header className="focus-reading-header">
+      <button type="button" onClick={onClose}><Icon name="back" />返回阅读</button>
+    </header>
     <div className="focus-reading-regions">
       {plan.entries.length === 0 && <p className="comparison-view-empty">没有可显示的原文来源。</p>}
       {plan.entries.map((entry) => entry.kind === "omission"

@@ -3,6 +3,7 @@ import type { Note, PdfAnchor, SourceAnchor } from "../../../../../packages/prot
 import type { BookNotes } from "./useBookNotes";
 import { NoteEditor, type NoteEditorHandle } from "./NoteEditor";
 import { Icon } from "../../ui/Icon";
+import { MaterialKind } from "../../ui/MaterialKind";
 import { base } from "../../api";
 import "./notes.css";
 import { FloatingWindow } from "../../ui/floating-window/FloatingWindow";
@@ -147,16 +148,10 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
         disabled={closing} onClick={() => void close()}>
         <Icon name="close" />
       </button>
-      <div>
-        <span className="expanded-note-eyebrow">{note.origin ? "AI 回答笔记" : "个人笔记"}</span>
-        <strong>编辑理解</strong>
-      </div>
+      <strong>笔记</strong>
     </header>}
     <div className="expanded-note-scroll">
       <article className="expanded-note-content">
-        {note.origin && <p className="expanded-note-origin-note">
-          AI 生成内容可以修改；下方来源保持只读，修改正文不会改变原文证据。
-        </p>}
         <NoteEditor key={note.id} ref={editor} note={note} state={state}
           onOpenSource={(referenceId) => {
             const source = sources.find((item) => item.referenceId === referenceId);
@@ -165,7 +160,6 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
         {sources.length > 0 && <details className="expanded-note-sources">
           <summary>
             <span>来源 · {sources.length} 处</span>
-            <small>只读，可随时回到原文</small>
           </summary>
           <div className="expanded-note-source-list">
             {sources.map((source) => <section key={source.key} className="expanded-note-source">
@@ -202,7 +196,7 @@ export function ExpandedNote({ note, state, onClose, onJump, onJumpPdf, onRemove
     </div>
     <footer className="expanded-note-footer">
       <span role="status" data-status={statusKind}>{state.status}</span>
-      <small>{sources.length ? `已关联 ${sources.length} 处只读来源` : "个人笔记 · 无原文来源"}</small>
+      <MaterialKind kind={note.origin ? "ai" : "personal"} />
       {state.status.startsWith("保存失败") &&
         <button type="button" onClick={() => void state.flush()}>重试保存</button>}
     </footer>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PdfAnchor } from "../../../../../packages/protocol/src/anchors";
 import type { WorkspaceCard } from "../../../../../packages/protocol/src/workspace";
 import type { ComparisonNoteLink } from "./comparison-notes";
+import { Icon } from "../../ui/Icon";
 import "./compare-focus.css";
 
 export type ComparisonItem = WorkspaceCard & { kind: "excerpt" | "region" };
@@ -50,9 +51,7 @@ export function CompareView({ cards, pageLabels, imageUrl, notesForCard, onOpenN
   const pageLabel = (page: number) => pageLabels?.[page - 1] ?? String(page);
   return <section className="comparison-view" aria-label="并排比较">
     <header className="comparison-view-header">
-      <div><span className="comparison-view-eyebrow">工作台 / 比较</span><h2>并排比较</h2>
-        <p>同时核对摘录、图表及其原文来源</p></div>
-      <button type="button" onClick={onClose} aria-label="关闭比较并返回工作台">返回工作台</button>
+      <button type="button" onClick={onClose} aria-label="关闭比较并返回工作台"><Icon name="back" />返回工作台</button>
     </header>
     {items.length < 2 ? <p className="comparison-view-empty">请选择 2–3 份原文或图片摘录。</p> :
       <div className="comparison-view-columns" data-count={items.length}>

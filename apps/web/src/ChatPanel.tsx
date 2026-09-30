@@ -438,8 +438,6 @@ export function ChatPanel({
       >
         {!turns.length && ai.account.account && (
           <div className="chat-welcome">
-            <h3>从正在读的地方开始</h3>
-            <p>选中一段原文，或直接写下你的问题。</p>
             {["解释当前页面的核心概念", "这段内容和上一节有什么联系？"].map(
               (prompt) => (
                 <button
@@ -503,7 +501,6 @@ export function ChatPanel({
             <strong>待加入 · {pendingMaterialIds.length} 份材料</strong>
             <ul>{pendingMaterialIds.map((id) => <li key={id}>{materialCatalog?.cards.find((card) => card.id === id)?.title || "所选绘图材料"}</li>)}</ul>
             <button type="button" disabled={!!preparing} onClick={() => void onAddPendingMaterials?.()}>加入本轮问题</button>
-            <small>加入后保留此刻的内容，选择变化不会替换已加入材料。</small>
           </section>}
           {(!!materials.length || !!images.length || !!attachment) &&
             <span className="question-material-heading">本轮材料 · {materialCount} 项</span>}
@@ -539,7 +536,7 @@ export function ChatPanel({
                     <img src={`${base}/api/books/${book.id}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(session)}`}
                       alt={`${material.title}的冻结预览`} />
                     <figcaption>{image.includesPdfBackground ? `包含 PDF 第 ${image.page} 页背景` : "仅所选个人对象"}
-                      {image.userRendered && " · 用户选择的视觉预览，非核验原文"}</figcaption>
+                      {image.userRendered && " · 个人预览"}</figcaption>
                   </figure>)}
                 </details>
               </div>;
@@ -563,11 +560,6 @@ export function ChatPanel({
               })
             }
           />
-          {!!images.length && (
-            <p className="image-hint">
-              图片仅随本轮发送；未填写问题时默认“请解释这些图片。”
-            </p>
-          )}
           {!!preparing && (
             <p className="image-hint" role="status">
               正在处理图片…
@@ -593,7 +585,7 @@ export function ChatPanel({
         <textarea
           ref={input}
           aria-label="问题"
-          placeholder="继续提问…"
+          placeholder={images.length ? "请解释这些图片。" : "继续提问…"}
           title="Enter 发送 · Shift + Enter 换行"
           value={question}
           disabled={!session || creating}

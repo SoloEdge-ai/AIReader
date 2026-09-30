@@ -161,10 +161,10 @@ try {
   );
   await page.locator(".composer .image-thumbnail").click();
   await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "本书第 fig-1 页区域（物理页 1）",
+    "本书第 fig-1 页区域",
   );
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await expect(page.locator(".turn")).toHaveCount(0);
@@ -229,8 +229,8 @@ try {
   ];
   await expectImageQuadrants(page, clockwiseColors);
   await page.locator(".composer .image-thumbnail").click();
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await page.locator(".composer .image-remove").click();
@@ -240,8 +240,8 @@ try {
   await dragCentralRegion(page);
   await expectImageQuadrants(page, clockwiseColors);
   await page.locator(".composer .image-thumbnail").click();
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await page.screenshot({
@@ -316,8 +316,8 @@ try {
     .click();
   await expect(page.locator(".turn .image-attachment")).toHaveCount(2);
   await page.locator(".turn .image-thumbnail").last().click();
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 860, height: 760 });

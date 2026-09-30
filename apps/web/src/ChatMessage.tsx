@@ -107,7 +107,7 @@ export function ChatMessage({
               <img src={`${base}/api/books/${turn.bookId}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(turn.sessionId)}`}
                 alt={`${material.title}的本轮冻结图片`} />
               <figcaption>{image.includesPdfBackground ? `包含 PDF 第 ${image.page} 页背景` : "仅所选个人对象"}
-                {image.userRendered && " · 用户选择的视觉预览，非核验原文"}</figcaption>
+                {image.userRendered && " · 个人预览"}</figcaption>
             </figure>)}
           </div>;
         })}
@@ -146,9 +146,6 @@ export function ChatMessage({
                       : "本轮未返回思考摘要。")}
                 </ReactMarkdown>
               </div>
-              <p className="reasoning-caption">
-                模型提供的摘要；事实依据请查看原文。
-              </p>
             </div>
           )}
         </section>
@@ -252,7 +249,6 @@ export function ChatMessage({
             <p>{turn.context.coverage}</p>
             <details>
               <summary>本轮上下文 · {turn.context.evidence.length} 段检索原文</summary>
-              <p>这些是发送给模型的检索材料，不代表回答已经核实了每一段。</p>
               <p>
                 问题范围：
                 {
