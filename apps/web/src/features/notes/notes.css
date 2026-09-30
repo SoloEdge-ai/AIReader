@@ -434,42 +434,19 @@
 }
 
 .workspace-note-content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  gap: 8px;
-  overflow: hidden;
+  display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 4px; overflow: hidden;
 }
 
 .workspace-note-kind {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); margin-top: 4px; min-height: 20px;
 }
 
 .workspace-note-content > strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 650;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: hidden; color: var(--text); font-size: 14px; font-weight: 500; line-height: 24px; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .workspace-note-preview {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
+  display: -webkit-box; margin: 0; overflow: hidden; color: var(--text); font-size: 14px; line-height: 24px; overflow-wrap: anywhere; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 5;
 }
 
 .workspace-note-error {

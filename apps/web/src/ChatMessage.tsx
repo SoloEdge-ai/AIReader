@@ -10,6 +10,8 @@ import type {
   SourceAnchor,
   PdfAnchor,
 } from "../../../packages/protocol/src";
+import { IconButton } from "./ui/IconButton";
+import { Popover } from "./ui/Popover";
 import { Icon } from "./ui/Icon";
 import { effortLabel } from "./ModelControl";
 import { ChatImageList } from "./ChatImageList";
@@ -76,19 +78,20 @@ export function ChatMessage({
   }
   return (
     <article className="turn">
-      <div className="question">{turn.question}</div>
+      <div className="question"><span>{turn.question}</span>
+        {turn.context.reading.selection && <Popover label="本轮引用"
+          triggerLabel={`本轮引用 · 第 ${turn.context.reading.page} 页起`}
+          triggerClass="question-source-trigger" className="question-source"
+          trigger={<><Icon name="outward" />{turn.context.reading.page}</>}>
+          {() => <><strong>本轮引用 · 第 {turn.context.reading.page} 页起</strong><p>{turn.context.reading.selection}</p></>}
+        </Popover>}
+      </div>
       <ChatImageList
         images={(turn.images ?? []).map((image) => ({
           ...image,
           url: `${base}/api/books/${turn.bookId}/chat-images/${image.id}`,
         }))}
       />
-      {turn.context.reading.selection && (
-        <details className="question-source">
-          <summary>本轮引用 · 第 {turn.context.reading.page} 页起</summary>
-          <p>{turn.context.reading.selection}</p>
-        </details>
-      )}
       {!!turn.context.materials?.length && <details className="sent-materials">
         <summary>本轮选定材料 · {turn.context.materials.reduce((count, material) => count + material.itemCount, 0)} 项</summary>
         {turn.context.materials.map((material) => {
@@ -109,28 +112,6 @@ export function ChatMessage({
           </div>;
         })}
       </details>}
-      <div className="assistant-label">
-        <Icon name="book" />
-        <span>AIReader</span>
-      </div>
-      <details className="retrieval-details">
-        <summary>
-          本轮依据 · 已提供 {turn.context.evidence.length} 段原文
-        </summary>
-        <div>
-          <p>{turn.context.coverage}</p>
-          <p>这些是发送给模型的检索材料，不代表回答已经核实了每一段。</p>
-          {turn.context.evidence.map((passage) => (
-            <button
-              className="evidence"
-              key={passage.id}
-              onClick={() => onCitation(passage.page, passage.anchor)}
-            >
-              第 {passage.anchor.label} 页 · {passage.text.slice(0, 180)}
-            </button>
-          ))}
-        </div>
-      </details>
       {turn.reasoning !== undefined && (
         <section className="reasoning">
           <button
@@ -172,7 +153,7 @@ export function ChatMessage({
           )}
         </section>
       )}
-      <div className="answer markdown">
+      <div className="answer markdown" aria-label="AI 回答">
         <ReactMarkdown
           skipHtml
           remarkPlugins={[remarkGfm, remarkMath]}
@@ -221,12 +202,13 @@ export function ChatMessage({
           {turn.error}
         </p>
       )}
+      <div className="answer-actions">
       {!!sources.length && (
         <details className="answer-sources">
-          <summary>
-            <Icon name="book" />
-            {sources.length} 处原文
-            <Icon name="chevron" />
+          <summary aria-label={`回答引用 · ${sources.length} 处原文`} title="查看回答引用的原文">
+            <Icon name="outward" />
+            {[...new Set(sources.map((source) => source.label))].slice(0, 3).join("、")}
+            {new Set(sources.map((source) => source.label)).size > 3 && "…"}
           </summary>
           <div className="source-excerpts">
             {sources.map((source) => (
@@ -248,28 +230,14 @@ export function ChatMessage({
           </div>
         </details>
       )}
-      <div className="answer-actions">
-        <button
-          aria-label="复制回答"
-          title="复制回答"
-          disabled={!turn.answer || turn.status === "running"}
-          onClick={() => void copy()}
-        >
-          <Icon name={copyStatus === "已复制" ? "check" : "copy"} />
-        </button>
-        <button
-          className="save-answer-note"
-          disabled={turn.status !== "complete" || !turn.answer || savingNote}
-          onClick={() => void saveNote()}
-        >
-          <Icon name="note" />
-          {savingNote ? "保存中…" : savedNote ? "打开笔记" : "存为笔记"}
-        </button>
+
+        <IconButton label="复制回答" icon={copyStatus === "已复制" ? "check" : "copy"}
+          disabled={!turn.answer || turn.status === "running"} onClick={() => void copy()} />
+        <IconButton className="save-answer-note" label={savingNote ? "保存中…" : savedNote ? "打开笔记" : "存为笔记"}
+          icon={savedNote ? "check" : "note"}
+          disabled={turn.status !== "complete" || !turn.answer || savingNote} onClick={() => void saveNote()} />
         <details className="answer-details">
-          <summary>
-            回答详情
-            <Icon name="down" />
-          </summary>
+          <summary aria-label="回答详情" title="回答详情"><Icon name="more" /></summary>
           <div className="answer-metadata">
             <p>
               {turn.model ?? "模型未记录"} ·{" "}
@@ -283,7 +251,8 @@ export function ChatMessage({
             </p>
             <p>{turn.context.coverage}</p>
             <details>
-              <summary>本轮上下文</summary>
+              <summary>本轮上下文 · {turn.context.evidence.length} 段检索原文</summary>
+              <p>这些是发送给模型的检索材料，不代表回答已经核实了每一段。</p>
               <p>
                 问题范围：
                 {

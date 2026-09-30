@@ -6,6 +6,8 @@ Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node�
 
 问答与笔记浮窗共用 renderer 的 `ui/floating-window` 管理拖动和尺寸手势；纯几何运算位于该模块的 `geometry`。业务保存与关闭保护留在笔记组件中。浮窗仍复用原 `ChatPanel`、会话草稿和 Core 聊天接口，仅把按书籍保存的窗口矩形写入 `ReaderPreferences`。窗口变化不修改 PDF／工作区内容版本，也不通过独立系统窗口或 Node 权限实现。
 
+`FloatingWindowToolbar` 将业务标题控件放进共用浮窗的标题槽，避免另起一行标题；拖动／缩放仍由浮窗管理。紧凑操作复用 `ui/IconButton`（小图标、完整命中区和可访问名称）与 `ui/MaterialKind`（原文／个人／AI 来源身份）。
+
 App 组合书库、双区阅读、材料、笔记和问答；`BookWorkspace` 管理 PDF／工作台交互，两个 `PdfReader` 实例分别持有 PDF 与画布视口。PDF 页面只在原文实例加载；工作台实例只绘制画布对象。跨区来源线和 AI 材料线由 `features/connections` 把 PDF、画布和浮窗端点投影到屏幕，动画帧合并几何变化，不写入永久关系。原文聚焦仍使用 PDF.js 原始页面坐标及文字层，比较视图只读取已有摘录。两套视觉风格共享布局与语义组件，仅颜色和纸面层次不同。
 
 `features/book/BookEditingSession` 按书籍持有 Note 与 Workspace 编辑会话，串行提交跨实体命令，协调版本、离开保护和最近 100 项内容历史。Note 正文保存、新建并放置、来源增删和删除恢复通过 `POST /api/v2/books/:bookId/commands` 的一笔 SQLite 事务提交；Core 存原始回执和逆操作，提交后才发布事件。独立工作区命令保留同一内容版本协调层，用于画布纯对象操作；视口另行保存，不增加内容版本。`WorkspaceState` 与 `useBookNotes` 只提供 React 订阅和操作映射。QuestionDrafts 按 book/session 保存问题草稿。

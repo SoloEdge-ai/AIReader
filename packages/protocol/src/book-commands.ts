@@ -10,7 +10,7 @@ const placement = z.object({
   x: position,
   y: position,
   width: z.number().finite().min(220).max(1200),
-  height: z.number().finite().min(160).max(1600),
+  height: z.number().finite().min(120).max(1600),
 }).strict();
 
 /** One book transaction may change notes and the board together. */

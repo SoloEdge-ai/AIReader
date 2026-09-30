@@ -321,7 +321,8 @@ test("card and sidebar stay lightweight while the expanded editor owns the note"
   await expect.poll(async () => ({ cards: await card.count(), dialogs })).toEqual({ cards: 1, dialogs: [] });
   await page.screenshot({ path: "test-results/shared-note-card.png" });
   await expect(panel).toContainText("从展开层继续写作");
-  await card.getByRole("button", { name: "移出工作台，保留材料" }).click();
+  await card.getByRole("button", { name: "卡片操作" }).click();
+  await card.getByRole("menuitem", { name: "移出工作台，保留材料" }).click();
   await expect(card).toHaveCount(0);
   await expect(panel.getByRole("button", { name: "将唯一展开编辑器放回工作台" })).toBeVisible();
   await panel.getByRole("button", { name: "将唯一展开编辑器放回工作台" }).click();
@@ -389,7 +390,7 @@ test("excerpt keeps immutable source text beside its associated note", async ({ 
   const card = page.locator(`[data-card-id="${id}"]`);
   await card.scrollIntoViewIfNeeded();
   await expect(card).toContainText("不可编辑的书中原文");
-  await expect(card).toContainText("尚无关联笔记");
+  await expect(card.getByRole("button", { name: "写笔记" })).toBeVisible();
   await card.click({ position: { x: 40, y: 36 } });
   await card.getByRole("button", { name: "写笔记" }).click();
   await expect(card).toContainText("不可编辑的书中原文");
@@ -397,7 +398,8 @@ test("excerpt keeps immutable source text beside its associated note", async ({ 
   await expect(expanded.getByRole("textbox", { name: "笔记正文" })).toBeEmpty();
   await expanded.getByRole("textbox", { name: "笔记正文" }).fill("修改后的个人理解");
   await expect(expanded).toContainText("不可编辑的书中原文");
-  await expect(card).toContainText("关联笔记 · 1");
+  await expect(card.getByRole("button", { name: "查看笔记" })).toHaveAttribute("title", "关联笔记 · 1");
+  await expect(card.getByRole("button", { name: "查看笔记" })).toHaveText("1");
   await expect(card).not.toContainText("修改后的个人理解");
   await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   await expect(card).toContainText("不可编辑的书中原文");

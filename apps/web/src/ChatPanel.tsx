@@ -15,6 +15,7 @@ import { api, post, base } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
+import { FloatingWindowToolbar } from "./ui/floating-window/FloatingWindow";
 import { ChatMessage } from "./ChatMessage";
 import { SelectionContext } from "./SelectionContext";
 import { ChatImageList } from "./ChatImageList";
@@ -308,7 +309,7 @@ export function ChatPanel({
   }
   return (
     <aside className="chat">
-      <div className="chat-heading">
+      <FloatingWindowToolbar><div className="chat-heading">
         <Popover
           label="历史会话"
           triggerClass="session-trigger"
@@ -342,40 +343,41 @@ export function ChatPanel({
             </>
           )}
         </Popover>
-        <button
-          className="chat-icon"
-          aria-label="新建会话"
-          title="新建会话"
-          disabled={!!running || sending || creating}
-          onClick={async () => {
-            const requested = session;
-            setCreating(true);
-            try {
-              const s = await post<Session>(`books/${book.id}/sessions`, {});
-              if (currentSession.current === requested) {
-                setSessions((old) => [s, ...old]);
-                switchSession(s.id);
-                input.current?.focus();
-              }
-            } catch (e) {
-              if (currentSession.current === requested) setError(String(e));
-            } finally {
-              setCreating(false);
-            }
-          }}
-        >
-          <Icon name="newChat" />
-        </button>
         <Popover
           label="会话操作"
           triggerClass="chat-icon"
           className="session-menu"
           width={180}
-          disabled={!session}
           trigger={<Icon name="more" />}
         >
-          {(close) => (
+          {(close) => (<>
+              <button
+                className="new-session-action"
+                aria-label="新建会话"
+                title="新建会话"
+                disabled={!!running || sending || creating}
+                onClick={async () => {
+                  close();
+                  const requested = session;
+                  setCreating(true);
+                  try {
+                    const s = await post<Session>(`books/${book.id}/sessions`, {});
+                    if (currentSession.current === requested) {
+                      setSessions((old) => [s, ...old]);
+                      switchSession(s.id);
+                      input.current?.focus();
+                    }
+                  } catch (e) {
+                    if (currentSession.current === requested) setError(String(e));
+                  } finally {
+                    setCreating(false);
+                  }
+                }}
+              >
+                <Icon name="newChat" />新建会话
+              </button>
             <button
+              disabled={!session}
               onClick={() => {
                 close();
                 setTitle(sessions.find((s) => s.id === session)?.title ?? "");
@@ -385,9 +387,9 @@ export function ChatPanel({
               <Icon name="pen" />
               重命名会话
             </button>
-          )}
+          </>)}
         </Popover>
-      </div>
+      </div></FloatingWindowToolbar>
       {renaming && (
         <form
           className="rename-session"
@@ -588,32 +590,11 @@ export function ChatPanel({
             onPick={onPickSelection}
           />
         </div>
-        <div className="composer-scope">
-          <Icon name="book" />
-          <select
-            aria-label="提问范围"
-            value={scope}
-            onChange={(e) => {
-              if (e.target.value === "selection" && !attachment && selection)
-                attach(selection);
-              else setScope(e.target.value as ReadingSnapshot["scope"]);
-            }}
-          >
-            <option value="auto">当前阅读位置</option>
-            <option value="selection" disabled={!attachment && !selection}>
-              选中原文
-            </option>
-            <option value="chapter">当前章节</option>
-            <option value="book">整本书</option>
-          </select>
-          <span>
-            第 {scope === "selection" ? (attachment?.page ?? page) : page} 页
-          </span>
-        </div>
         <textarea
           ref={input}
           aria-label="问题"
-          placeholder="继续追问，或选中原文提问…"
+          placeholder="继续提问…"
+          title="Enter 发送 · Shift + Enter 换行"
           value={question}
           disabled={!session || creating}
           onChange={(e) => setQuestion(e.target.value)}
@@ -636,6 +617,33 @@ export function ChatPanel({
           }}
         />
         <div className="composer-actions">
+          <Popover label="提问范围" triggerClass="composer-scope-trigger" className="scope-popover" placement="top" width={250}
+            trigger={<><Icon name="book" /><span>{scope === "selection" ? "选区" : scope === "chapter" ? "章节" : scope === "book" ? "全书" : (book.labels[page - 1] ?? page)}</span></>}>
+            {(close) => <div className="composer-scope">
+            <span>范围</span>
+            <select
+              aria-label="提问范围"
+              value={scope}
+              onChange={(e) => {
+                if (e.target.value === "selection" && !attachment && selection)
+                  attach(selection);
+                else setScope(e.target.value as ReadingSnapshot["scope"]);
+                close();
+              }}
+            >
+              <option value="auto">当前阅读位置</option>
+              <option value="selection" disabled={!attachment && !selection}>
+                选中原文
+              </option>
+              <option value="chapter">当前章节</option>
+              <option value="book">整本书</option>
+            </select>
+            <span>
+              第 {scope === "selection" ? (attachment?.page ?? page) : page} 页
+            </span>
+          </div>}
+          </Popover>
+
           <input
             ref={imagePicker}
             type="file"
@@ -648,24 +656,29 @@ export function ChatPanel({
               event.target.value = "";
             }}
           />
-          <button
-            className="add-image"
-            aria-label="添加图片"
-            title="添加图片（也可粘贴截图）"
-            disabled={!session || creating || !!preparing || images.length >= 4}
-            onClick={() => imagePicker.current?.click()}
-          >
-            <Icon name="image" />
-          </button>
-          <button
-            className="add-image"
-            aria-label="框选书中图表"
-            title="框选书中图表或公式"
-            disabled={!session || creating || !!preparing || images.length >= 4}
-            onClick={() => onStartRegion(session)}
-          >
-            <Icon name="crop" />
-          </button>
+          <Popover label="添加提问材料" triggerClass="add-image" className="session-menu" placement="top" width={190}
+            trigger={<Icon name="plus" />}>
+            {(close) => <>
+              <button
+                className="attachment-menu-action"
+                aria-label="添加图片"
+                title="添加图片（也可粘贴截图）"
+                disabled={!session || creating || !!preparing || images.length >= 4}
+                onClick={() => { close(); imagePicker.current?.click(); }}
+              >
+                <Icon name="image" />添加图片
+              </button>
+              <button
+                className="attachment-menu-action"
+                aria-label="框选书中图表"
+                title="框选书中图表或公式"
+                disabled={!session || creating || !!preparing || images.length >= 4}
+                onClick={() => { close(); onStartRegion(session); }}
+              >
+                <Icon name="crop" />框选书中图表
+              </button>
+            </>}
+          </Popover>
           <ModelPicker />
           {running ? (
             <button
@@ -694,7 +707,6 @@ export function ChatPanel({
           )}
         </div>
       </div>
-      <p className="composer-hint">Enter 发送 · Shift + Enter 换行</p>
     </aside>
   );
 }

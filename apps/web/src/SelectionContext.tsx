@@ -28,40 +28,15 @@ export function SelectionContext({
     <>
       {attached && (
         <section className="question-attachment" aria-label="本轮引用">
-          <div className="attachment-heading">
-            <span>
-              <Icon name="book" />
-              本轮引用 · 第 {pages(attached)} 页
-            </span>
-            <button
-              aria-label="移除引用"
-              title="移除引用"
-              disabled={disabled}
-              onClick={() => {
-                setPicking(false);
-                onRemove();
-              }}
-            >
-              <Icon name="close" />
-            </button>
-          </div>
-          <p className="attachment-preview">{attached.text}</p>
-          <div className="attachment-actions">
-            <details>
-              <summary>查看全文 · {attached.text.length} 字</summary>
-              <p>{attached.text}</p>
-            </details>
-            <button
-              aria-label="重新选择引用"
-              disabled={disabled}
-              onClick={() => {
-                setPicking(true);
-                onPick();
-              }}
-            >
-              重新选择
-            </button>
-          </div>
+          <details className="attachment-content">
+            <summary aria-label={`查看本轮引用 · 第 ${pages(attached)} 页`} title="展开冻结引用全文">
+              <Icon name="book" /><span>引用 · {pages(attached)}</span><Icon name="down" />
+            </summary>
+            <p>{attached.text}</p>
+            <button aria-label="重新选择引用" disabled={disabled} onClick={() => { setPicking(true); onPick(); }}>重新选择</button>
+          </details>
+          <button className="ui-icon-button" aria-label="移除引用" title="移除引用" disabled={disabled}
+            onClick={() => { setPicking(false); onRemove(); }}><Icon name="close" /></button>
         </section>
       )}
       {picking && (

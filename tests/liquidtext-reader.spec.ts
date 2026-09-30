@@ -154,6 +154,7 @@ test("cards compare, focus the original PDF, and organize into a group", async (
   const second = board.locator('[data-card-id="excerpt-theorem"]');
   await expect(first).toBeVisible();
   await expect(second).toBeVisible();
+  await expect(first.getByRole("menu", { name: "卡片操作" })).toBeHidden();
 
   await first.getByRole("button", { name: /第 1 页/ }).click();
   const preview = board.getByLabel("摘录来源预览");
@@ -316,8 +317,9 @@ test("one atomic note placement links two excerpts and reopens with both sources
   await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   for (const id of ["excerpt-definition", "excerpt-theorem"]) {
     await board.locator(`[data-card-id="${id}"]`).click({ position: { x: 40, y: 35 } });
+    await board.locator(`[data-card-id="${id}"]`).getByRole("button", { name: "卡片操作" }).click();
     await board.locator(`[data-card-id="${id}"]`)
-      .getByRole("button", { name: "关联到所选笔记" }).click();
+      .getByRole("menuitem", { name: "关联到所选笔记" }).click();
   }
   await expect.poll(async () => {
     const saved = await (await page.request.get(notesUrl, { headers })).json() as typeof notes;

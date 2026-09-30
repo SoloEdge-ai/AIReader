@@ -122,7 +122,8 @@ try {
   await expect(expanded.getByRole("status")).toHaveText("已保存");
   await page.getByRole("button", { name: "关闭笔记浮窗" }).click();
   await page.screenshot({ path: ".local/screenshots/shared-note-card-packaged.png" });
-  await noteCard.getByRole("button", { name: "移出工作台，保留材料" }).click();
+  await noteCard.getByRole("button", { name: "卡片操作" }).click();
+  await noteCard.getByRole("menuitem", { name: "移出工作台，保留材料" }).click();
   await expect(noteCard).toHaveCount(0);
   await expect(page.locator(".notes-panel")).toContainText("Draft retained after failure.");
   let dropped = false;
