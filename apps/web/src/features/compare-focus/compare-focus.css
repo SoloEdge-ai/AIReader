@@ -1,5 +1,4 @@
-.comparison-view,
-.focus-reading-view {
+.comparison-view {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -7,8 +6,7 @@
   color: var(--text);
   background: var(--board-bg);
 }
-.comparison-view-header,
-.focus-reading-header {
+.comparison-view-header {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -21,10 +19,7 @@
   background: var(--surface);
 }
 .comparison-view-header button,
-.focus-reading-header button,
-.comparison-view-card button,
-.focus-reading-region button,
-.focus-reading-more {
+.comparison-view-card button {
   min-height: 36px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -32,10 +27,8 @@
   color: var(--text);
   cursor: pointer;
 }
-.comparison-view-header button,
-.focus-reading-header button { padding: 6px; border: 0; gap: 4px; font-size: 12px; white-space: nowrap; }
-.comparison-view-header button svg,
-.focus-reading-header button svg { width: 16px; height: 16px; }
+.comparison-view-header button { padding: 6px; border: 0; gap: 4px; font-size: 12px; white-space: nowrap; }
+.comparison-view-header button svg { width: 16px; height: 16px; }
 .comparison-view-empty { margin: 24px; color: var(--muted); }
 .comparison-view-columns {
   display: grid;
@@ -132,23 +125,6 @@
   background: var(--surface);
 }
 .comparison-view-image-dialog img { display: block; max-width: 100%; max-height: calc(100vh - 110px); object-fit: contain; }
-.focus-reading-regions { max-width: 1000px; margin: 0 auto; padding: 12px; }
-.focus-reading-region { margin: 0 auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.focus-reading-region > header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
-.focus-reading-region > header > span { font-size: 13px; font-weight: 600; }
-.focus-reading-region > header > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.focus-reading-region button { padding: 5px 9px; font-size: 12px; }
-.focus-reading-region button:disabled { opacity: .45; cursor: default; }
-.focus-reading-pdf-clip { overflow: hidden; background: var(--surface); }
-.focus-reading-omission { display: flex; align-items: center; gap: 10px; min-height: 42px; margin: 4px 0; color: var(--muted); font-size: 12px; text-align: center; }
-.focus-reading-omission::before,
-.focus-reading-omission::after { content: ""; height: 1px; flex: 1; background: var(--line); }
-.focus-reading-more { display: block; margin: 20px auto; padding: 8px 16px; }
-.focus-native-region { position: relative; width: 100%; overflow: hidden; }
-.focus-native-region-page { position: absolute; }
-.focus-native-region-page > canvas { display: block; }
-.focus-native-region-page > .textLayer { position: absolute; inset: 0; }
-.focus-reading-load { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 160px; color: var(--muted); }
 @media (max-width: 940px) {
   .comparison-view-columns,
   .comparison-view-columns[data-count="3"] {

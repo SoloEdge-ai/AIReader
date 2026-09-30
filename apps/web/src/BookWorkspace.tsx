@@ -55,7 +55,7 @@ import { NoteCardContent, noteSourceCount } from "./features/notes/NoteCardConte
 import { ConnectionOverlay, type ConnectionOverlayItem } from "./features/connections";
 import { releaseCardContact, addCardToGroup, arrangeGroup, assignCardGroup, boardMemberBounds, groupSelection, moveGroup } from "./features/workspace/groups";
 import { findOpenCardPlacement } from "./features/workspace/card-placement";
-import { CompareView, FocusPdfDocument } from "./features/compare-focus";
+import { CompareView } from "./features/compare-focus";
 import { relatedComparisonNotes } from "./features/compare-focus/comparison-notes";
 
 export interface BookWorkspaceHandle {
@@ -202,7 +202,6 @@ export const BookWorkspace = forwardRef<
   const [locatingPage, setLocatingPage] = useState<number>();
   const pendingLocate = useRef<PdfAnchor[] | undefined>(undefined);
   const pendingPage = useRef<number | undefined>(undefined);
-  const [focusAnchors, setFocusAnchors] = useState<PdfAnchor[]>();
   const [comparing, setComparing] = useState<string[]>();
   const [sourcePreview, setSourcePreview] = useState<WorkspaceCard>();
   const [connectionView, setConnectionView] = useState<{
@@ -493,7 +492,7 @@ export const BookWorkspace = forwardRef<
     },
     locate: locateAnchors,
     jumpPage,
-    focusAnchors: enterFocus,
+    focusAnchors: locateAnchors,
     showPane: (pane) => {
       setNarrowPane(pane);
       if (pane === "pdf") revealDocument();
@@ -595,12 +594,6 @@ export const BookWorkspace = forwardRef<
       : card.source?.anchors ?? [];
     locateAnchors(anchors);
   }
-  function enterFocus(anchors: PdfAnchor[]) {
-    if (!anchors.length) return;
-    setFocusAnchors(structuredClone(anchors));
-    setNarrowPane("pdf");
-    if (props.readerPaneMode === "board") props.onReaderPaneMode("split");
-  }
   function eraseAt(point: InkPoint) {
     const gesture = inkGesture.current;
     if (gesture?.kind !== "erase") return;
@@ -678,16 +671,16 @@ export const BookWorkspace = forwardRef<
     locateAnchors(annotation.anchors);
   }
   function locateAnchors(anchors: PdfAnchor[]) {
-    revealDocument();
     const anchor = anchors[0];
     if (!anchor) return;
+    revealDocument();
     pendingPage.current = undefined;
-    setSourceFocus(anchors);
+    setSourceFocus(structuredClone(anchors));
     setNarrowPane("pdf");
     if (props.readerPaneMode === "board") props.onReaderPaneMode("split");
     const page = pdfPages.current.find((item) => item.page === anchor.page);
     const el = pdfViewport.current;
-    if (!page || !el) {
+    if (!page || !el || !el.clientWidth || !el.clientHeight) {
       pendingLocate.current = anchors;
       setLocatingPage(anchor.page);
       return;
@@ -696,15 +689,32 @@ export const BookWorkspace = forwardRef<
     setLocatingPage(undefined);
     setReturnPosition({ x: el.scrollLeft / documentZoom, y: el.scrollTop / documentZoom });
     const location = page.locate(anchor.rects[0]);
-    el.scrollTo({ left: Math.max(0, page.x * documentZoom - 30),
+    el.scrollTo({ left: Math.max(0, location.x * documentZoom - 30),
       top: Math.max(0, location.y * documentZoom - 100) });
+  }
+  function returnToReading() {
+    if (!returnPosition) return;
+    const position = returnPosition;
+    pendingLocate.current = undefined;
+    pendingPage.current = undefined;
+    setLocatingPage(undefined);
+    revealDocument();
+    setNarrowPane("pdf");
+    if (props.readerPaneMode === "board") props.onReaderPaneMode("split");
+    requestAnimationFrame(() => {
+      if (mounted.current) pdfViewport.current?.scrollTo({
+        left: position.x * documentZoom,
+        top: position.y * documentZoom,
+      });
+    });
+    setReturnPosition(undefined);
+    setSourceFocus(undefined);
   }
   function jumpPage(pageNumber: number) {
     revealDocument();
     if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > props.book.pages) return;
     pendingLocate.current = undefined;
     setSourceFocus(undefined);
-    setFocusAnchors(undefined);
     setNarrowPane("pdf");
     if (props.readerPaneMode === "board") props.onReaderPaneMode("split");
     const page = pdfPages.current.find((item) => item.page === pageNumber);
@@ -1686,7 +1696,7 @@ export const BookWorkspace = forwardRef<
             <span><Icon name="book" /> 原文 <small>第 {props.page} 页</small></span>
             <div className="reader-pane-actions">
               {locatingPage && <span className="reader-source-loading" role="status">正在定位第 {props.book.labels[locatingPage - 1] ?? locatingPage} 页…</span>}
-              {sourceFocus?.length && <button aria-label="聚焦当前来源" onClick={() => enterFocus(sourceFocus)}>聚焦</button>}
+              {returnPosition && <IconButton icon="back" label="返回阅读位置" onClick={returnToReading} />}
               <button aria-label="缩小原文" onClick={() => props.onPdfZoom(Math.max(0.4, props.pdfZoom - 0.1))}>−</button>
               <output aria-label="原文缩放">{Math.round(props.pdfZoom * 100)}%</output>
               <button aria-label="放大原文" onClick={() => props.onPdfZoom(Math.min(3, props.pdfZoom + 0.1))}>+</button>
@@ -1694,7 +1704,7 @@ export const BookWorkspace = forwardRef<
                 onClick={() => props.onReaderPaneMode(paneMode === "pdf" ? "split" : "pdf")}>{paneMode === "pdf" ? "◧" : "□"}</button>}
             </div>
           </header>
-          <div className="pdf-normal-view" hidden={!!focusAnchors}>
+          <div className="pdf-normal-view">
           <PdfReader {...props} zoomLimits={{ min: .4, max: 3 }} zoom={documentZoom} onZoom={(zoom) => props.onPdfZoom(Math.max(.4, Math.min(3, zoom)))} onRegionAction={regionAction}
             workspace={{
               mode: "document", ready: !!state.value, onDocumentWidth: setDocumentWidth,
@@ -1723,13 +1733,6 @@ export const BookWorkspace = forwardRef<
               onAnnotationTarget: (id) => selectTarget(id),
             }} />
           </div>
-          {focusAnchors && <div className="pdf-focus-view"><FocusPdfDocument bookId={props.book.id}
-            anchors={focusAnchors} pageLabels={props.book.labels} rotation={props.rotation}
-            onGoToOriginal={(region) => {
-              setFocusAnchors(undefined);
-              requestAnimationFrame(() => locateAnchors([{ page: region.page, rects: [region.pdfRect] }]));
-            }}
-            onClose={() => setFocusAnchors(undefined)} /></div>}
           {spatial && <div className="desk-document-resize" role="separator" tabIndex={0}
             aria-label="调整文档大小" aria-orientation="vertical" aria-valuenow={documentObject.rect.width}
             {...documentObject.resize} onKeyDown={(event) => {
@@ -1789,7 +1792,7 @@ export const BookWorkspace = forwardRef<
                   card.id === id && (card.kind === "excerpt" || card.kind === "region"))).slice(0, 3))}>比较</button>
               <button className="reader-pane-secondary" aria-label="聚焦所选摘录的原文" disabled={!selectedIds.some((id) => state.value?.cards.some((card) =>
                 card.id === id && (card.source || card.region)))}
-                onClick={() => enterFocus(state.value?.cards.filter((card) => selectedIds.includes(card.id)).flatMap((card) =>
+                onClick={() => locateAnchors(state.value?.cards.filter((card) => selectedIds.includes(card.id)).flatMap((card) =>
                   card.region ? [{ page: card.region.page, rects: [card.region.rect] }] : card.source?.anchors ?? []) ?? [])}>聚焦</button>
               {selectedGroup && <button className="reader-pane-secondary" aria-label="排列所选主题组" onClick={() => autoArrangeGroup(selectedGroup)}>排列</button>}
               <button className="reader-pane-secondary" aria-label="适应工作台内容" title="适应工作台内容" onClick={overview}><Icon name="fit" /></button>
@@ -1805,7 +1808,7 @@ export const BookWorkspace = forwardRef<
                       card.id === id && (card.kind === "excerpt" || card.kind === "region"))).slice(0, 3)); close(); }}>并排比较</button>
                   <button role="menuitem" disabled={!selectedIds.some((id) => state.value?.cards.some((card) =>
                     card.id === id && (card.source || card.region)))}
-                    onClick={() => { enterFocus(state.value?.cards.filter((card) => selectedIds.includes(card.id))
+                    onClick={() => { locateAnchors(state.value?.cards.filter((card) => selectedIds.includes(card.id))
                       .flatMap((card) => card.region ? [{ page: card.region.page, rects: [card.region.rect] }] :
                         card.source?.anchors ?? []) ?? []); close(); }}>聚焦原文</button>
                   {selectedGroup && <button role="menuitem" onClick={() => { autoArrangeGroup(selectedGroup); close(); }}>排列主题组</button>}
@@ -1880,11 +1883,7 @@ export const BookWorkspace = forwardRef<
                 alt="摘录的原文图表" />
               : <blockquote>{sourcePreview.text}</blockquote>}
             <footer>
-              <button onClick={() => setSourcePreview(undefined)}>留在工作台</button>
-              <button onClick={() => { const card = sourcePreview;
-                enterFocus(card.region ? [{ page: card.region.page, rects: [card.region.rect] }] : card.source?.anchors ?? []);
-                setSourcePreview(undefined); }}>聚焦原文</button>
-              <button className="primary" onClick={() => { goToSource(sourcePreview); setSourcePreview(undefined); }}>前往原文</button>
+              <button className="primary" onClick={() => { goToSource(sourcePreview); setSourcePreview(undefined); }}>聚焦原文</button>
             </footer>
           </aside>}
           {groupMaterialPreview && <aside className="workspace-source-preview workspace-group-material-preview"
@@ -1962,11 +1961,11 @@ export const BookWorkspace = forwardRef<
         </button>
         <button
           aria-label="原文聚焦"
-          title="查看所选摘录附近的原始页面区域"
+          title="在连续原文中定位并高亮来源"
           role="menuitem"
           disabled={!sourceFocus?.length && !selectedIds.some((id) => state.value?.cards.some((card) =>
             card.id === id && (card.source || card.region)))}
-          onClick={() => { enterFocus(sourceFocus?.length ? sourceFocus : state.value?.cards
+          onClick={() => { locateAnchors(sourceFocus?.length ? sourceFocus : state.value?.cards
             .filter((card) => selectedIds.includes(card.id))
             .flatMap((card) => card.region ? [{ page: card.region.page, rects: [card.region.rect] }] :
               card.source?.anchors ?? []) ?? []); close(); }}
@@ -1977,16 +1976,11 @@ export const BookWorkspace = forwardRef<
           <button
             role="menuitem"
             onClick={() => {
-              pdfViewport.current?.scrollTo({
-                left: returnPosition.x * documentZoom,
-                top: returnPosition.y * documentZoom,
-              });
-              setReturnPosition(undefined);
-              setSourceFocus(undefined);
+              returnToReading();
               close();
             }}
           >
-            返回卡片位置
+            返回阅读位置
           </button>
         )}
         <i className="workspace-menu-divider" />

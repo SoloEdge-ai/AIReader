@@ -91,7 +91,7 @@ export function SelectionToolbar({
           onExcerptDragStart?.();
         }}
         onDragEnd={onExcerptDragEnd}>⠿</button>
-      <button onClick={onFocus} title="只看所选原文附近的页面区域">聚焦原文</button>
+      <button onClick={onFocus} title="在连续原文中定位并高亮选区">聚焦原文</button>
       <Popover label="标注方式" trigger={<><Icon name="pen" /><span>标注</span></>} width={168}>
         {(close) => <div className="reader-context-menu">
           {(["highlight", "underline", "strike"] as const).map((kind, index) => (

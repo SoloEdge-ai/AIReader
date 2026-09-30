@@ -56,7 +56,9 @@ try {
   await card.getByRole("button", { name: /第 1 页/ }).click();
   await expect(page.getByRole("complementary", { name: "摘录来源预览" })).toBeVisible();
   await page.getByRole("complementary", { name: "摘录来源预览" })
-    .getByRole("button", { name: "前往原文" }).click();
+    .getByRole("button", { name: "聚焦原文" }).click();
+  await expect(page.locator(".pdf-pane .workspace-source-focus")).toBeInViewport();
+  await expect(page.locator(".pdf-pane .pdf-normal-view")).toBeVisible();
   const highlight = await page.request.post(`${origin}/api/books/${book.id}/annotations`, {
     headers: { Origin: origin },
     data: { kind: "highlight", color: "yellow", quote: "", anchors: [{ page: 1, rects: [[70, 420, 180, 500]] }] },
