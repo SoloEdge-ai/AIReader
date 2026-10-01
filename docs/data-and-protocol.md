@@ -8,6 +8,8 @@ SQLite records 仍保存笔记、批注等独立 JSON 实体，passages/FTS5 保
 
 ## v6 工作区存储
 
+卡片与书籍级 `create-note` 的 placement 共用 220–1200 宽、120–1600 高的尺寸范围（工作台坐标）；最小高度从 160 放宽到 120，以容纳紧凑预览。已有卡片尺寸保留，不迁移或自动压缩其位置与大小。
+
 `WorkspaceRepository` 独占工作区 SQL。workspace_books 保存书籍工作区版本；workspace_entities 按书籍／类型／ID 分行保存卡片和对象的校验后 JSON；workspace_groups 按书籍／组 ID 分行保存单层主题组；workspace_links 单独保存端点、名称、方向与顺序；workspace_views 保存视野；workspace_receipts 保存命令摘要和原始回执。子表外键引用工作区根，清理失败恢复副本时一起删除；连线端点可能是 records 中的批注，因此端点有效性仍由 Core 在事务中校验。
 
 读取时组装兼容快照，写入比较每个实体，仅更新变化的行。相机不属于实体快照写入；普通内容保存不会重写视野。仓储 SAVEPOINT 可以嵌入命令／批注／归档的外层事务，不提前提交外层事务。旧的通用 records 工作区快照读写入口明确报错，防止两个事实来源并存；仍在 records 的 v1 命令回执、区域图片元数据和 PDF 页面边界缓存由同一仓储以 bookId 限定读写。

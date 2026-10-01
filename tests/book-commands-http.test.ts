@@ -38,10 +38,10 @@ test("book commands atomically save notes, board placement, frozen sources, and 
     const path = `books/${book.id}`;
     const commandPath = `v2/${path}/commands`;
     const excerpt = { id: "excerpt", kind: "excerpt", title: "Definition", text: "Frozen original",
-      comment: "", x: 400, y: 30, width: 320, height: 220,
+      comment: "", x: 400, y: 30, width: 320, height: 128,
       source: { fingerprint: book.fingerprint, anchors: [{ page: 1, rects: [[10, 20, 80, 40]] }] } };
     const create = command(book.id, "create", 0, [
-      { type: "create-note", title: "My idea", placement: { id: "note-card", x: 20, y: 30, width: 320, height: 240 } },
+      { type: "create-note", title: "My idea", placement: { id: "note-card", x: 20, y: 30, width: 320, height: 120 } },
       { type: "workspace", changes: [
         { type: "upsert-card", card: excerpt },
         { type: "upsert-link", link: { id: "relation", from: "note-card", to: "excerpt", label: "supports" } },
@@ -56,6 +56,10 @@ test("book commands atomically save notes, board placement, frozen sources, and 
       noteChanges: [{ after: { title: "My idea", sourceReferences: [], revision: 1 } }] });
     const noteId = created.noteChanges[0].after.id;
     expect((await (await request(`${path}/workspace`)).json()).cards).toHaveLength(2);
+    expect((await (await request(`${path}/workspace`)).json()).cards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "note-card", height: 120 }),
+      expect.objectContaining({ id: "excerpt", height: 128 }),
+    ]));
     expect(await (await request(commandPath, create)).json()).toEqual(created);
     const reused = await request(commandPath, command(book.id, "create", 0, [{ type: "workspace",
       changes: [{ type: "delete-card", id: "excerpt" }] }]));

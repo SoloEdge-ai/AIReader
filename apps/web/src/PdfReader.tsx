@@ -341,10 +341,10 @@ function Page({
       <div className="annotation-layer">
         {sourceFocus
           ?.filter((anchor) => anchor.page === page)
-          .flatMap((anchor) =>
+          .flatMap((anchor, anchorIndex) =>
             anchor.rects.map((rect, index) => (
               <span
-                key={`source-${index}`}
+                key={`source-${anchorIndex}-${index}`}
                 className="workspace-source-focus"
                 style={rectStyle(view.convertToViewportRectangle(rect))}
               />

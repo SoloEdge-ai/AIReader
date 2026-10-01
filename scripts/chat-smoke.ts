@@ -170,11 +170,11 @@ try {
   await page
     .getByRole("button", { name: "返回第 1 页原文", exact: true })
     .click();
-  await page.getByText("回答详情", { exact: true }).click();
+  await page.getByLabel("回答详情", { exact: true }).click();
   await expect(page.locator(".answer-metadata")).toContainText(
     "fixture-a · 中",
   );
-  await page.getByText("本轮上下文", { exact: true }).click();
+  await page.getByText(/^本轮上下文 ·/).click();
   const positionAfterExpansion = await page
     .locator(".messages")
     .evaluate((node) => node.scrollTop);
@@ -189,7 +189,7 @@ try {
   expect(
     await page.locator(".messages").evaluate((node) => node.scrollTop),
   ).toBe(positionAfterExpansion);
-  await page.getByText("本轮上下文", { exact: true }).click();
+  await page.getByText(/^本轮上下文 ·/).click();
   await page.getByRole("button", { name: "复制回答", exact: true }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "已复制" }),
@@ -209,6 +209,7 @@ try {
   await selectPassage();
   await page.getByRole("button", { name: "添加到问题", exact: true }).click();
   await input.fill("留给此会话的草稿");
+  await page.getByRole("button", { name: "会话操作", exact: true }).click();
   await page.getByRole("button", { name: "新建会话", exact: true }).click();
   await expect(page.locator(".turn")).toHaveCount(0);
   await expect(page.locator(".question-attachment")).toHaveCount(0);
@@ -245,7 +246,7 @@ try {
   await page.getByRole("button", { name: "停止回答", exact: true }).click();
   await expect(page.getByText("已停止回答", { exact: true })).toBeVisible();
   const turns = page.locator(".turn");
-  await turns.last().getByText("回答详情", { exact: true }).click();
+  await turns.last().getByLabel("回答详情", { exact: true }).click();
   await expect(turns.last().locator(".answer-metadata")).toContainText(
     "fixture-a · 中",
   );

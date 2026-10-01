@@ -30,7 +30,11 @@ PR #24 的重构基线已于 2026-09-25 合入 main（eaa2403）；未完成的�
 
 [连续阅读桌面决策](decisions/0006-continuous-desk.md) 记录认可原型落地的布局、浮动笔记、接触分组和材料多选边界。
 
+[连续原文定位决策](decisions/0007-continuous-source-focus.md) 记录聚焦来源时保持整页平铺、定位高亮与返回阅读的交互。
+
 [连续阅读桌面验证](verification/2026-09-26-continuous-desk.md) 记录本轮实际测试及尚未覆盖的压力、DPI 与发布边界。
+
+[紧凑问答与卡片验证](verification/2026-09-30-compact-reader-ui.md) 记录紧凑组件、来源入口、菜单、图片提问和桌面产物的本次验收。
 
 ## 同步
 

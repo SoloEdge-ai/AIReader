@@ -81,7 +81,7 @@ try {
   );
   await page.getByRole("button", { name: "展开编辑笔记" }).click();
   await expect(
-    page.getByText("AI 生成 · 可编辑的回答笔记", { exact: true }),
+    page.locator(".note-origin-label"),
   ).toBeVisible();
   await page
     .getByRole("textbox", { name: "笔记标题", exact: true })

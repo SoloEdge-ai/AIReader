@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { WindowRect } from "./geometry";
 import "./floating-window.css";
 import { Icon } from "../Icon";
@@ -8,6 +9,13 @@ import {
 } from "./geometry";
 
 const edges: ResizeEdge[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
+const ToolbarHost = createContext<HTMLElement | null>(null);
+
+/** Business controls share the window's drag header without owning its gestures. */
+export function FloatingWindowToolbar({ children }: { children: ReactNode }) {
+  const host = useContext(ToolbarHost);
+  return host ? createPortal(children, host) : children;
+}
 const edgeNames: Record<ResizeEdge, string> = {
   n: "上", ne: "右上", e: "右", se: "右下", s: "下", sw: "左下", w: "左", nw: "左上",
 };
@@ -22,10 +30,11 @@ type Gesture = {
   edge?: ResizeEdge;
 };
 
-export function FloatingWindow({ rect, bounds, onCommit, onClose, children, title, label, className = "", closeDisabled = false, defaultRect }: {
+export function FloatingWindow({ rect, bounds, onCommit, onClose, children, title, label, className = "", closeDisabled = false, defaultRect, toolbar = false }: {
   title: string;
   label: string;
   className?: string;
+  toolbar?: boolean;
   closeDisabled?: boolean;
   defaultRect: (bounds: WindowBounds) => WindowRect;
   rect?: WindowRect;
@@ -34,6 +43,7 @@ export function FloatingWindow({ rect, bounds, onCommit, onClose, children, titl
   onClose: () => void;
   children: ReactNode;
 }) {
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
   const [frame, setFrame] = useState(() => clampWindow(rect ?? defaultRect(bounds), bounds));
   const frameRef = useRef(frame);
   const savedRef = useRef(rect ?? defaultRect(bounds));
@@ -139,9 +149,8 @@ export function FloatingWindow({ rect, bounds, onCommit, onClose, children, titl
         const next = moveWindow(frameRef.current, dx, dy, bounds);
         show(next); commit(next, "move");
       }}>
-      <Icon name="grip" />
-      <strong>{title}</strong>
-      <span className="floating-window-hint">拖动移动</span>
+      <span className="floating-window-grip" aria-hidden="true"><Icon name="grip" /></span>
+      {toolbar ? <div className="floating-window-toolbar" ref={setToolbarHost} /> : <strong>{title}</strong>}
       <button type="button" aria-label={`重置${title}浮窗`} title="恢复默认位置和大小" onClick={() => {
         const next = defaultRect(bounds);
         show(next); commit(next, "reset");
@@ -150,7 +159,7 @@ export function FloatingWindow({ rect, bounds, onCommit, onClose, children, titl
         <Icon name="close" />
       </button>
     </header>
-    {children}
+    <ToolbarHost.Provider value={toolbarHost}>{children}</ToolbarHost.Provider>
     {edges.map((edge) => <div key={edge} className={`floating-window-resize ${className}-resize`} data-edge={edge}
       role={edge.length === 1 ? "separator" : "button"} tabIndex={0}
       aria-label={`调整${title}浮窗${edgeNames[edge]}${edge.length === 1 ? "边缘" : "角落"}`}

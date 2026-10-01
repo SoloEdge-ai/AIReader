@@ -39,9 +39,9 @@ try {
   const header = panel.getByLabel("拖动移动问答浮窗");
   const leftEdge = panel.getByRole("separator", { name: "调整问答浮窗左边缘" });
   const initial = (await panel.boundingBox())!;
-  const handle = (await header.boundingBox())!;
+  const handle = (await header.locator(".floating-window-grip").boundingBox())!;
   await page.mouse.move(
-    handle.x + 90,
+    handle.x + handle.width / 2,
     handle.y + handle.height / 2,
   );
   await page.mouse.down();
@@ -152,6 +152,7 @@ try {
     .toBe(120);
   await input.press("Control+V");
   await expect(page.locator(".composer .image-attachment")).toHaveCount(1);
+  await page.getByRole("button", { name: "会话操作", exact: true }).click();
   await page.getByRole("button", { name: "新建会话", exact: true }).click();
   await expect(page.locator(".composer .image-attachment")).toHaveCount(0);
   await page.getByRole("button", { name: "历史会话", exact: true }).click();

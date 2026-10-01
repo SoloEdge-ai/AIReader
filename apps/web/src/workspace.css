@@ -188,18 +188,7 @@
   box-shadow: 0 0 0 2px var(--soft), 0 12px 30px #11182720;
 }
 .workspace-card header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex: 0 0 auto;
-  min-height: 38px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--workspace-rule);
-  cursor: grab;
-  touch-action: none;
-  font-size: 12px;
-  color: var(--muted);
-  user-select: none;
+  display: flex; justify-content: flex-end; align-items: center; flex: 0 0 16px; height: 16px; padding: 0 12px; cursor: grab; touch-action: none; color: var(--muted); user-select: none;
 }
 .workspace-card header span {
   display: inline-flex;
@@ -221,12 +210,7 @@
   opacity: 0.4;
 }
 .workspace-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  padding: 16px 17px;
-  min-height: 0;
-  flex: 1;
+  display: flex; flex-direction: column; gap: 4px; padding: 0 12px; min-height: 0; flex: 1; overflow: hidden;
 }
 .workspace-card input {
   width: 100%;
@@ -301,7 +285,7 @@
 .workspace-card.region .workspace-region-image {
   flex: 0 1 auto;
   min-height: 72px;
-  max-height: 45%;
+  max-height: 100%;
 }
 .workspace-card .workspace-comment {
   display: flex;
@@ -355,24 +339,13 @@
   font-size: 12px;
 }
 .workspace-card footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  flex: 0 0 auto;
-  padding: calc(4px / var(--workspace-zoom)) calc(32px / var(--workspace-zoom)) calc(4px / var(--workspace-zoom)) 11px;
-  border-top: 1px solid var(--workspace-rule);
-  min-height: calc(38px / var(--workspace-zoom));
+  display: flex; align-items: center; gap: calc(2px / var(--workspace-zoom)); flex: 0 0 auto; padding: 0 calc(28px / var(--workspace-zoom)) calc(4px / var(--workspace-zoom)) 12px; min-height: calc(36px / var(--workspace-zoom));
 }
 .workspace-card footer button {
-  font-size: calc(12px / var(--workspace-zoom));
-  min-height: calc(32px / var(--workspace-zoom));
-  padding: calc(5px / var(--workspace-zoom));
-  gap: calc(4px / var(--workspace-zoom));
+  font-size: calc(12px / var(--workspace-zoom)); min-width: calc(36px / var(--workspace-zoom)); min-height: calc(36px / var(--workspace-zoom)); padding: calc(6px / var(--workspace-zoom)); gap: calc(4px / var(--workspace-zoom));
 }
 .workspace-card footer svg {
-  width: calc(14px / var(--workspace-zoom));
-  height: calc(14px / var(--workspace-zoom));
+  width: calc(16px / var(--workspace-zoom)); height: calc(16px / var(--workspace-zoom));
 }
 .workspace-source {
   color: var(--workspace-accent);
@@ -383,10 +356,7 @@
   opacity: 0.65;
 }
 .workspace-card-actions {
-  display: flex;
-  align-items: center;
-  gap: calc(5px / var(--workspace-zoom));
-  opacity: 0;
+  display: flex; align-items: center; margin-left: auto; gap: calc(2px / var(--workspace-zoom)); opacity: 0;
 }
 .workspace-card:is(:hover, :focus-within, .selected) .workspace-card-actions {
   opacity: 1;
@@ -594,3 +564,13 @@
   padding: 10px 7px;
   color: var(--muted);
 }
+
+.workspace-card > header .workspace-grip { opacity: 0; }
+.workspace-card:is(:hover, :focus-within, .selected) > header .workspace-grip { opacity: .6; }
+.workspace-card-body > input[aria-label="卡片标题"] { display: none; font-size: 12px; font-weight: 400; color: var(--muted); }
+.workspace-card.selected .workspace-card-body > input[aria-label="卡片标题"] { display: block; }
+.workspace-card blockquote { border: 0; padding: 0; margin: 0; font-size: 14px; line-height: 24px; }
+.workspace-card footer .ui-material-kind { font-size: calc(11px / var(--workspace-zoom)); }
+.workspace-card footer .workspace-region-marked { font-size: calc(11px / var(--workspace-zoom)); color: var(--muted); white-space: nowrap; }
+.workspace-card footer .reader-popover button { min-width: 36px; min-height: 36px; padding: 8px; font-size: 12px; }
+.workspace-card footer .reader-popover svg { width: 16px; height: 16px; }

@@ -148,28 +148,51 @@ test("split panes keep independent zoom, width, reading position, and style", as
 test("cards compare, focus the original PDF, and organize into a group", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await openBook(page);
+  await page.getByRole("separator", { name: "调整原文与工作台宽度" }).press("End");
   const board = page.getByRole("region", { name: "工作台" });
   const document = page.getByRole("region", { name: "原文" });
   const first = board.locator('[data-card-id="excerpt-definition"]');
   const second = board.locator('[data-card-id="excerpt-theorem"]');
   await expect(first).toBeVisible();
   await expect(second).toBeVisible();
+  await expect(first.getByRole("menu", { name: "卡片操作" })).toBeHidden();
+
+  await page.getByRole("textbox", { name: "页码" }).fill("3");
+  await page.getByRole("textbox", { name: "页码" }).press("Enter");
+  await expect(document.locator(".reader-pane-header small")).toContainText("第 3 页");
+  const scroll = document.locator(".pdf-scroll");
+  const readingPosition = await scroll.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+  const zoom = await document.getByLabel("原文缩放").textContent();
 
   await first.getByRole("button", { name: /第 1 页/ }).click();
   const preview = board.getByLabel("摘录来源预览");
   await expect(preview).toContainText("A graph is a set of vertices and edges.");
   await expect(document.locator(".pdf-page").first()).toBeVisible();
   await preview.getByRole("button", { name: "聚焦原文" }).click();
-  await expect(document.getByLabel("原文聚焦")).toBeVisible();
-  await document.getByRole("button", { name: "返回阅读" }).click();
+  await expect(document.locator(".pdf-normal-view")).toBeVisible();
+  await expect(document.locator(".pdf-page")).toHaveCount(3);
+  await expect(document.locator('[data-page="1"] .workspace-source-focus')).toBeInViewport();
+  await expect(document.getByLabel("原文缩放")).toHaveText(zoom!);
+  await expect(document.getByRole("button", { name: "展开整页" })).toHaveCount(0);
+  await expect(document.locator(".reader-pane-header small")).toContainText("第 1 页");
+  await page.screenshot({ path: "test-results/compact-focus-reading.png" });
+  await document.getByRole("button", { name: "返回阅读位置" }).click();
+  await expect.poll(() => scroll.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }))).toEqual(readingPosition);
+  await expect(document.locator(".workspace-source-focus")).toHaveCount(0);
   await expect(document.locator(".pdf-page").first()).toBeVisible();
 
   await first.click();
   await second.click({ modifiers: ["Shift"] });
   await board.getByRole("button", { name: "更多工作台操作" }).click();
+  await board.getByRole("menuitem", { name: "聚焦原文" }).click();
+  await expect(document.locator('[data-page="1"] .workspace-source-focus')).toBeInViewport();
+  await expect(document.locator('[data-page="2"] .workspace-source-focus')).toHaveCount(1);
+  await document.getByRole("button", { name: "返回阅读位置" }).click();
+  await board.getByRole("button", { name: "更多工作台操作" }).click();
   await board.getByRole("menuitem", { name: "并排比较" }).click();
   await expect(board.getByLabel("并排比较")).toContainText("A graph is a set of vertices and edges.");
   await expect(board.getByLabel("并排比较")).toContainText("Shortest paths obey optimal substructure.");
+  await page.screenshot({ path: "test-results/compact-compare-reading.png" });
   await board.getByRole("button", { name: "关闭比较并返回工作台" }).click();
   await expect(first).toBeVisible();
   await expect(second).toBeVisible();
@@ -184,6 +207,42 @@ test("cards compare, focus the original PDF, and organize into a group", async (
   await group.getByRole("button", { name: "展开主题组" }).click();
   await expect(first).toBeVisible();
   await page.screenshot({ path: "test-results/liquidtext-grouped-board.png" });
+});
+
+test("source focus preserves the spatial document and scrolls through complete pages", async ({ page }) => {
+  const preferences = new Preferences(core.library);
+  const prior = preferences.forBook(bookId);
+  preferences.saveForBook(bookId, {
+    deskLayout: "spatial", pdfZoom: 1.65, rotation: 0, chromeCollapsed: false,
+  });
+  try {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await openBook(page);
+    const document = page.getByRole("region", { name: "原文", exact: true });
+    const scroll = document.locator(".pdf-scroll");
+    await page.getByRole("textbox", { name: "页码" }).fill("2");
+    await page.getByRole("textbox", { name: "页码" }).press("Enter");
+    await expect(document.locator('[data-page="2"] .textLayer span').first()).toBeVisible();
+    const bounds = await document.boundingBox();
+    const position = await scroll.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+    await page.getByRole("button", { name: "选择文字（T）" }).click();
+    await selectFirstPdfLine(page, 2);
+    await page.getByRole("toolbar", { name: "文字选区操作" }).getByRole("button", { name: "聚焦原文" }).click();
+    await expect(document.locator('[data-page="2"] .workspace-source-focus').first()).toBeInViewport();
+    await expect(document.locator(".pdf-page")).toHaveCount(3);
+    await expect(document.getByLabel("原文缩放")).toHaveText("165%");
+    expect(await document.boundingBox()).toEqual(bounds);
+    await expect(document.getByRole("button", { name: "扩大上下文" })).toHaveCount(0);
+    await document.locator('[data-page="3"]').scrollIntoViewIfNeeded();
+    await expect(document.locator('[data-page="3"] .textLayer span').first()).toBeVisible();
+    await document.getByRole("button", { name: "返回阅读位置" }).click();
+    await expect.poll(() => scroll.evaluate((el) => ({ x: el.scrollLeft, y: el.scrollTop }))).toEqual(position);
+    await expect(document.locator(".workspace-source-focus")).toHaveCount(0);
+    await page.getByRole("button", { name: "指针（V）" }).click();
+  } finally {
+    await page.close();
+    preferences.saveForBook(bookId, prior);
+  }
 });
 
 test("frozen PDF text drags to the board and narrow tabs retain both surfaces", async ({ page }) => {
@@ -219,6 +278,11 @@ test("frozen PDF text drags to the board and narrow tabs retain both surfaces", 
   await tabs.getByRole("tab", { name: "工作台" }).click();
   await expect(board).toBeVisible();
   await expect(board.locator(".workspace-card")).toHaveCount(countBefore + 1);
+  await board.getByRole("button", { name: "聚焦所选摘录的原文" }).click();
+  await expect(tabs.getByRole("tab", { name: "原文" })).toHaveAttribute("aria-selected", "true");
+  await expect(document.locator('[data-page="3"] .workspace-source-focus').first()).toBeInViewport();
+  await expect(document.locator(".pdf-page")).toHaveCount(3);
+  await expect(document.getByRole("status").filter({ hasText: /正在定位/ })).toHaveCount(0);
 });
 
 test("all four style and light combinations preserve the selected source card", async ({ page }) => {
@@ -316,8 +380,9 @@ test("one atomic note placement links two excerpts and reopens with both sources
   await page.getByLabel("笔记浮窗", { exact: true }).getByRole("button", { name: "关闭笔记浮窗" }).click();
   for (const id of ["excerpt-definition", "excerpt-theorem"]) {
     await board.locator(`[data-card-id="${id}"]`).click({ position: { x: 40, y: 35 } });
+    await board.locator(`[data-card-id="${id}"]`).getByRole("button", { name: "卡片操作" }).click();
     await board.locator(`[data-card-id="${id}"]`)
-      .getByRole("button", { name: "关联到所选笔记" }).click();
+      .getByRole("menuitem", { name: "关联到所选笔记" }).click();
   }
   await expect.poll(async () => {
     const saved = await (await page.request.get(notesUrl, { headers })).json() as typeof notes;

@@ -28,17 +28,6 @@
   border-bottom: 1px solid var(--line);
 }
 
-.expanded-note-header > div {
-  display: grid;
-  gap: 2px;
-}
-
-.expanded-note-eyebrow {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
-
 .expanded-note-header strong {
   font-size: 14px;
   font-weight: 600;
@@ -62,17 +51,6 @@
   min-height: 100%;
   margin-inline: auto;
   padding: 34px 0 64px;
-}
-
-.expanded-note-origin-note {
-  margin: 0 0 18px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--muted);
-  background: var(--surface);
-  font-size: 12px;
-  line-height: 1.6;
 }
 
 .expanded-note-content .note-title {
@@ -311,11 +289,6 @@
   font-weight: 600;
 }
 
-.expanded-note-sources > summary small {
-  color: var(--muted);
-  font-weight: 400;
-}
-
 .expanded-note-source-list {
   display: grid;
   gap: 8px;
@@ -429,47 +402,24 @@
   color: var(--danger);
 }
 
-.expanded-note-footer > small {
+.expanded-note-footer > .ui-material-kind {
   margin-left: auto;
 }
 
 .workspace-note-content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  flex-direction: column;
-  gap: 8px;
-  overflow: hidden;
+  display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 4px; overflow: hidden;
 }
 
 .workspace-note-kind {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--muted);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); margin-top: 4px; min-height: 20px;
 }
 
 .workspace-note-content > strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 650;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: hidden; color: var(--text); font-size: 14px; font-weight: 500; line-height: 24px; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .workspace-note-preview {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
+  display: -webkit-box; margin: 0; overflow: hidden; color: var(--text); font-size: 14px; line-height: 24px; overflow-wrap: anywhere; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 5;
 }
 
 .workspace-note-error {
@@ -490,7 +440,6 @@
   .expanded-note-content .note-title { font-size: 21px; }
   .note-link-form { grid-template-columns: 1fr 1fr; }
   .note-link-form input { grid-column: 1 / -1; }
-  .expanded-note-footer > small { display: none; }
   .expanded-note-source { grid-template-columns: 1fr; }
 }
 

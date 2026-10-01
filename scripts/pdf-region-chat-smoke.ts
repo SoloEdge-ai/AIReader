@@ -144,6 +144,7 @@ try {
   await expect(
     page.getByRole("button", { name: "模型与思考强度" }),
   ).toContainText("Fixture A", { timeout: 15000 });
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await page.getByRole("button", { name: "框选书中图表", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "取消框选", exact: true }),
@@ -160,10 +161,10 @@ try {
   );
   await page.locator(".composer .image-thumbnail").click();
   await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "本书第 fig-1 页区域（物理页 1）",
+    "本书第 fig-1 页区域",
   );
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await expect(page.locator(".turn")).toHaveCount(0);
@@ -195,15 +196,18 @@ try {
     name: "框选书中图表",
     exact: true,
   });
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   await page.getByRole("button", { name: "取消框选", exact: true }).click();
   await expect(page.locator(".annotation-capture")).toHaveCount(0);
   await expect(page.locator(".floating-chat")).toBeVisible();
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   await page.getByRole("button", { name: "指针（V）", exact: true }).click();
   await expect(page.locator(".annotation-capture")).toHaveCount(0);
   await expect(page.locator(".floating-chat")).toBeVisible();
   await expect(page.locator(".composer .image-attachment")).toHaveCount(0);
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   const cancelBox = (await page.locator("#page-1").boundingBox())!;
   await page.mouse.move(cancelBox.x + 100, cancelBox.y + 100);
@@ -214,6 +218,7 @@ try {
   await expect(page.locator(".annotation-capture")).toHaveCount(0);
   await expect(page.locator(".composer .image-attachment")).toHaveCount(0);
   await page.getByRole("button", { name: "旋转页面", exact: true }).click();
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   await dragCentralRegion(page);
   const clockwiseColors = [
@@ -224,27 +229,30 @@ try {
   ];
   await expectImageQuadrants(page, clockwiseColors);
   await page.locator(".composer .image-thumbnail").click();
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await page.locator(".composer .image-remove").click();
   await page.getByRole("button", { name: "放大原文", exact: true }).click();
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   await dragCentralRegion(page);
   await expectImageQuadrants(page, clockwiseColors);
   await page.locator(".composer .image-thumbnail").click();
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await page.screenshot({
     path: `.local/screenshots/pdf-region-rotated-${dpi}.png`,
   });
   // A session change cancels the unfinished capture, not the already attached draft.
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   await expect(page.locator(".floating-chat")).toHaveCount(0);
   await page.getByRole("button", { name: "问答", exact: true }).first().click();
+  await page.getByRole("button", { name: "会话操作", exact: true }).click();
   await page.getByRole("button", { name: "新建会话", exact: true }).click();
   await expect(page.locator(".annotation-capture")).toHaveCount(0);
   await expect(page.locator(".composer .image-attachment")).toHaveCount(0);
@@ -255,6 +263,7 @@ try {
   await expect(page.locator(".composer .image-attachment")).toHaveCount(1);
   await expectImageQuadrants(page, clockwiseColors);
   // A book change cannot receive or send the previous book's unfinished selection.
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   await page.getByRole("button", { name: "返回书库", exact: true }).click();
   await expect(page.locator(".library")).toBeVisible();
@@ -307,11 +316,12 @@ try {
     .click();
   await expect(page.locator(".turn .image-attachment")).toHaveCount(2);
   await page.locator(".turn .image-thumbnail").last().click();
-  await expect(page.getByRole("dialog", { name: "图片预览" })).toContainText(
-    "PDF 坐标 100, 100, 300, 300",
+  await expect(page.getByRole("dialog", { name: "图片预览" }).locator(".image-hint")).toHaveAttribute(
+    "title", "物理页 1 · PDF 坐标 100, 100, 300, 300",
   );
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 860, height: 760 });
+  await page.getByRole("button", { name: "添加提问材料", exact: true }).click();
   await capture.click();
   await expect(page.locator(".floating-chat")).toHaveCount(0);
   await dragCentralRegion(page);

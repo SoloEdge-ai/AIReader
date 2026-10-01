@@ -15,6 +15,7 @@ import { api, post, base } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
 import { Icon } from "./ui/Icon";
 import { Popover } from "./ui/Popover";
+import { FloatingWindowToolbar } from "./ui/floating-window/FloatingWindow";
 import { ChatMessage } from "./ChatMessage";
 import { SelectionContext } from "./SelectionContext";
 import { ChatImageList } from "./ChatImageList";
@@ -308,7 +309,7 @@ export function ChatPanel({
   }
   return (
     <aside className="chat">
-      <div className="chat-heading">
+      <FloatingWindowToolbar><div className="chat-heading">
         <Popover
           label="历史会话"
           triggerClass="session-trigger"
@@ -342,40 +343,41 @@ export function ChatPanel({
             </>
           )}
         </Popover>
-        <button
-          className="chat-icon"
-          aria-label="新建会话"
-          title="新建会话"
-          disabled={!!running || sending || creating}
-          onClick={async () => {
-            const requested = session;
-            setCreating(true);
-            try {
-              const s = await post<Session>(`books/${book.id}/sessions`, {});
-              if (currentSession.current === requested) {
-                setSessions((old) => [s, ...old]);
-                switchSession(s.id);
-                input.current?.focus();
-              }
-            } catch (e) {
-              if (currentSession.current === requested) setError(String(e));
-            } finally {
-              setCreating(false);
-            }
-          }}
-        >
-          <Icon name="newChat" />
-        </button>
         <Popover
           label="会话操作"
           triggerClass="chat-icon"
           className="session-menu"
           width={180}
-          disabled={!session}
           trigger={<Icon name="more" />}
         >
-          {(close) => (
+          {(close) => (<>
+              <button
+                className="new-session-action"
+                aria-label="新建会话"
+                title="新建会话"
+                disabled={!!running || sending || creating}
+                onClick={async () => {
+                  close();
+                  const requested = session;
+                  setCreating(true);
+                  try {
+                    const s = await post<Session>(`books/${book.id}/sessions`, {});
+                    if (currentSession.current === requested) {
+                      setSessions((old) => [s, ...old]);
+                      switchSession(s.id);
+                      input.current?.focus();
+                    }
+                  } catch (e) {
+                    if (currentSession.current === requested) setError(String(e));
+                  } finally {
+                    setCreating(false);
+                  }
+                }}
+              >
+                <Icon name="newChat" />新建会话
+              </button>
             <button
+              disabled={!session}
               onClick={() => {
                 close();
                 setTitle(sessions.find((s) => s.id === session)?.title ?? "");
@@ -385,9 +387,9 @@ export function ChatPanel({
               <Icon name="pen" />
               重命名会话
             </button>
-          )}
+          </>)}
         </Popover>
-      </div>
+      </div></FloatingWindowToolbar>
       {renaming && (
         <form
           className="rename-session"
@@ -436,8 +438,6 @@ export function ChatPanel({
       >
         {!turns.length && ai.account.account && (
           <div className="chat-welcome">
-            <h3>从正在读的地方开始</h3>
-            <p>选中一段原文，或直接写下你的问题。</p>
             {["解释当前页面的核心概念", "这段内容和上一节有什么联系？"].map(
               (prompt) => (
                 <button
@@ -501,7 +501,6 @@ export function ChatPanel({
             <strong>待加入 · {pendingMaterialIds.length} 份材料</strong>
             <ul>{pendingMaterialIds.map((id) => <li key={id}>{materialCatalog?.cards.find((card) => card.id === id)?.title || "所选绘图材料"}</li>)}</ul>
             <button type="button" disabled={!!preparing} onClick={() => void onAddPendingMaterials?.()}>加入本轮问题</button>
-            <small>加入后保留此刻的内容，选择变化不会替换已加入材料。</small>
           </section>}
           {(!!materials.length || !!images.length || !!attachment) &&
             <span className="question-material-heading">本轮材料 · {materialCount} 项</span>}
@@ -537,7 +536,7 @@ export function ChatPanel({
                     <img src={`${base}/api/books/${book.id}/question-materials/${material.id}/images/${image.id}?session=${encodeURIComponent(session)}`}
                       alt={`${material.title}的冻结预览`} />
                     <figcaption>{image.includesPdfBackground ? `包含 PDF 第 ${image.page} 页背景` : "仅所选个人对象"}
-                      {image.userRendered && " · 用户选择的视觉预览，非核验原文"}</figcaption>
+                      {image.userRendered && " · 个人预览"}</figcaption>
                   </figure>)}
                 </details>
               </div>;
@@ -561,11 +560,6 @@ export function ChatPanel({
               })
             }
           />
-          {!!images.length && (
-            <p className="image-hint">
-              图片仅随本轮发送；未填写问题时默认“请解释这些图片。”
-            </p>
-          )}
           {!!preparing && (
             <p className="image-hint" role="status">
               正在处理图片…
@@ -588,32 +582,11 @@ export function ChatPanel({
             onPick={onPickSelection}
           />
         </div>
-        <div className="composer-scope">
-          <Icon name="book" />
-          <select
-            aria-label="提问范围"
-            value={scope}
-            onChange={(e) => {
-              if (e.target.value === "selection" && !attachment && selection)
-                attach(selection);
-              else setScope(e.target.value as ReadingSnapshot["scope"]);
-            }}
-          >
-            <option value="auto">当前阅读位置</option>
-            <option value="selection" disabled={!attachment && !selection}>
-              选中原文
-            </option>
-            <option value="chapter">当前章节</option>
-            <option value="book">整本书</option>
-          </select>
-          <span>
-            第 {scope === "selection" ? (attachment?.page ?? page) : page} 页
-          </span>
-        </div>
         <textarea
           ref={input}
           aria-label="问题"
-          placeholder="继续追问，或选中原文提问…"
+          placeholder={images.length ? "请解释这些图片。" : "继续提问…"}
+          title="Enter 发送 · Shift + Enter 换行"
           value={question}
           disabled={!session || creating}
           onChange={(e) => setQuestion(e.target.value)}
@@ -636,6 +609,33 @@ export function ChatPanel({
           }}
         />
         <div className="composer-actions">
+          <Popover label="提问范围" triggerClass="composer-scope-trigger" className="scope-popover" placement="top" width={250}
+            trigger={<><Icon name="book" /><span>{scope === "selection" ? "选区" : scope === "chapter" ? "章节" : scope === "book" ? "全书" : (book.labels[page - 1] ?? page)}</span></>}>
+            {(close) => <div className="composer-scope">
+            <span>范围</span>
+            <select
+              aria-label="提问范围"
+              value={scope}
+              onChange={(e) => {
+                if (e.target.value === "selection" && !attachment && selection)
+                  attach(selection);
+                else setScope(e.target.value as ReadingSnapshot["scope"]);
+                close();
+              }}
+            >
+              <option value="auto">当前阅读位置</option>
+              <option value="selection" disabled={!attachment && !selection}>
+                选中原文
+              </option>
+              <option value="chapter">当前章节</option>
+              <option value="book">整本书</option>
+            </select>
+            <span>
+              第 {scope === "selection" ? (attachment?.page ?? page) : page} 页
+            </span>
+          </div>}
+          </Popover>
+
           <input
             ref={imagePicker}
             type="file"
@@ -648,24 +648,29 @@ export function ChatPanel({
               event.target.value = "";
             }}
           />
-          <button
-            className="add-image"
-            aria-label="添加图片"
-            title="添加图片（也可粘贴截图）"
-            disabled={!session || creating || !!preparing || images.length >= 4}
-            onClick={() => imagePicker.current?.click()}
-          >
-            <Icon name="image" />
-          </button>
-          <button
-            className="add-image"
-            aria-label="框选书中图表"
-            title="框选书中图表或公式"
-            disabled={!session || creating || !!preparing || images.length >= 4}
-            onClick={() => onStartRegion(session)}
-          >
-            <Icon name="crop" />
-          </button>
+          <Popover label="添加提问材料" triggerClass="add-image" className="session-menu" placement="top" width={190}
+            trigger={<Icon name="plus" />}>
+            {(close) => <>
+              <button
+                className="attachment-menu-action"
+                aria-label="添加图片"
+                title="添加图片（也可粘贴截图）"
+                disabled={!session || creating || !!preparing || images.length >= 4}
+                onClick={() => { close(); imagePicker.current?.click(); }}
+              >
+                <Icon name="image" />添加图片
+              </button>
+              <button
+                className="attachment-menu-action"
+                aria-label="框选书中图表"
+                title="框选书中图表或公式"
+                disabled={!session || creating || !!preparing || images.length >= 4}
+                onClick={() => { close(); onStartRegion(session); }}
+              >
+                <Icon name="crop" />框选书中图表
+              </button>
+            </>}
+          </Popover>
           <ModelPicker />
           {running ? (
             <button
@@ -694,7 +699,6 @@ export function ChatPanel({
           )}
         </div>
       </div>
-      <p className="composer-hint">Enter 发送 · Shift + Enter 换行</p>
     </aside>
   );
 }

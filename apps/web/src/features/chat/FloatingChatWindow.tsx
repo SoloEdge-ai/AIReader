@@ -11,5 +11,5 @@ export function FloatingChatWindow(props: {
   children: ReactNode;
 }) {
   return <FloatingWindow {...props} title="问答" label="AI 问答浮窗"
-    className="floating-chat" defaultRect={defaultChatWindow} />;
+    className="floating-chat" toolbar defaultRect={defaultChatWindow} />;
 }

@@ -70,7 +70,6 @@
 .reader-pane > .pdf-scroll { flex: 1 1 auto; height: auto; min-height: 0; }
 .pdf-normal-view,
 .board-normal-view,
-.pdf-focus-view,
 .board-compare-view {
   position: relative;
   display: flex;
@@ -80,7 +79,6 @@
   min-height: 0;
   overflow: hidden;
 }
-.pdf-normal-view[hidden],
 .board-normal-view[hidden] { display: none; }
 .pdf-normal-view > .pdf-scroll,
 .board-normal-view > .pdf-scroll { flex: 1 1 auto; height: auto; min-height: 0; }

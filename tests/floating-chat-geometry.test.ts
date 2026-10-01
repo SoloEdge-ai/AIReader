@@ -5,9 +5,9 @@ const bounds = { width: 1440, height: 900 };
 
 test("floating chat starts inside the application and remains visible when the window shrinks", () => {
   const initial = defaultChatWindow(bounds);
-  expect(initial).toEqual({ x: 1000, y: 72, width: 420, height: 680 });
+  expect(initial).toEqual({ x: 1040, y: 72, width: 380, height: 520 });
   expect(clampChatWindow(initial, { width: 900, height: 640 })).toEqual({
-    x: 468, y: 60, width: 420, height: 568,
+    x: 508, y: 72, width: 380, height: 520,
   });
   const narrow = defaultChatWindow({ width: 900, height: 600 });
   expect(narrow.y + narrow.height).toBeLessThanOrEqual(520);
@@ -16,7 +16,7 @@ test("floating chat starts inside the application and remains visible when the w
 test("dragging cannot move the chat outside the application", () => {
   const initial = defaultChatWindow(bounds);
   expect(moveChatWindow(initial, -2000, -2000, bounds)).toMatchObject({ x: 12, y: 60 });
-  expect(moveChatWindow(initial, 2000, 2000, bounds)).toMatchObject({ x: 1008, y: 208 });
+  expect(moveChatWindow(initial, 2000, 2000, bounds)).toMatchObject({ x: 1048, y: 368 });
 });
 
 test("all resize edges preserve the opposite side and enforce a usable minimum", () => {
