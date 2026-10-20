@@ -146,9 +146,14 @@ export function ChatPanel({
     followBottom.current = true;
     setTurns([]);
     setError("");
+    setQuestionId(localStorage.getItem(`question-${book.id}:${id}`) ?? "");
   }
   useEffect(() => {
-    if (requestedSession) { switchSession(requestedSession.sessionId); setQuestionId(requestedSession.questionId); }
+    if (requestedSession) {
+      switchSession(requestedSession.sessionId);
+      setQuestionId(requestedSession.questionId);
+      localStorage.setItem(`question-${book.id}:${requestedSession.sessionId}`, requestedSession.questionId);
+    }
   }, [requestedSession?.nonce]);
   async function reuseMaterials(turn: Pick<ChatTurn, "id">) {
     const key = `${book.id}:${session}`;
@@ -501,7 +506,10 @@ export function ChatPanel({
         )}
         {!!sessionQuestions.length && <div className="chat-question-context">
           <label>当前问题<select aria-label="当前探究问题" value={activeQuestion?.id ?? ""}
-            onChange={(event) => setQuestionId(event.target.value)}>
+            onChange={(event) => {
+              setQuestionId(event.target.value);
+              localStorage.setItem(`question-${book.id}:${session}`, event.target.value);
+            }}>
             {sessionQuestions.map((note) => <option key={note.id} value={note.id}>{note.title}</option>)}
           </select></label><small>回答可收为独立结论；当前结论在问题卡片选择。</small>
           {!turns.length && activeQuestion?.question?.sourceTurnId && activeQuestion.question.materialCount > 0 && <button

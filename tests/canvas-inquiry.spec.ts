@@ -129,6 +129,9 @@ test("compare selected materials, keep a draft, save next to evidence and reopen
   await page.locator(`[data-card-id="${anotherCard.id}"]`).getByRole("button", { name: "继续探究", exact: true }).click();
   await expect(chat.getByLabel("当前探究问题", { exact: true })).toHaveValue(anotherQuestion.id);
   await expect(chat.locator(".turn")).toHaveCount(2);
+  await chat.getByRole("button", { name: "关闭问答浮窗", exact: true }).click();
+  await page.getByRole("button", { name: "问答", exact: true }).click();
+  await expect(chat.getByLabel("当前探究问题", { exact: true })).toHaveValue(anotherQuestion.id);
   await page.reload();
   await page.locator(".book-card").filter({ hasText: "Canvas inquiry fixture" }).click();
   await expect(page.locator(`[data-card-id="${questionCard.id}"]`).getByText("问题 · 已有结论", { exact: true })).toBeVisible();
@@ -155,4 +158,13 @@ test("create a blank question with a personal summary and continue without sendi
   await expect(chat.locator(".turn")).toHaveCount(0);
   await expect(chat.getByLabel("待加入材料", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: "test-results/question-card-continuation.png" });
+  await chat.getByRole("button", { name: "会话操作", exact: true }).click();
+  await page.getByRole("button", { name: "新建会话", exact: true }).click();
+  await expect(chat.getByLabel("当前探究问题", { exact: true })).toHaveCount(0);
+  const manualSession = await page.evaluate((id) => localStorage.getItem(`session-${id}`), bookId);
+  expect(manualSession).not.toBe(question.question!.sessionId);
+  await chat.getByRole("button", { name: "关闭问答浮窗", exact: true }).click();
+  await page.getByRole("button", { name: "问答", exact: true }).click();
+  await expect(chat.getByLabel("当前探究问题", { exact: true })).toHaveCount(0);
+  await expect.poll(() => page.evaluate((id) => localStorage.getItem(`session-${id}`), bookId)).toBe(manualSession);
 });

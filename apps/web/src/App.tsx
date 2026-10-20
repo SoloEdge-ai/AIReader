@@ -1192,6 +1192,8 @@ export function App() {
                       }}
                       onStartRegion={startQuestionCapture}
                       onSessionChange={(sessionId) => {
+                        setRequestedChat((pending) => pending?.bookId === book.id && pending.sessionId === sessionId
+                          ? undefined : pending);
                         setChatSessions((old) => old[book.id] === sessionId ? old :
                           { ...old, [book.id]: sessionId });
                         if (
