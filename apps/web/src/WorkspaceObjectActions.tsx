@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Annotation } from "../../../packages/protocol/src";
 import type { BookWorkspace, InkStroke, WorkspaceObject } from "../../../packages/protocol/src/workspace";
 import { annotationColors } from "./ui/annotationColors";
@@ -18,7 +18,7 @@ type EditableObject = Exclude<WorkspaceObject, InkStroke>;
 /** Object actions share the PDF selection surface while mutations remain in the book session. */
 export function WorkspaceObjectActions({ style, count, fixedSource, annotation, colorObject,
   styleObject, materialBusy, canAddToQuestion, onSource, onAnnotationColor,
-  onObjectColor, onUpdateObjects, onConnect, onAddToQuestion, onDelete,
+  onObjectColor, onUpdateObjects, onConnect, onAddToQuestion, onDelete, inquiryActions,
 }: {
   style: CSSProperties;
   count: number;
@@ -35,6 +35,7 @@ export function WorkspaceObjectActions({ style, count, fixedSource, annotation, 
   onConnect: () => void;
   onAddToQuestion: () => void;
   onDelete: () => void;
+  inquiryActions?: ReactNode;
 }) {
   return <div className="reader-context-bar workspace-object-toolbar" role="toolbar"
     aria-label="对象操作" style={style}>
@@ -92,6 +93,7 @@ export function WorkspaceObjectActions({ style, count, fixedSource, annotation, 
     </Popover>}
     <button aria-label="连接选中对象" title="点击另一个对象建立关系"
       onClick={onConnect}><Icon name="link" /></button>
+    {inquiryActions}
     {canAddToQuestion && <button aria-label="将选中对象加入提问" title="加入本轮材料，不会立即发送"
       disabled={materialBusy} onClick={onAddToQuestion}><Icon name="chat" /></button>}
     <button aria-label="删除选中对象" title="删除选中对象" onClick={onDelete}>

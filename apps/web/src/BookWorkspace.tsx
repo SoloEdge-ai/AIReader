@@ -18,8 +18,11 @@ import type {
   PdfAnchor,
   Note,
   QuestionMaterialSnapshot,
+  Inquiry,
+  ChatTurn,
 } from "../../../packages/protocol/src";
 import type { WorkspaceCard, WorkspaceObject } from "../../../packages/protocol/src/workspace";
+import { WORKSPACE_CARD_MIN_HEIGHT } from "../../../packages/protocol/src/workspace";
 import type { BookChange, BookCommandReceipt } from "../../../packages/protocol/src/book-commands";
 import { WORKSPACE_DOCUMENT_X } from "../../../packages/protocol/src/workspace";
 import type { BookWorkspace as WorkspaceSnapshot } from "../../../packages/protocol/src/workspace";
@@ -57,6 +60,7 @@ import { releaseCardContact, addCardToGroup, arrangeGroup, assignCardGroup, boar
 import { findOpenCardPlacement } from "./features/workspace/card-placement";
 import { CompareView } from "./features/compare-focus";
 import { relatedComparisonNotes } from "./features/compare-focus/comparison-notes";
+import { InquiryActions } from "./features/chat/InquiryActions";
 
 export interface BookWorkspaceHandle {
   excerpt(selection: ReadingSelection, point?: InkPoint): void;
@@ -66,6 +70,7 @@ export interface BookWorkspaceHandle {
   locate(anchors: PdfAnchor[]): void;
   jumpPage(page: number): void;
   placeNote(note: Note): Promise<void>;
+  saveAnswer(turn: ChatTurn): Promise<void>;
   locateItem(id: string): void;
   restoreItem(id: string): void;
   showPane(pane: "pdf" | "board"): void;
@@ -84,7 +89,9 @@ export const BookWorkspace = forwardRef<
     onAnnotationDelete?: (annotation: Annotation) => Promise<void>;
     onAnnotationRestore?: (annotation: Annotation) => Promise<void>;
     onQuestionMaterials?: (selection: Pick<QuestionMaterialInput,
-      "workspaceRevision" | "targets" | "previews">) => Promise<void>;
+      "workspaceRevision" | "targets" | "previews">, sessionId?: string) => Promise<void>;
+    questionSessionId?: string;
+    onPrepareInquiry?: (inquiry: Inquiry) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
     notes: BookNotes;
     workspaceSession: WorkspaceEditingSession;
@@ -122,6 +129,7 @@ export const BookWorkspace = forwardRef<
   }, [props.book.id, state.value?.cards, state.value?.objects, state.value?.links, state.value?.groups]);
   const mounted = useRef(true), placing = useRef(false);
   const pendingCreateNote = useRef<{ commandId: string; changes: BookChange[] } | undefined>(undefined);
+  const pendingAnswers = useRef(new Map<string, { commandId: string; changes: BookChange[] }>());
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const lastWorkspaceEvent = useRef(props.workspaceEvent ?? 0);
   useEffect(() => {
@@ -132,6 +140,12 @@ export const BookWorkspace = forwardRef<
   }, [props.workspaceEvent]);
   const [selected, setSelected] = useState<string>();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const materialLocations = new Map<string, "placed" | "unplaced">([
+    ...(state.value?.cards ?? []).map((item) => [item.id, item.placed === false ? "unplaced" : "placed"] as const),
+    ...(state.value?.objects ?? []).map((item) => [item.id, "placed"] as const),
+    ...props.notes.notes.map((item) => [item.id, "unplaced"] as const),
+    ...(props.annotations ?? []).map((item) => [item.id, "placed"] as const),
+  ]);
   const [multiSelect, setMultiSelect] = useState(false);
   const selectionCallback = useRef(props.onSelectedMaterials);
   selectionCallback.current = props.onSelectedMaterials;
@@ -213,6 +227,7 @@ export const BookWorkspace = forwardRef<
     x: number;
     y: number;
   }>();
+  const returnHistory = useRef<{ x: number; y: number }[]>([]);
   const [gesture, setGesture] = useState<{
     id: string;
     x: number;
@@ -439,6 +454,45 @@ export const BookWorkspace = forwardRef<
       if (!(await state.flush())) throw new Error("卡片放置未保存；笔记已保留在列表，画板草稿可重试");
     } finally { placing.current = false; }
   }
+  async function saveAnswer(turn: ChatTurn) {
+    if (turn.bookId !== props.book.id || !state.value) throw new Error("回答不属于当前工作台");
+    if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
+    if (!pendingAnswers.current.has(turn.id)) pendingAnswers.current.set(turn.id, {
+      commandId: crypto.randomUUID(), changes: [{ type: "save-answer", turnId: turn.id,
+        placement: { id: crypto.randomUUID(), x: Math.max(40, (viewport.current?.scrollLeft ?? 0) / props.zoom + 60),
+          y: Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60), width: 320, height: 160 } }],
+    });
+    const pending = pendingAnswers.current.get(turn.id)!;
+    try {
+      await props.onBookChanges(pending.changes, pending.commandId);
+      pendingAnswers.current.delete(turn.id);
+      await props.notes.refresh();
+      if (!mounted.current) return;
+      setInkError("");
+    } catch (error) {
+      // Keep the exact intent for transport reconciliation. A conflict can be retried after reload.
+      setInkError(`回答尚未保存到画布：${String(error)}`);
+      throw error;
+    }
+  }
+  function prepareInquiry(action: Inquiry["action"], claimId?: string) {
+    const ids = [...selectedIds];
+    const bounds = ids.flatMap((id) => {
+      const value = state.value && boardMemberBounds(state.value, id);
+      return value ? [value] : [];
+    });
+    const x = Math.max(0, Math.min(...bounds.map((rect) => rect.x)));
+    const y = Math.max(0, Math.min(...bounds.map((rect) => rect.y)));
+    const inquiry: Inquiry = { action, targetIds: ids, claimId,
+      bounds: bounds.length ? { x, y, width: Math.max(...bounds.map((r) => r.x + r.width)) - x,
+        height: Math.max(...bounds.map((r) => r.y + r.height)) - y } : undefined };
+    void props.onPrepareInquiry?.(inquiry).catch((error) => setInkError(String(error)));
+  }
+  const inquiryClaims = selectedIds.flatMap((id) => {
+    const card = state.value?.cards.find((card) => card.id === id && card.kind === "note");
+    const note = card?.noteId ? props.notes.notes.find((note) => note.id === card.noteId) : undefined;
+    return card ? [{ id, title: note?.title || card.title || "未命名笔记" }] : [];
+  });
   async function regionAction(region: QuestionRegion, action: RegionAction, includePersonalMarks: boolean) {
     if (action === "question") {
       await props.onRegionAction?.(region, action, includePersonalMarks);
@@ -479,6 +533,7 @@ export const BookWorkspace = forwardRef<
   }
   useImperativeHandle(ref, () => ({ excerpt: add,
     placeNote,
+    saveAnswer,
     addToQuestion: addSelectedToQuestion,
     dropExcerpt: (selection, x, y) => {
       if (selection.text.length > 20000) { setInkError("选区超过 20,000 字，请分段摘录；原文没有被截断。"); return false; }
@@ -687,14 +742,21 @@ export const BookWorkspace = forwardRef<
     }
     pendingLocate.current = undefined;
     setLocatingPage(undefined);
-    setReturnPosition({ x: el.scrollLeft / documentZoom, y: el.scrollTop / documentZoom });
+    const previous = {
+      x: (el.scrollLeft + el.clientWidth / 2) / documentZoom,
+      y: (el.scrollTop + 20) / documentZoom,
+    };
+    const last = returnHistory.current.at(-1);
+    if (!last || Math.abs(last.x - previous.x) > 1 || Math.abs(last.y - previous.y) > 1)
+      returnHistory.current = [...returnHistory.current, previous].slice(-50);
+    setReturnPosition(returnHistory.current.at(-1));
     const location = page.locate(anchor.rects[0]);
     el.scrollTo({ left: Math.max(0, location.x * documentZoom - 30),
       top: Math.max(0, location.y * documentZoom - 100) });
   }
   function returnToReading() {
     if (!returnPosition) return;
-    const position = returnPosition;
+    const position = returnHistory.current.pop() ?? returnPosition;
     pendingLocate.current = undefined;
     pendingPage.current = undefined;
     setLocatingPage(undefined);
@@ -703,11 +765,11 @@ export const BookWorkspace = forwardRef<
     if (props.readerPaneMode === "board") props.onReaderPaneMode("split");
     requestAnimationFrame(() => {
       if (mounted.current) pdfViewport.current?.scrollTo({
-        left: position.x * documentZoom,
-        top: position.y * documentZoom,
+        left: position.x * documentZoom - (pdfViewport.current?.clientWidth ?? 0) / 2,
+        top: position.y * documentZoom - 20,
       });
     });
-    setReturnPosition(undefined);
+    setReturnPosition(returnHistory.current.at(-1));
     setSourceFocus(undefined);
   }
   function jumpPage(pageNumber: number) {
@@ -731,6 +793,7 @@ export const BookWorkspace = forwardRef<
   }
   async function addSelectedToQuestion(ids: string[] = selectedLink ? [selectedLink] : selectedIds) {
     if (!ids.length || !props.onQuestionMaterials || materialBusy) return false;
+    const requestedSession = props.questionSessionId;
     setMaterialBusy(true); setInkError("");
     try {
       if (!(await props.notes.flush())) throw new Error("笔记尚未保存，请重试加入材料");
@@ -751,11 +814,10 @@ export const BookWorkspace = forwardRef<
         if (annotation) return { kind: "annotation" as const, id, revision: annotation.revision };
         throw new Error("所选对象已失效，请重新选择");
       });
-      // Each selected object gets its own frozen record, so removing one never re-freezes its neighbours.
-      for (const target of targets) {
-        const previews = captureMaterialPreviews([target.id], snapshot, props.annotations ?? [], pdfPages.current);
-        await props.onQuestionMaterials({ workspaceRevision: revision, targets: [target], previews });
-      }
+      // Freeze the explicit set together so its relationships are captured at the same revision.
+      const previews = targets.filter((target) => target.kind !== "relation").flatMap((target) =>
+        captureMaterialPreviews([target.id], snapshot, props.annotations ?? [], pdfPages.current));
+      await props.onQuestionMaterials({ workspaceRevision: revision, targets, previews }, requestedSession);
       return true;
     } catch (cause) {
       setInkError(`加入提问失败：${String(cause)}`);
@@ -1336,7 +1398,7 @@ export const BookWorkspace = forwardRef<
             <div className="workspace-card-body">
               {card.kind === "note" ? (card.noteId
                 ? <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
-                  state={props.notes} showMeta={false} />
+                  state={props.notes} showMeta={false} materialLocations={materialLocations} />
                 : <div className="workspace-legacy-note">
                     <strong>{card.title || "未命名笔记"}</strong>
                     <p>{[card.text, card.comment].filter(Boolean).join("\n") || "还没有内容"}</p>
@@ -1430,7 +1492,7 @@ export const BookWorkspace = forwardRef<
                       ),
                     ),
                     height: Math.max(
-                      120,
+                      WORKSPACE_CARD_MIN_HEIGHT,
                       Math.min(
                         1600,
                         card.height +
@@ -1466,6 +1528,8 @@ export const BookWorkspace = forwardRef<
             styleObject={styleObject}
             materialBusy={materialBusy}
             canAddToQuestion={Boolean(props.onQuestionMaterials)}
+            inquiryActions={props.onPrepareInquiry && <InquiryActions ids={selectedIds} claims={inquiryClaims}
+              disabled={materialBusy} onPrepare={prepareInquiry} />}
             onSource={sourceAnnotation}
             onAnnotationColor={(annotation, color) => {
               if (!props.onAnnotationColor) return;
@@ -1529,7 +1593,7 @@ export const BookWorkspace = forwardRef<
             Math.min(1200, p.card.width + (p.mode === "resize" ? dx : 0)),
           ),
           height: Math.max(
-            120,
+            WORKSPACE_CARD_MIN_HEIGHT,
             Math.min(1600, p.card.height + (p.mode === "resize" ? dy : 0)),
           ),
         },
@@ -1622,6 +1686,17 @@ export const BookWorkspace = forwardRef<
         }
       }
       const pdfPaneRect = pdfViewport.current?.getBoundingClientRect();
+      for (const card of cards.filter((card) => selectedIds.includes(card.id) && card.noteId)) {
+        const note = props.notes.notes.find((note) => note.id === card.noteId);
+        const to = cardRect(card);
+        if (!to) continue;
+        const usedIds = new Set(note?.origin?.materials?.flatMap((material) => material.sections
+          .filter((section) => section.kind !== "relation").flatMap((section) => section.targetId ? [section.targetId] : [])));
+        for (const id of usedIds) {
+          const from = materialRect(id);
+          if (from) connections.push({ id: `used-${card.id}-${id}`, from, to, kind: "material-use", label: "用于回答" });
+        }
+      }
       const worldRect = pdfViewport.current?.querySelector<HTMLElement>(".pdf-world")?.getBoundingClientRect();
       for (const card of cards) {
         if (!card.source && !card.region) continue;
@@ -1669,7 +1744,7 @@ export const BookWorkspace = forwardRef<
       observer.disconnect(); resize.disconnect();
     };
   }, [props.connectionHost, props.questionMaterials, props.chatOpen, documentZoom, props.zoom, props.book.labels,
-    selectedIds, props.notes.selected, state.value?.cards, showPdf, showBoard, comparing]);
+    selectedIds, props.notes.selected, props.notes.notes, state.value?.cards, showPdf, showBoard, comparing]);
   return (
     <>
       {props.connectionHost && connectionView && createPortal(<ConnectionOverlay

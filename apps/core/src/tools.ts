@@ -91,6 +91,8 @@ export class BookTools {
     if (this.closed) throw new Error("Core 正在关闭");
     const turn = this.library.chat.turn(bookId, turnId);
     if (!turn) throw new Error("会话与书籍不匹配");
+    if (turn.context.reading.scope === "materials")
+      throw new Error("仅所选材料的轮次不能执行书籍工作区工具");
     if (!this.status(bookId).available)
       throw new Error(this.status(bookId).reason);
     if (this.active.has(turnId)) throw new Error("当前已有工具正在运行");

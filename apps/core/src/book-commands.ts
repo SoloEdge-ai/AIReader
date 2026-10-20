@@ -4,7 +4,9 @@ import type { BookWorkspace, WorkspaceCard } from "../../../packages/protocol/sr
 import { BookCommandSchema, bookCommandPayload, type BookCommandReceipt } from "../../../packages/protocol/src/book-commands";
 import { applyWorkspaceChanges, workspaceDifference } from "../../../packages/workspace-engine/src/commands";
 import type { Library } from "./library";
-import { noteDocument } from "./notes";
+import { noteDocument, Notes } from "./notes";
+import { WorkspaceAssets } from "./workspace-assets";
+import { answerPlacement } from "../../../packages/workspace-engine/src/answer-placement";
 import { Workspaces, WorkspaceConflict, WorkspacePayloadError } from "./workspace";
 
 type RemovedPlacement = {
@@ -13,11 +15,14 @@ type RemovedPlacement = {
   groups: { id: string; memberIds: string[] }[];
   associatedCardIds: string[];
 };
+const stableJson = (value: unknown) => JSON.stringify(value, (_key, item) =>
+  item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
 
 function sameNoteContent(left: Note, right: Note): boolean {
   const stable = (note: Note) => {
     const { revision: _revision, updatedAt: _updatedAt, ...content } = note;
-    return JSON.stringify(content);
+    return stableJson(content);
   };
   return stable(left) === stable(right);
 }
@@ -32,7 +37,7 @@ function workspaceMatchesReceipt(workspace: BookWorkspace, changes: BookCommandR
       change.type.endsWith("group") ? workspace.groups : workspace.links;
     const current = collection.find((item) => item.id === id);
     if (change.type.startsWith("delete")) return current === undefined;
-    return JSON.stringify(current) === JSON.stringify(expected);
+    return stableJson(current) === stableJson(expected);
   });
 }
 
@@ -119,10 +124,18 @@ export class BookCommands {
     if (command.bookId !== bookId) throw new Error("命令与书籍不匹配");
     const hash = createHash("sha256").update(bookCommandPayload(command)).digest("hex");
     if (hash !== command.payloadHash) throw new WorkspacePayloadError("命令内容与校验摘要不匹配");
+    const priorReceipt = this.library.store.getForBook<BookCommandReceipt>("book-command", `${bookId}:${command.commandId}`, bookId);
+    if (priorReceipt) {
+      if (priorReceipt.payloadHash !== hash) throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
+      return priorReceipt;
+    }
+    const saveAnswer = command.changes.find((change) => change.type === "save-answer");
+    const prepared = saveAnswer ? new Notes(this.library, new WorkspaceAssets(this.library, this.workspaces))
+      .prepareFromAnswer(bookId, saveAnswer.turnId) : undefined;
     let receipt!: BookCommandReceipt;
     let changedNotes: Note[] = [];
     let changedAnnotations: Annotation[] = [];
-    this.library.store.transaction(() => {
+    try { this.library.store.transaction(() => {
       const previous = this.library.store.getForBook<BookCommandReceipt>("book-command", `${bookId}:${command.commandId}`, bookId);
       if (previous) {
         if (previous.payloadHash !== hash) throw new WorkspaceConflict("命令 ID 已被其他内容使用", "COMMAND_ID_REUSED");
@@ -151,7 +164,23 @@ export class BookCommands {
       };
       const timestamp = () => new Date().toISOString();
       for (const change of command.changes) {
-        if (change.type === "create-note") {
+        if (change.type === "save-answer") {
+          const note = prepared!.note;
+          const original = workspace.cards.find((card) => card.kind === "note" && card.noteId === note.id);
+          if (original) {
+            if (original.placed === false) workspace = { ...workspace, cards: workspace.cards.map((card) =>
+              card.id === original.id ? { ...card, placed: true } : card) };
+            continue;
+          }
+          if (workspace.cards.some((card) => card.id === change.placement.id) ||
+              workspace.objects.some((object) => object.id === change.placement.id))
+            throw new Error("回答卡片标识已被使用");
+          const turn = this.library.chat.turn(bookId, change.turnId)!;
+          const placement = answerPlacement(change.placement, workspace, turn.inquiry);
+          if (prepared!.created) remember(note);
+          workspace = { ...workspace, cards: [...workspace.cards, { ...placement, kind: "note", noteId: note.id,
+            title: "", text: "", comment: "" }] };
+        } else if (change.type === "create-note") {
           const now = timestamp();
           const title = change.title.trim();
           if (!title) throw new Error("笔记标题不能为空");
@@ -246,7 +275,7 @@ export class BookCommands {
       this.library.store.put("book-command", `${bookId}:${command.commandId}`, bookId, receipt);
       changedNotes = [...changed.values()];
       changedAnnotations = annotationChanges.map((change) => change.after);
-    });
+    }); } catch (error) { prepared?.discard(); throw error; }
     for (const note of changedNotes)
       this.library.emit({ type: "note", bookId, taskId: note.id, data: structuredClone(note) });
     for (const annotation of changedAnnotations)

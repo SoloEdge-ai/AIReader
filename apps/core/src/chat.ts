@@ -3,9 +3,10 @@ import type {
   ChatTurn,
   ReadingSnapshot,
   ChatImageInput,
+  Inquiry,
 } from "../../../packages/protocol/src";
 import { MAX_CHAT_IMAGES, MAX_QUESTION_MATERIALS, questionMaterialCount,
-  questionMaterialImageCount } from "../../../packages/protocol/src";
+  questionMaterialImageCount, omitMaterialTargets } from "../../../packages/protocol/src";
 import { ChatImages } from "./chat-images";
 import { Library } from "./library";
 import { CodexAdapter } from "./codex";
@@ -85,13 +86,40 @@ export class ChatService {
     effort?: string,
     imageInputs: ChatImageInput[] = [],
     materialIds: string[] = [],
+    inquiry?: Inquiry,
+    exclusions: { materialId: string; targetIds: string[] }[] = [],
   ) {
     if (this.closed) throw new Error("Core 正在关闭");
     if (
       this.list(reading.bookId, sessionId).some((t) => t.status === "running")
     )
       throw new Error("请先停止当前回答。");
-    const materials = this.materials.resolveForTurn(reading.bookId, sessionId, materialIds);
+    const originalMaterials = this.materials.resolveForTurn(reading.bookId, sessionId, materialIds);
+    if (new Set(exclusions.map((entry) => entry.materialId)).size !== exclusions.length || exclusions.some((entry) => {
+      const snapshot = originalMaterials.find((material) => material.id === entry.materialId);
+      return !snapshot || entry.targetIds.some((id) => !snapshot.targets.some((target) => target.id === id));
+    })) throw new Error("移除的材料不属于本轮冻结集合");
+    for (const entry of exclusions) {
+      const snapshot = originalMaterials.find((material) => material.id === entry.materialId)!;
+      if (snapshot.images.some((image) => image.objectIds?.some((id) => entry.targetIds.includes(id)) &&
+          image.objectIds.some((id) => !entry.targetIds.includes(id))))
+        throw new Error("共享图像仍包含已移除对象，请将这些对象全部移除后单独重新加入");
+    }
+    const materials = originalMaterials.map((snapshot) => omitMaterialTargets(snapshot,
+      exclusions.find((entry) => entry.materialId === snapshot.id)?.targetIds ?? []));
+    if (materials.some((material) => !material.targets.some((target) => target.kind !== "relation")))
+      throw new Error("请移除空的材料集合");
+    if (inquiry) {
+      const ids = new Set(materials.flatMap((material) => material.targets.filter((target) => target.kind !== "relation")
+        .map((target) => target.id)));
+      if (new Set(inquiry.targetIds).size !== inquiry.targetIds.length || inquiry.targetIds.some((id) => !ids.has(id)))
+        throw new Error("探究起点必须来自本轮已冻结材料");
+      if (inquiry.claimId && !inquiry.targetIds.includes(inquiry.claimId)) throw new Error("待检查观点必须在所选材料中");
+      if (inquiry.action === "compare" && inquiry.targetIds.length < 2) throw new Error("比较至少需要两项材料");
+      if (inquiry.action === "check" && (inquiry.targetIds.length < 2 || !inquiry.claimId ||
+          !materials.some((material) => material.sections.some((section) => section.targetId === inquiry.claimId &&
+            section.kind === "user-note")))) throw new Error("请选择一篇笔记作为待检查观点，并加入其余依据材料");
+    }
     if (questionMaterialCount(materials, imageInputs.length, Boolean(reading.selection)) > MAX_QUESTION_MATERIALS)
       throw new Error("本轮材料最多 20 项，请移除部分截图、原文或个人材料");
     if (questionMaterialImageCount(materials, imageInputs.length) > MAX_CHAT_IMAGES)
@@ -118,6 +146,7 @@ export class ChatService {
       this.renameSession(reading.bookId, sessionId, question.slice(0, 60));
     const turn: ChatTurn = {
       id: randomUUID(),
+      inquiry: inquiry ? structuredClone(inquiry) : undefined,
       images,
       materialIds,
       model,

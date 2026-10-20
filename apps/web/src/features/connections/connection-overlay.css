@@ -46,6 +46,11 @@
   stroke-width: 2;
   opacity: 0.84;
 }
+.connection-overlay-item[data-kind="material-use"] .connection-overlay-path {
+  stroke: var(--connection-ai, var(--accent));
+  stroke-dasharray: 3 4;
+  opacity: 0.65;
+}
 
 .connection-overlay-item.is-selected .connection-overlay-path {
   stroke-width: 2.4;

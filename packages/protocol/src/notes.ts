@@ -83,11 +83,14 @@ export interface Note {
     createdAt: string;
     model?: string;
     effort?: string;
+    scope?: import("./reading").ReadingSnapshot["scope"];
+    /** Preserves an edited AI origin when archive restoration resets the entity revision. */
+    edited?: boolean;
     sources: { anchor: SourceAnchor; text: string }[];
     images?: ChatImage[];
     materials?: {
       title: string;
-      sections: Omit<import("./question-materials").QuestionMaterialSection, "targetId">[];
+      sections: import("./question-materials").QuestionMaterialSection[];
       images: (ChatImage & Pick<import("./question-materials").QuestionMaterialImage,
         "userRendered" | "includesPdfBackground" | "surface" | "page">)[];
     }[];

@@ -168,13 +168,17 @@ try {
   await expect(page.locator(".question-source")).toContainText("本轮引用");
   await expect(page.locator(".question-attachment")).toHaveCount(0);
   await page
-    .getByRole("button", { name: "返回第 1 页原文", exact: true })
+    .getByRole("button", { name: "预览第 1 页原文", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "原文预览", exact: true })
+    .getByRole("button", { name: "前往原文", exact: true })
     .click();
   await page.getByLabel("回答详情", { exact: true }).click();
   await expect(page.locator(".answer-metadata")).toContainText(
     "fixture-a · 中",
   );
-  await page.getByText(/^本轮上下文 ·/).click();
+  await page.getByText(/^本轮证据 ·/).click();
   const positionAfterExpansion = await page
     .locator(".messages")
     .evaluate((node) => node.scrollTop);
@@ -189,7 +193,7 @@ try {
   expect(
     await page.locator(".messages").evaluate((node) => node.scrollTop),
   ).toBe(positionAfterExpansion);
-  await page.getByText(/^本轮上下文 ·/).click();
+  await page.getByText(/^本轮证据 ·/).click();
   await page.getByRole("button", { name: "复制回答", exact: true }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "已复制" }),

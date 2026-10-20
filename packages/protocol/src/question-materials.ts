@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PdfAnchor } from "./anchors";
+import type { SourceAnchor } from "./reading";
 
 export const MAX_QUESTION_MATERIALS = 20;
 
@@ -38,6 +39,10 @@ export type QuestionMaterialSection = {
   text: string;
   anchors?: PdfAnchor[];
   imageIds?: string[];
+  /** Core-verified selected text only; never the rest of its containing page. */
+  citation?: SourceAnchor;
+  provenance?: { kind: "ai"; turnId: string; edited: boolean };
+  relation?: { from: string; to: string; directed?: boolean };
 };
 export type QuestionMaterialImage = {
   id: string;
@@ -64,6 +69,21 @@ export type QuestionMaterialSnapshot = {
   images: QuestionMaterialImage[];
   committedTurnId?: string;
 };
+
+/** Project an immutable snapshot without re-reading or re-freezing its remaining objects. */
+export function omitMaterialTargets(snapshot: QuestionMaterialSnapshot, omitted: string[]): QuestionMaterialSnapshot {
+  const removed = new Set(omitted);
+  const available = new Set(snapshot.targets.filter((target) => target.kind !== "relation" && !removed.has(target.id))
+    .map((target) => target.id));
+  const sections = snapshot.sections.filter((section) => !section.targetId || !removed.has(section.targetId))
+    .filter((section) => !section.relation || available.has(section.relation.from) && available.has(section.relation.to));
+  const sectionTargets = new Set(sections.map((section) => section.targetId));
+  const targets = snapshot.targets.filter((target) => !removed.has(target.id) &&
+    (target.kind !== "relation" || sectionTargets.has(target.id)));
+  const imageIds = new Set(sections.flatMap((section) => section.imageIds ?? []));
+  return { ...snapshot, targets, sections, images: snapshot.images.filter((image) => imageIds.has(image.id)),
+    itemCount: targets.length };
+}
 export function questionMaterialCount(materials: Pick<QuestionMaterialSnapshot, "itemCount">[],
   imageCount = 0, hasSelection = false) {
   return materials.reduce((count, material) => count + material.itemCount,

@@ -16,6 +16,7 @@ import {
   type Note,
   type QuestionMaterialInput,
   type QuestionMaterialSnapshot,
+  type Inquiry,
   ToolPreferencesSchema,
   type ToolPreferences,
 } from "../../../packages/protocol/src";
@@ -184,15 +185,31 @@ export function App() {
     return selected.id;
   }
   async function addQuestionMaterials(bookId: string, selection: Pick<QuestionMaterialInput,
-    "workspaceRevision" | "targets" | "previews">) {
-    const sessionId = await ensureQuestionSession(bookId);
-    const snapshot = await post<QuestionMaterialSnapshot>(`books/${bookId}/question-materials`, {
-      bookId, sessionId, requestId: crypto.randomUUID(), ...selection,
-    });
+    "workspaceRevision" | "targets" | "previews">, requestedSessionId?: string) {
+    const sessionId = requestedSessionId ?? await ensureQuestionSession(bookId);
     const key = `${bookId}:${sessionId}`;
-    if (!questionDrafts.addMaterial(key, snapshot))
-      throw new Error(questionDrafts.get(key).materialError ?? "本轮材料已满");
-    if (current.current === bookId) void openChatPanel();
+    questionDrafts.update(key, { preparing: questionDrafts.get(key).preparing + 1, materialError: undefined });
+    try {
+      const snapshot = await post<QuestionMaterialSnapshot>(`books/${bookId}/question-materials`, {
+        bookId, sessionId, requestId: crypto.randomUUID(), ...selection,
+      });
+      if (!questionDrafts.addMaterial(key, snapshot))
+        throw new Error(questionDrafts.get(key).materialError ?? "本轮材料已满");
+      questionDrafts.update(key, { pendingMaterialIds: questionDrafts.get(key).pendingMaterialIds?.filter((id) =>
+        !snapshot.targets.some((target) => target.id === id)) });
+      if (current.current === bookId && localStorage.getItem(`session-${bookId}`) === sessionId) void openChatPanel();
+    } catch (error) {
+      questionDrafts.update(key, { materialError: String(error) });
+      throw error;
+    } finally { questionDrafts.update(key, { preparing: Math.max(0, questionDrafts.get(key).preparing - 1) }); }
+  }
+  async function prepareCanvasInquiry(bookId: string, inquiry: Inquiry) {
+    const sessionId = await ensureQuestionSession(bookId);
+    const prompt = inquiry.action === "explain" ? "请解释所选材料中的核心概念，并区分原文表述与补充解释。" :
+      inquiry.action === "compare" ? "这些材料的观点是否一致？请比较定义、适用条件和差异，说明是否真的矛盾。" :
+        inquiry.action === "check" ? `请检查材料 ${inquiry.claimId} 中的观点能否由其余所选材料支持，指出依据不足或推断跨度。` : "";
+    questionDrafts.prepareInquiry(`${bookId}:${sessionId}`, inquiry, prompt);
+    if (current.current === bookId && localStorage.getItem(`session-${bookId}`) === sessionId) void openChatPanel();
   }
   useEffect(() => {
     if (layout.panel === "notes") setQuestionCapture(undefined);
@@ -518,7 +535,7 @@ export function App() {
       !Number.isFinite(n) ||
       n < 1 ||
       n > book.pages ||
-      (anchor && anchor.bookId !== active)
+      (anchor && (anchor.bookId !== active || anchor.fingerprint !== book.fingerprint || anchor.page !== n))
     )
       return;
     workspace.current?.showPane("pdf");
@@ -590,7 +607,7 @@ export function App() {
     }}
     beforeWorkspaceChange={editing.flush}
     onPlace={(note) => workspace.current!.placeNote(note)}
-    onExpand={(note) => { readerTools.finish(); 
+    onExpand={(note) => { readerTools.finish();
       setExpandedNote({ bookId: book.id, id: note.id }); }}
     onAddAnnotation={async (annotation) => {
       const added = await workspace.current?.addToQuestion([annotation.id]);
@@ -969,7 +986,7 @@ export function App() {
                 onBookChanges={editing.submitChanges}
                 onCatalogChange={(bookId, catalog) => setCanvasCatalog({ bookId, catalog })}
                 notes={notes}
-                onExpandNote={(note) => { readerTools.finish(); notes.setSelected(note.id); 
+                onExpandNote={(note) => { readerTools.finish(); notes.setSelected(note.id);
                   setExpandedNote({ bookId: book.id, id: note.id }); }}
                 beforeExport={notes.flush}
                 book={book}
@@ -1003,7 +1020,9 @@ export function App() {
                     await notes.refresh();
                   } catch (cause) { setError(String(cause)); throw cause; }
                 }}
-                onQuestionMaterials={(selection) => addQuestionMaterials(book.id, selection)}
+                onQuestionMaterials={(selection, sessionId) => addQuestionMaterials(book.id, selection, sessionId)}
+                questionSessionId={chatSessions[book.id]}
+                onPrepareInquiry={(inquiry) => prepareCanvasInquiry(book.id, inquiry)}
                 key={active}
                 id={active!}
                 initialPage={book.progress}
@@ -1143,11 +1162,16 @@ export function App() {
                       onCitation={jump}
                       notes={notes.notes}
                       annotations={notes.annotations}
-                      pendingMaterialIds={selectedMaterialIds}
-                      onAddPendingMaterials={() => workspace.current?.addToQuestion(selectedMaterialIds) ?? Promise.resolve(false)}
+                      pendingMaterialIds={activeQuestionDraft.pendingMaterialIds ?? selectedMaterialIds}
+                      onAddPendingMaterials={() => workspace.current?.addToQuestion(activeQuestionDraft.pendingMaterialIds ?? selectedMaterialIds) ?? Promise.resolve(false)}
                       materialCatalog={canvasCatalog?.bookId === book.id ? canvasCatalog.catalog : undefined}
                       materialSourcesReady={Boolean(canvasCatalog?.bookId === book.id && notes.loaded)}
                       onNoteSaved={openSavedNote}
+                      onSaveAnswer={(turn) => workspace.current?.saveAnswer(turn) ?? Promise.reject(new Error("工作台尚未就绪"))}
+                      onLocateAnswer={(note) => {
+                        const card = canvasCatalog?.bookId === book.id ? canvasCatalog.catalog.cards.find((card) => card.noteId === note.id) : undefined;
+                        if (card) workspace.current?.locateItem(card.id);
+                      }}
                       onStartRegion={startQuestionCapture}
                       onSessionChange={(sessionId) => {
                         setChatSessions((old) => old[book.id] === sessionId ? old :

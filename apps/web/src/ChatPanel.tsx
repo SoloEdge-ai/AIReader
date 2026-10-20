@@ -10,7 +10,7 @@ import type {
   PdfAnchor,
 } from "../../../packages/protocol/src";
 import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
-import { MAX_QUESTION_MATERIALS, questionMaterialCount } from "../../../packages/protocol/src";
+import { MAX_QUESTION_MATERIALS, questionMaterialCount, omitMaterialTargets } from "../../../packages/protocol/src";
 import { api, post, base } from "./api";
 import { useAi, ModelPicker, AccountControls } from "./AiState";
 import { Icon } from "./ui/Icon";
@@ -45,6 +45,8 @@ export function ChatPanel({
   onAddPendingMaterials,
   materialSourcesReady,
   onNoteSaved,
+  onSaveAnswer,
+  onLocateAnswer,
   onStartRegion,
   onSessionChange,
   onMaterialLocate,
@@ -67,6 +69,8 @@ export function ChatPanel({
   onAddPendingMaterials?: () => Promise<boolean>;
   materialSourcesReady: boolean;
   onNoteSaved: (note: Note) => Promise<void>;
+  onSaveAnswer?: (turn: ChatTurn) => Promise<void>;
+  onLocateAnswer?: (note: Note) => void;
   onStartRegion: (sessionId: string) => void;
   onSessionChange: (sessionId: string) => void;
   onMaterialLocate: (anchors: PdfAnchor[]) => void;
@@ -242,10 +246,19 @@ export function ChatPanel({
     (e) => e.reasoningEffort === ai.choice?.effort,
   );
   const materialCount = questionMaterialCount(materials, images.length, Boolean(attachment));
+  const inquiryTargets = draft.inquiry?.targetIds.filter((id) => materials.some((material) =>
+    material.targets.some((target) => target.id === id))) ?? [];
+  const inquiryError = draft.inquiry?.action === "compare" && inquiryTargets.length < 2 ? "比较至少需要两项已加入的材料" :
+    draft.inquiry?.action === "check" && (inquiryTargets.length < 2 || !inquiryTargets.includes(draft.inquiry.claimId ?? ""))
+      ? "检查依据需要加入待检查笔记和其他依据材料" : undefined;
   const canSubmit =
     (!!question.trim() || !!images.length || !!materials.length) &&
     materialCount <= MAX_QUESTION_MATERIALS &&
     !preparing &&
+    !draft.pendingPrompt &&
+    !(scope === "materials" && (!materials.length && !images.length || !!draft.pendingMaterialIds?.length)) &&
+    !materialError &&
+    !inquiryError &&
     !!session &&
     !!valid &&
     !!ai.account.account &&
@@ -277,6 +290,8 @@ export function ChatPanel({
           source,
         })),
         materialIds: materials.map((material) => material.id),
+        materialExclusions: draft.materialExclusions?.filter((entry) => materials.some((material) => material.id === entry.materialId)),
+        inquiry: draft.inquiry && inquiryTargets?.length ? { ...draft.inquiry, targetIds: inquiryTargets } : undefined,
         sessionId: session,
         ...ai.choice,
       });
@@ -287,7 +302,7 @@ export function ChatPanel({
           old.some((t) => t.id === turn.id) ? old : [...old, turn],
         );
       }
-      if (book.status === "ready")
+      if (book.status === "ready" && scope !== "materials")
         void post(`books/${book.id}/index`, {
           page: reading.page,
           full: false,
@@ -462,6 +477,10 @@ export function ChatPanel({
             onCitation={onCitation}
             savedNote={notes.find((note) => note.origin?.turnId === turn.id)}
             onNoteSaved={onNoteSaved}
+            onSaveAnswer={onSaveAnswer}
+            onLocateAnswer={onLocateAnswer}
+            answerPlaced={notes.some((note) => note.origin?.turnId === turn.id && materialCatalog?.cards.some((card) =>
+              card.noteId === note.id && card.placed !== false))}
             onMaterialLocate={onMaterialLocate}
           />
         ))}
@@ -497,27 +516,43 @@ export function ChatPanel({
         }}
       >
         <div className="composer-materials">
+          {draft.inquiry && <div className="question-material-item-head">
+            <small>任务：{{ explain: "解释", compare: "比较", check: "检查依据", custom: "自定义" }[draft.inquiry.action]}</small>
+            <button onClick={() => updateDraft({ inquiry: undefined, pendingPrompt: undefined })}>改为自由提问</button>
+          </div>}
+          {inquiryError && !draft.pendingMaterialIds?.length && <p className="error" role="status">{inquiryError}</p>}
+          {draft.pendingPrompt && <section className="pending-question-materials" aria-label="保留已有问题">
+            <p>已有问题已保留。如何使用这次快捷问题？</p>
+            <p>{draft.pendingPrompt}</p>
+            <button onClick={() => updateDraft({ question: `${question}\n\n${draft.pendingPrompt}`, pendingPrompt: undefined })}>追加此问题</button>
+            <button onClick={() => updateDraft({ question: draft.pendingPrompt!, pendingPrompt: undefined })}>替换问题</button>
+            <button onClick={() => updateDraft({ pendingPrompt: undefined })}>保留原问题</button>
+          </section>}
           {!!pendingMaterialIds.length && <section className="pending-question-materials" aria-label="待加入材料">
             <strong>待加入 · {pendingMaterialIds.length} 份材料</strong>
             <ul>{pendingMaterialIds.map((id) => <li key={id}>{materialCatalog?.cards.find((card) => card.id === id)?.title || "所选绘图材料"}</li>)}</ul>
             <button type="button" disabled={!!preparing} onClick={() => void onAddPendingMaterials?.()}>加入本轮问题</button>
+            {!!draft.pendingMaterialIds?.length && <button type="button" onClick={() => updateDraft({
+              pendingMaterialIds: [], materialError: undefined })}>移除待加入材料</button>}
           </section>}
           {(!!materials.length || !!images.length || !!attachment) &&
             <span className="question-material-heading">本轮材料 · {materialCount} 项</span>}
           {!!materials.length && <div className="question-material-list" aria-label="本轮材料">
-            {materials.map((material) => {
+            {materials.flatMap((snapshot) => snapshot.targets.filter((target) => target.kind !== "relation").map((target) => ({
+              targetId: target.id, material: omitMaterialTargets(snapshot, snapshot.targets.filter((other) =>
+                other.kind !== "relation" && other.id !== target.id).map((other) => other.id)),
+            }))).map(({ material, targetId }) => {
               const anchors = material.sections.flatMap((section) => section.anchors ?? []);
               const sourceStatus = questionMaterialSourceStatus(material, { bookId: book.id,
                 catalog: materialCatalog,
                 notes: materialSourcesReady ? notes : undefined,
                 annotations: materialSourcesReady ? annotations : undefined });
-              return <div className="question-material-item" key={material.id}>
+              return <div className="question-material-item" key={`${material.id}:${targetId}`}>
                 <div className="question-material-item-head">
-                  <span>{material.title} · {material.itemCount} 项</span>
+                  <span>{material.sections[0]?.title || material.title}</span>
                   {anchors.length > 0 && <button onClick={() => onMaterialLocate(anchors)}>定位</button>}
-                  <button aria-label={`移除材料 ${material.title}`} onClick={() => updateDraft({
-                    materials: materials.filter((item) => item.id !== material.id), materialError: undefined,
-                  })}>移除</button>
+                  <button aria-label={`移除材料 ${material.sections[0]?.title || material.title}`}
+                    onClick={() => savedDrafts.removeMaterialTarget(draftKey, material.id, targetId)}>移除</button>
                 </div>
                 {sourceStatus.kind === "updated" && <p className="question-material-source-status" role="status">
                   原内容已更新 · 提问仍使用加入时的版本
@@ -529,7 +564,9 @@ export function ChatPanel({
                   {material.sections.map((section, index) => <p key={index}>
                     <small>{section.kind === "book-excerpt" ? "原文摘录" :
                       section.kind === "book-region" ? "PDF 区域" :
-                        section.kind === "relation" ? "关系" : "用户材料"}</small>
+                        section.kind === "relation" ? "用户声明的关系" : section.provenance ?
+                          (section.provenance.edited ? "AI 内容 · 已编辑" : "AI 内容") : "用户材料"}</small>
+                    {section.kind === "book-excerpt" && !section.citation && <small>尚无核验文字引用</small>}
                     {section.text}
                   </p>)}
                   {material.images.map((image) => <figure key={image.id}>
@@ -541,6 +578,12 @@ export function ChatPanel({
                 </details>
               </div>;
             })}
+            {materials.flatMap((material) => material.sections.filter((section) => section.kind === "relation").map((section) =>
+              <div className="question-material-relation" key={`${material.id}:${section.targetId}`}>
+                <small>用户声明的关系：{section.title}</small>
+                <button aria-label={`移除关系 ${section.title}`} onClick={() =>
+                  section.targetId && savedDrafts.removeMaterialTarget(draftKey, material.id, section.targetId)}>移除</button>
+              </div>))}
           </div>}
           {materialError && <p className="error" role="alert">{materialError}</p>}
           {materialCount > MAX_QUESTION_MATERIALS &&
@@ -562,7 +605,7 @@ export function ChatPanel({
           />
           {!!preparing && (
             <p className="image-hint" role="status">
-              正在处理图片…
+              正在准备提问材料…
             </p>
           )}
           {imageError && (
@@ -610,7 +653,7 @@ export function ChatPanel({
         />
         <div className="composer-actions">
           <Popover label="提问范围" triggerClass="composer-scope-trigger" className="scope-popover" placement="top" width={250}
-            trigger={<><Icon name="book" /><span>{scope === "selection" ? "选区" : scope === "chapter" ? "章节" : scope === "book" ? "全书" : (book.labels[page - 1] ?? page)}</span></>}>
+            trigger={<><Icon name="book" /><span>{scope === "materials" ? "仅所选材料" : scope === "search" ? "结合本书检索" : scope === "selection" ? "选区" : scope === "chapter" ? "章节" : scope === "book" ? "全书" : (book.labels[page - 1] ?? page)}</span></>}>
             {(close) => <div className="composer-scope">
             <span>范围</span>
             <select
@@ -623,6 +666,8 @@ export function ChatPanel({
                 close();
               }}
             >
+              <option value="materials">仅所选材料</option>
+              <option value="search">结合本书检索</option>
               <option value="auto">当前阅读位置</option>
               <option value="selection" disabled={!attachment && !selection}>
                 选中原文

@@ -140,7 +140,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             : question.includes("NOTES_NO_SOURCE")
               ? "General explanation without a book citation."
               : question.includes("CHECK_MATERIAL")
-                ? `Materials received: ${JSON.stringify({ pictures, materialPrompt: prompt.split("\n本轮显式选择的材料")[1] ?? "MISSING" })}`
+                ? `Materials received: ${JSON.stringify({ pictures, promptBase64: Buffer.from(prompt).toString("base64"), thread: threads.get(p.threadId), materialPrompt: prompt.split("\n本轮显式选择的材料")[1] ?? "MISSING" })}`
               : question.includes("CHECK_IMAGE")
                 ? `Images received: ${pictures.length}; ${pictures.join("; ")}`
                 : prompt === "CONFIG"

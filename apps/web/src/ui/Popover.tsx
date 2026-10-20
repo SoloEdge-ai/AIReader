@@ -4,6 +4,7 @@ import { positionPopover, type PopoverPlacement } from "./positionPopover";
 /** Shared native top-layer surface, bounded to the viewport rather than a feature panel. */
 export function Popover({
   label,
+  dialogLabel = label,
   triggerLabel,
   trigger,
   triggerClass,
@@ -14,9 +15,11 @@ export function Popover({
   width = 300,
   role = "dialog",
   autoFocusFirst = false,
+  focusOnOpen = false,
   children,
 }: {
   label: string;
+  dialogLabel?: string;
   triggerLabel?: string;
   trigger: ReactNode;
   triggerClass?: string;
@@ -27,7 +30,8 @@ export function Popover({
   width?: number;
   role?: "dialog" | "menu";
   autoFocusFirst?: boolean;
-  children: (close: () => void) => ReactNode;
+  focusOnOpen?: boolean;
+  children: (close: (restoreFocus?: boolean) => void) => ReactNode;
 }) {
   const id = useId(),
     panel = useRef<HTMLDivElement>(null),
@@ -37,9 +41,9 @@ export function Popover({
     if (!button.current || !panel.current) return;
     positionPopover(panel.current, button.current, placement, width);
   }
-  function close() {
+  function close(restoreFocus = true) {
     panel.current?.hidePopover();
-    button.current?.focus({ preventScroll: true });
+    if (restoreFocus) button.current?.focus({ preventScroll: true });
   }
   useEffect(() => {
     if (!open) return;
@@ -78,7 +82,8 @@ export function Popover({
         className={`reader-popover ${className}`}
         popover="auto"
         role={role}
-        aria-label={label}
+        aria-label={dialogLabel}
+        tabIndex={focusOnOpen ? -1 : undefined}
         onKeyDown={(event) => {
           if (role !== "menu") return;
           const items = Array.from(panel.current?.querySelectorAll<HTMLElement>(
@@ -95,6 +100,8 @@ export function Popover({
         onToggle={(e) => {
           setOpen(e.newState === "open");
           if (e.newState === "open") requestAnimationFrame(position);
+          if (e.newState === "open" && focusOnOpen)
+            requestAnimationFrame(() => panel.current?.focus({ preventScroll: true }));
           if (e.newState === "open" && autoFocusFirst)
             requestAnimationFrame(() => panel.current
               ?.querySelector<HTMLElement>(role === "menu"

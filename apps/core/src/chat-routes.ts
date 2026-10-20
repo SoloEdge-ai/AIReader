@@ -7,6 +7,7 @@ import {
   MAX_CHAT_IMAGES,
   ModelSelectionSchema,
   ReadingSnapshotSchema,
+  InquirySchema,
   type ModelSelection,
 } from "../../../packages/protocol/src";
 import type { ChatService } from "./chat";
@@ -75,6 +76,9 @@ export async function handleBookChatRoutes(
           question: z.string().min(1).max(6000),
           images: ChatImageInputSchema.array().max(MAX_CHAT_IMAGES).default([]),
           materialIds: z.array(z.string().uuid()).max(20).default([]),
+          inquiry: InquirySchema.optional(),
+          materialExclusions: z.array(z.object({ materialId: z.string().uuid(),
+            targetIds: z.array(z.string().min(1).max(100)).max(20) }).strict()).max(20).default([]),
           sessionId: z.string().min(1).max(100),
           model: z.string().max(100).optional(),
           effort: z.string().max(30).optional(),
@@ -104,6 +108,8 @@ export async function handleBookChatRoutes(
           chosen.effort,
           value.images,
           value.materialIds,
+          value.inquiry,
+          value.materialExclusions,
         ),
         202,
       );

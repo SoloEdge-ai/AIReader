@@ -320,12 +320,21 @@ export class Notes {
     return result!;
   }
   fromAnswer(bookId: string, turnId: string) {
+    const prepared = this.prepareFromAnswer(bookId, turnId);
+    if (prepared.created) {
+      try { this.changes.save(prepared.note); }
+      catch (error) { prepared.discard(); throw error; }
+    }
+    return { note: prepared.note, created: prepared.created };
+  }
+  /** Prepare resources before the caller's SQLite transaction; rollback owns discard. */
+  prepareFromAnswer(bookId: string, turnId: string) {
     const book = this.library.book(bookId);
     const turn = this.get<ChatTurn>("turn", bookId, turnId);
     if (turn.status !== "complete" || !turn.answer.trim())
       throw new Error("只能保存已完成且有内容的回答");
     const existing = this.list(bookId).find((n) => n.origin?.turnId === turnId);
-    if (existing) return { note: existing, created: false };
+    if (existing) return { note: existing, created: false, discard: () => {} };
     const sources = turn.citations.flatMap((anchor) => {
       const passage = turn.context.evidence.find(
         (p) => p.id === anchor.passageId,
@@ -342,6 +351,7 @@ export class Notes {
     });
     const now = new Date().toISOString();
     const copiedImages: ReturnType<ChatImages["create"]> = [];
+    const document = richDocument(answerDocument(turn.answer, sources));
     let materials: NonNullable<NonNullable<Note["origin"]>["materials"]>;
     try { materials = (turn.context.materials ?? []).map((material) => {
       const mapped = new Map<string, string>();
@@ -357,7 +367,7 @@ export class Notes {
           surface: image.surface, page: image.page };
       });
       return { title: material.title, images,
-        sections: material.sections.map(({ targetId: _targetId, ...section }) => ({
+        sections: material.sections.map((section) => ({
           ...section, imageIds: section.imageIds?.map((id) => mapped.get(id) ?? id),
           anchors: section.anchors?.map((anchor) => ({ ...anchor })),
         })) };
@@ -370,7 +380,7 @@ export class Notes {
       createdAt: now,
       updatedAt: now,
       revision: 1,
-      document: richDocument(answerDocument(turn.answer, sources)),
+      document,
       sourceReferences: [],
       origin: {
         kind: "chat",
@@ -379,14 +389,13 @@ export class Notes {
         createdAt: turn.createdAt,
         model: turn.model,
         effort: turn.effort,
+        scope: turn.context.reading.scope,
         sources,
         images: structuredClone([...(turn.images ?? []), ...copiedImages]),
         materials,
       },
     };
-    try { this.changes.save(note); }
-    catch (error) { new ChatImages(this.library).discard(bookId, copiedImages); throw error; }
-    return { note, created: true };
+    return { note, created: true, discard: () => new ChatImages(this.library).discard(bookId, copiedImages) };
   }
   async export(bookId: string, noteId: string) {
     const book = this.library.book(bookId);

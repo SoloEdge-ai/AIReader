@@ -48,6 +48,10 @@ Core 的 `book-routes` 拥有书库、阅读进度、书籍偏好、书签和 PD
 
 ## 目标依赖
 
+画布问答阶段 A 复用 `QuestionDraftStore`、书籍编辑会话和现有浮窗。Renderer 只提交快捷动作、发起对象和位置提示；Core 校验发起对象来自本轮冻结材料。`selected-evidence.ts` 在材料加入时读取本书 PDF 页边界，结合检索文字与选定 PDF 锚点生成只包含选定文字的冻结引用；严格范围的 `buildContext` 不调用检索、记忆、导航或旧对话路径，书籍工具执行也拒绝这种轮次。
+
+`Notes.prepareFromAnswer` 在书籍命令事务前准备回答笔记及资源，`BookCommands` 的 `save-answer` 在一笔事务中创建或复用 Note 并放置卡片，失败清理本次新资源。`workspace-engine/answer-placement` 只计算建议位置，内容、资源和引用验证仍归 Core。材料使用记录属于 Note 的不可编辑 origin，不写成语义 links；连接覆盖层从当前可用端点投影“用于回答”线。归档保留历史快照、重映射材料对象和引用书籍身份，完整聊天仍不入包。
+
 应用外壳组合features；features通过书籍编辑会话和类型客户端协作。UI基础不依赖业务；纯工作区引擎不依赖React/DOM/Node；PDF适配提供变换，几何不能导入React阅读器。
 
 Core HTTP调用应用操作，操作拥有事务/业务规则，存储拥有SQL/文件。共享协议不依赖应用。已验证几何、材料和引用模块逐步迁入明确位置，不按文件行数机械拆分。
