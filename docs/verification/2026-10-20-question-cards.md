@@ -8,6 +8,12 @@
 
 已检查：类型和边界通过；完整行为测试 54 文件、99/99 通过；完整阅读器浏览器 55/55 通过。之后补充了事务失败不留下问题会话、结论撤销／重做与回执重放，并重跑问题／归档／阶段 A HTTP 三项通过；补充空白问题入口及同会话多问题定位后，相关浏览器与菜单三项通过。扩展流程包含保存问题、收为结论、选择结论／状态、继续不发送、沿用材料后再次发送、个人总结及重开。
 
-Windows 开发包使用 Node 24 构建与 bundled Core smoke，Setup／Portable（store 压缩覆盖）成功；`960216f` 源码构建的包已通过扩展 `canvas-inquiry-packaged-smoke.ts` 的实际问题创建、结论选择、冻结材料沿用和关闭重开，Portable desktop smoke 通过。真实 `close-save-smoke.mjs` 通过冲突／SQLite 写锁保留草稿、重试、退出重开。聊天、图片粘贴／窗口、回答笔记与引用回源四个额外脚本也通过。最后补充完整起点问题字段，需对该源码补构建检查，不能把早期包称为最终产物。
+Windows 开发包使用 Node 24 构建与 bundled Core smoke，Setup／Portable（store 压缩覆盖）成功；`960216f` 源码构建的包已通过扩展 `canvas-inquiry-packaged-smoke.ts` 的实际问题创建、结论选择、冻结材料沿用和关闭重开，Portable desktop smoke 通过。真实 `close-save-smoke.mjs` 通过冲突／SQLite 写锁保留草稿、重试、退出重开。聊天、图片粘贴／窗口、回答笔记与引用回源四个额外脚本也通过。
+
+最终补充完整起点问题字段后，类型、问题／归档 HTTP 两项、完整浏览器 56/56 通过；重新构建 Setup／Portable 与 bundled Core smoke，并通过实际 unpacked 程序的扩展问答验收。构建时源码 `781297d` 与整理到已合入 main 后的 `583ab9d` 文件树完全一致（`git diff --exit-code` 核对），元数据如实保留原构建身份：0.1.0/development/dirty。dirty 来自保留的工作区文档，不称为正式发布。正式 PR 构建以 CI 的实际提交为准。
+
+最终本地 Setup SHA-256：`1349436EBB17428E4E7C19A33E35544A188E19F2950831973AB21917DA607450`；Portable：`4BBC6342ABFDFBAA51C773A6FCFC95ED643EB7034BEC46D19C55ECE3D5ABC3F9`。这些是开发验收包，不用于替换用户已有正式版。
+
+阶段 A 的 [PR #29](https://github.com/SoloEdge-ai/AIReader/pull/29) 已在 Windows 检查全部通过后 squash 合入 main `918b966`（2026-10-20）；本分支从该提交继续 B1。B1 不包含自动最新材料差异清单与全局问题导航，也没有合入或安装到用户目录。
 
 未覆盖：线上模型回答质量、满载长时压力、系统 DPI 矩阵。没有将用户书库作为测试输入，没有自动迁移或清理数据。
