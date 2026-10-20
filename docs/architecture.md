@@ -1,5 +1,7 @@
 # 架构与所有权
 
+问题卡片复用 Note 的保存生命周期和工作区位置，不建立第二份正文或每卡片聊天实例。Core BookCommands 拥有问题元数据、会话绑定、结论引用与逆操作；QuestionMaterials 拥有历史轮次有效材料的复制及资源权限。Renderer 仅提交用户动作并恢复对应浮窗。详见[问题卡片决策](decisions/0009-question-cards.md)。
+
 状态：`codex/liquidtext-alignment` 实现分支；交付门槛见[对齐计划](plans/liquidtext-alignment.md)。
 
 Electron启动Core utility process，Core回环HTTP/WebSocket；renderer无Node权限。PDF提取在子进程，页面/文字层由PDF.js渲染。Codex使用独立账号目录与App Server stdio。聊天轮次优先用 WebSocket 更新；仅有进行中的轮次时按书籍／会话补读 HTTP 快照，以恢复可能丢失的终态事件，完成后停止轮询。

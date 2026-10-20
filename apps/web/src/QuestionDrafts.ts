@@ -22,6 +22,7 @@ export type QuestionDraft = {
   pendingPrompt?: string;
   pendingMaterialIds?: string[];
   materialExclusions?: { materialId: string; targetIds: string[] }[];
+  reusedTurnIds?: string[];
 };
 
 const emptyDraft: QuestionDraft = {

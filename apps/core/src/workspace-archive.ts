@@ -10,6 +10,7 @@ import {
   PdfRegionSourceInputSchema,
   ReaderPreferencesSchema,
   ReadingSnapshotSchema,
+  QuestionMetadataSchema,
   type Annotation,
   type Note,
   type Book,
@@ -93,6 +94,7 @@ const note = z
       region: WorkspaceCardSchema.shape.region,
     }).strict().optional(),
     sourceReferences: NoteSourceReferencesSchema,
+    question: QuestionMetadataSchema.optional(),
     title: z.string().max(200),
     document: z.unknown().transform(richDocument),
     revision: z.number().int().nonnegative(),
@@ -530,6 +532,12 @@ export class WorkspaceArchives {
         id: mapped(n.id),
         bookId,
         revision: 1,
+        question: n.question ? { ...n.question, sessionId: undefined, sourceTurnId: undefined,
+          parentQuestionId: n.question.parentQuestionId && noteIds.has(n.question.parentQuestionId)
+            ? mapped(n.question.parentQuestionId) : undefined,
+          conclusionNoteIds: n.question.conclusionNoteIds.filter((id) => noteIds.has(id)).map(mapped),
+          currentConclusionId: n.question.currentConclusionId && noteIds.has(n.question.currentConclusionId)
+            ? mapped(n.question.currentConclusionId) : undefined } : undefined,
         annotationId: n.annotationId ? mapped(n.annotationId) : undefined,
         sourceCard: n.sourceCard ? {
           ...n.sourceCard,

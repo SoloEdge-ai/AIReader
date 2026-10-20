@@ -8,6 +8,7 @@ import type {
   Note,
   Annotation,
   PdfAnchor,
+  QuestionMaterialSnapshot,
 } from "../../../packages/protocol/src";
 import type { BookWorkspace } from "../../../packages/protocol/src/workspace";
 import { MAX_QUESTION_MATERIALS, questionMaterialCount, omitMaterialTargets } from "../../../packages/protocol/src";
@@ -46,6 +47,9 @@ export function ChatPanel({
   materialSourcesReady,
   onNoteSaved,
   onSaveAnswer,
+  onCreateQuestion,
+  onSaveConclusion,
+  requestedSession,
   onLocateAnswer,
   onStartRegion,
   onSessionChange,
@@ -70,6 +74,9 @@ export function ChatPanel({
   materialSourcesReady: boolean;
   onNoteSaved: (note: Note) => Promise<void>;
   onSaveAnswer?: (turn: ChatTurn) => Promise<void>;
+  onCreateQuestion?: (turn: ChatTurn, parentQuestionId?: string) => Promise<void>;
+  onSaveConclusion?: (turn: ChatTurn, questionId: string) => Promise<void>;
+  requestedSession?: { sessionId: string; nonce: number };
   onLocateAnswer?: (note: Note) => void;
   onStartRegion: (sessionId: string) => void;
   onSessionChange: (sessionId: string) => void;
@@ -105,6 +112,9 @@ export function ChatPanel({
   const followBottom = useRef(true);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   currentSession.current = session;
+  const sessionQuestions = notes.filter((note) => note.question?.sessionId === session);
+  const [questionId, setQuestionId] = useState("");
+  const activeQuestion = sessionQuestions.find((note) => note.id === questionId) ?? sessionQuestions[0];
   useEffect(() => {
     if (session) onSessionChange(session);
   }, [session, onSessionChange]);
@@ -136,6 +146,25 @@ export function ChatPanel({
     followBottom.current = true;
     setTurns([]);
     setError("");
+  }
+  useEffect(() => {
+    if (requestedSession) switchSession(requestedSession.sessionId);
+  }, [requestedSession?.nonce]);
+  async function reuseMaterials(turn: Pick<ChatTurn, "id">) {
+    const key = `${book.id}:${session}`;
+    if (savedDrafts.get(key).reusedTurnIds?.includes(turn.id)) return;
+    const values = await post<QuestionMaterialSnapshot[]>(`books/${book.id}/question-materials/reuse-turn`, {
+      turnId: turn.id, sessionId: session, requestId: crypto.randomUUID(),
+    });
+    const draft = savedDrafts.get(key);
+    if (draft.reusedTurnIds?.includes(turn.id)) return;
+    if (draft.attachment) throw new Error("请先移除当前原文选区，再沿用冻结材料");
+    const combined = [...draft.materials, ...values];
+    if (questionMaterialCount(combined, draft.images.length, Boolean(draft.attachment)) > MAX_QUESTION_MATERIALS ||
+        combined.reduce((sum, value) => sum + value.images.length, draft.images.length) > 4)
+      throw new Error("沿用后超过材料或图片上限，请先移除部分材料");
+    savedDrafts.update(key, { materials: combined, scope: "materials", attachment: undefined,
+      inquiry: undefined, materialError: undefined, reusedTurnIds: [...(draft.reusedTurnIds ?? []), turn.id] });
   }
   useEffect(() => {
     let live = true;
@@ -470,6 +499,15 @@ export function ChatPanel({
             )}
           </div>
         )}
+        {!!sessionQuestions.length && <div className="chat-question-context">
+          <label>当前问题<select aria-label="当前探究问题" value={activeQuestion?.id ?? ""}
+            onChange={(event) => setQuestionId(event.target.value)}>
+            {sessionQuestions.map((note) => <option key={note.id} value={note.id}>{note.title}</option>)}
+          </select></label><small>回答可收为独立结论；当前结论在问题卡片选择。</small>
+          {!turns.length && activeQuestion?.question?.sourceTurnId && <button
+            disabled={!!draft.preparing || draft.reusedTurnIds?.includes(activeQuestion.question.sourceTurnId)}
+            onClick={() => void reuseMaterials({ id: activeQuestion.question!.sourceTurnId! }).catch((error) => setError(String(error)))}>沿用起点冻结材料</button>}
+        </div>}
         {turns.map((turn) => (
           <ChatMessage
             key={turn.id}
@@ -478,6 +516,12 @@ export function ChatPanel({
             savedNote={notes.find((note) => note.origin?.turnId === turn.id)}
             onNoteSaved={onNoteSaved}
             onSaveAnswer={onSaveAnswer}
+            onCreateQuestion={onCreateQuestion ? () => onCreateQuestion(turn) : undefined}
+            onBranchQuestion={onCreateQuestion && activeQuestion ? () => onCreateQuestion(turn, activeQuestion.id) : undefined}
+            onSaveConclusion={onSaveConclusion && activeQuestion ? () => onSaveConclusion(turn, activeQuestion.id) : undefined}
+            conclusionSaved={Boolean(activeQuestion?.question?.conclusionNoteIds.some((id) => notes.some((note) => note.id === id && note.origin?.turnId === turn.id)))}
+            onReuseMaterials={turn.context.materials?.length ? () => reuseMaterials(turn) : undefined}
+            materialsReused={draft.reusedTurnIds?.includes(turn.id)}
             onLocateAnswer={onLocateAnswer}
             answerPlaced={notes.some((note) => note.origin?.turnId === turn.id && materialCatalog?.cards.some((card) =>
               card.noteId === note.id && card.placed !== false))}

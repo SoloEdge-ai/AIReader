@@ -68,6 +68,8 @@ export interface Annotation
 export interface Note {
   id: string;
   bookId: string;
+  /** Core-owned question identity. The document remains the user's own summary. */
+  question?: import("./questions").QuestionMetadata;
   annotationId?: string;
   /** Immutable source retained if the excerpt card is later removed. */
   sourceCard?: Pick<WorkspaceCard, "kind" | "title" | "text" | "source" | "region"> & { cardId: string };

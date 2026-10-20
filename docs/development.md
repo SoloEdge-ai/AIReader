@@ -1,5 +1,7 @@
 # 开发指南
 
+问题卡片回归：`pnpm exec vitest run tests/question-cards-http.test.ts` 验证真实书籍命令、会话隔离、结论版本、冻结图像复制、归档和重启；`tests/canvas-inquiry.spec.ts` 同时覆盖浏览器创建问题、手选结论与状态、继续、沿用和再次发送。问题正文仍走统一 Note 编辑器和退出保护，不能直接从 renderer 写问题元数据。
+
 Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能只检查配置。桌面使用Electron内置运行时。
 
 | 命令 | 用途 |

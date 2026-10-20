@@ -71,6 +71,40 @@ export class QuestionMaterials {
     this.resolveForTurn(bookId, sessionId, ids);
     this.records.commit(bookId, sessionId, ids, turnId);
   }
+  /** Copy the effective historical payload, including exclusions, without reading live objects. */
+  reuseTurn(bookId: string, turnId: string, sessionId: string, requestId: string) {
+    this.library.book(bookId);
+    const turn = this.library.chat.turn(bookId, turnId);
+    if (!turn || !this.library.chat.sessions(bookId).some((session) => session.id === sessionId))
+      throw new Error("轮次或目标会话不存在或不属于本书");
+    const values = turn.context.materials ?? [];
+    return values.map((source, index) => {
+      const key = `${requestId}-${index}`;
+      const digest = createHash("sha256").update(JSON.stringify({ turnId, sessionId, source })).digest("hex");
+      const prior = this.records.request(bookId, key);
+      if (prior) {
+        if (prior.digest !== digest) throw new Error("材料操作标识已被其他内容使用");
+        return this.get(bookId, sessionId, prior.materialId);
+      }
+      const id = randomUUID();
+      const snapshot: QuestionMaterialSnapshot = { ...structuredClone(source), id, sessionId,
+        createdAt: new Date().toISOString(), committedTurnId: undefined };
+      for (const section of snapshot.sections) if (section.citation)
+        section.citation.passageId = section.citation.passageId.replace(`material:${source.id}:`, `material:${id}:`);
+      const pixels = source.images.map((image) => ({ id: image.id,
+        bytes: readFileSync(this.imagePath(bookId, source.id, image.id)) }));
+      mkdirSync(this.directory(bookId, id), { recursive: true });
+      try {
+        for (const image of pixels) writeFileSync(this.imagePath(bookId, id, image.id), image.bytes, { flag: "wx" });
+        const result = this.records.create(snapshot, key, digest, () => {});
+        return result.snapshot;
+      } catch (error) {
+        for (const image of pixels) try { unlinkSync(this.imagePath(bookId, id, image.id)); } catch { /* new files only */ }
+        try { rmdirSync(this.directory(bookId, id)); } catch { /* best effort */ }
+        throw error;
+      }
+    });
+  }
   private cleanup() {
     const deadline = Date.now() - 7 * 24 * 60 * 60 * 1000;
     for (const value of this.records.expiredUncommitted(deadline)) {

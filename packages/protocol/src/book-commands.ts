@@ -2,6 +2,7 @@ import { z } from "zod";
 import { WorkspaceCardSchema, WorkspaceCommandSchema } from "./workspace";
 import type { Annotation, Note } from "./notes";
 import type { WorkspaceCommand } from "./workspace";
+import { QuestionStateSchema } from "./questions";
 
 const id = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
 const position = z.number().finite().min(0).max(1000000);
@@ -15,7 +16,15 @@ const placement = z.object({
 
 /** One book transaction may change notes and the board together. */
 export const BookChangeSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("save-answer"), turnId: id, placement }).strict(),
+  z.object({ type: z.literal("save-answer"), turnId: id, placement,
+    questionId: id.optional() }).strict(),
+  z.object({ type: z.literal("create-question"), title: z.string().trim().min(1).max(200),
+    sourceTurnId: id.optional(), parentQuestionId: id.optional(), placement }).strict(),
+  z.object({ type: z.literal("open-question"), noteId: id,
+    expectedRevision: z.number().int().positive() }).strict(),
+  z.object({ type: z.literal("update-question"), noteId: id,
+    expectedRevision: z.number().int().positive(), status: QuestionStateSchema,
+    currentConclusionId: id.nullable().optional() }).strict(),
   z.object({ type: z.literal("create-note"), title: z.string().min(1).max(200),
     document: z.unknown().optional(), placement }).strict(),
   z.object({ type: z.literal("update-note"), noteId: id, expectedRevision: z.number().int().positive(),

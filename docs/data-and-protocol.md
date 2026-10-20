@@ -65,3 +65,7 @@ Note.document 使用 Core 校验后的 Tiptap JSON。允许基础段落／标题
 阅读偏好增加 `deskLayout: spatial | adjacent`（默认 spatial）、`documentRect` 和 `noteWindow`。文档矩形位于桌面单位，浮窗矩形位于窗口像素；两者均不增加内容版本。`WorkspaceGroup.presentation` 可为 frame 或 cluster，缺省按 frame 显示；软连接从 cluster 成员与位置派生，不另存永久关系。此处为当前格式内的可选字段扩展，格式版本仍为 DB v6／工作区 v5／布局 v3／归档 v4。
 
 阅读偏好增加 `chromeCollapsed`（默认 false），按书存储，不属于内容撤销。`documentRect` 使用阅读表面的屏幕单位，与工作区相机独立。
+
+`Note.question` 为 Core 管理的可选元数据：`status`（open/exploring/concluded/review）、`sessionId`、`sourceTurnId`、起点 `materialCount`、最多 100 项 `conclusionNoteIds`、`currentConclusionId`、`parentQuestionId`。正文更新不能改元数据。书籍命令新增 create-question/open-question/update-question；save-answer 可指定同书同会话 questionId，在同一事务内保存回答、位置及结论引用。状态与当前结论只接受用户命令，模型完成不改写；选择已删或不属于问题的结论拒绝。回执、冲突、撤销和删除恢复沿用书籍级事务。
+
+`POST /api/books/:id/question-materials/reuse-turn` 接受本书 turnId、目标 sessionId 和 requestId，复制该轮实际有效的 context.materials，包括排除后的目标、冻结来源与像素。每份副本有新 material ID、未提交状态和重映射的材料引用编号，同 requestId 重试返回原副本；不读取当前对象。此入口不复制旧回答、记忆、普通附加图片或阅读选区，界面称为“冻结材料”。归档保留可选问题元数据，重映射包内问题／结论引用；原会话、起点轮次不入包，恢复时清除绑定，缺失引用不指向其他书。版本仍为 DB6／workspace5／archive4／API2。

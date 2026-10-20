@@ -11,3 +11,4 @@ export * from "./notes";
 export * from "./events";
 export * from "./question-materials";
 export * from "./inquiry";
+export * from "./questions";
