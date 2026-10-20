@@ -759,3 +759,23 @@ test("an older mount load cannot overwrite a newer explicit workspace refresh", 
     await expect(page.getByLabel("卡片正文")).toHaveValue("新快照保留");
   } finally { releaseFirst(); }
 });
+
+test("joining a pending camera save also saves content edited while that request is in flight", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+  const input = page.getByLabel("卡片正文");
+  await expect(input).toBeVisible();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Network.enable");
+  await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 1500, downloadThroughput: -1, uploadThroughput: -1 });
+  try {
+    const camera = page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname.endsWith("/workspace/camera"));
+    await page.getByRole("button", { name: "移动并保存视野", exact: true }).click();
+    await camera;
+    await input.fill("相机请求期间新增的正文也必须提交");
+    await page.getByRole("button", { name: "重试保存", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("已保存", { timeout: 10000 });
+    const origin = "http://127.0.0.1:43120";
+    const saved = await (await page.request.get(`${origin}/api/books/${bookId}/workspace`, { headers: { Origin: origin } })).json();
+    expect(saved.cards.find((card: { id: string }) => card.id === "draft-card")?.text).toBe("相机请求期间新增的正文也必须提交");
+  } finally { await cdp.detach(); }
+});

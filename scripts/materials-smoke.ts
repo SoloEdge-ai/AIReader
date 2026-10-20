@@ -35,7 +35,11 @@ try {
   await page.mouse.move(source.x + 200, source.y + 190, { steps: 8 });
   await page.mouse.up();
   await expect(page.getByRole("button", { name: "将选中对象加入提问" })).toBeVisible();
+  const frozenResponse = page.waitForResponse((response) => response.request().method() === "POST" &&
+    new URL(response.url()).pathname === `/api/books/${book.id}/question-materials`);
   await page.getByRole("button", { name: "将选中对象加入提问" }).click();
+  const frozen = await frozenResponse;
+  expect(frozen.status(), await frozen.text()).toBe(201);
   await expect(page.locator(".question-material-item")).toHaveCount(1);
   await page.locator(".question-material-item summary").click();
   await expect.poll(() => page.locator(".question-material-item img").evaluate((image: HTMLImageElement) =>

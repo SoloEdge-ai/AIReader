@@ -22,8 +22,14 @@
 
 首轮 Node24 Windows 开发构建与 bundled Core smoke、Setup／Portable（store 压缩）成功；实际 unpacked 程序的扩展问答脚本通过差异审阅、明确替换、全局导航与多次关闭重开。真实 `close-save-smoke.mjs` 通过 Core 版本冲突和 SQLite 写锁下的草稿保留、重试与重开。后续基线规则修正后的最终源码构建另行记录，不把首轮开发包当作正式发布。
 
-最终功能源码 `1a5be1890781c80edbd78b5e0c8a67955bfcf91c` 再次通过类型／边界、HTTP 场景及三项专门浏览器流程，补充错误 question/book/session 拒绝、已选结论删除提示、卡片审阅入口关闭原 Popover 和审阅访问记录。使用该提交重新执行 Node24 build、bundled Core smoke、Windows Setup／Portable（store 压缩），均成功；ASAR 元数据确认 0.1.0／development／1a5be18，dirty 来自保留的未跟踪工作区文档。最终实际 unpacked 问答／审阅／导航／重启脚本与 Portable desktop smoke 通过。开发包未替换用户正式版。
+补充 CI 诊断前的功能源码 `1a5be1890781c80edbd78b5e0c8a67955bfcf91c` 再次通过类型／边界、HTTP 场景及三项专门浏览器流程，补充错误 question/book/session 拒绝、已选结论删除提示、卡片审阅入口关闭原 Popover 和审阅访问记录。使用该提交重新执行 Node24 build、bundled Core smoke、Windows Setup／Portable（store 压缩），均成功；ASAR 元数据确认 0.1.0／development／1a5be18，dirty 来自保留的未跟踪工作区文档。该包实际 unpacked 问答／审阅／导航／重启脚本与 Portable desktop smoke 通过。开发包未替换用户正式版。
 
-最终本地 Setup SHA-256：`7C4CECAB67DF738ACD02343B12B6159D43D6B50D525A873994FB237DA467F6FA`；Portable：`3A50E4226CCD0DF483AE3A5C53201B1F43D3C34D9FFCDC603E211C15172B8126`。后续仅整理本记录和 PR 说明，不改变程序源码。远端构建、安装／升级／卸载验收由 [PR #31](https://github.com/SoloEdge-ai/AIReader/pull/31) 的 Windows 检查单独证明，以其实际提交和状态为准。
+该次本地 Setup SHA-256：`7C4CECAB67DF738ACD02343B12B6159D43D6B50D525A873994FB237DA467F6FA`；Portable：`3A50E4226CCD0DF483AE3A5C53201B1F43D3C34D9FFCDC603E211C15172B8126`。远端构建、安装／升级／卸载验收由 [PR #31](https://github.com/SoloEdge-ai/AIReader/pull/31) 的 Windows 检查单独证明，以其实际提交和状态为准。
+
+## CI 暴露的保存交错问题
+
+远端 c685c55 的完整行为 101 项、浏览器 59 项及 Windows 构建通过，但 `materials-smoke.ts` 在加入形状材料后未显示卡片，后续打包／安装步骤未执行。没有把这次失败报告为整套通过。
+
+本机普通网络和 6 倍 CPU 限速连续八次通过；真实 CDP 1500ms 网络延迟稳定复现。补充 HTTP 响应后确认 Core 返回 400“画布对象不存在或不属于本书”：视野 PUT 已完成，材料仍使用内容版本 0，而 renderer 已有新对象。最小真实浏览器回归先失败（Core 不含编辑内容），修复 `WorkspaceEditingSession.flush` 后通过：相机请求期间新增内容也必须在同一保存 Promise 内提交，再报告已保存。原材料脚本新增冻结响应 201 断言，不移除或放宽卡片／图像断言。后续完整回归与重新打包结果另行补充。
 
 未覆盖：线上模型回答质量、满载长期压力、系统 DPI 矩阵。本切片没有格式升级、自动迁移、清库或跨书材料问答。
