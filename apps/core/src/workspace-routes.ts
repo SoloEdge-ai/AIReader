@@ -88,6 +88,12 @@ export async function handleBookWorkspaceRoutes(
     return true;
   }
   if (parts[3] === "question-materials") {
+    if (req.method === "POST" && parts[4] === "reuse-turn" && parts.length === 5) {
+      const value = z.object({ turnId: z.string().uuid(), sessionId: z.string().uuid(),
+        requestId: z.string().uuid() }).strict().parse(await jsonBody(req));
+      send(res, services.materials.reuseTurn(bookId, value.turnId, value.sessionId, value.requestId), 201);
+      return true;
+    }
     if (req.method === "POST" && parts.length === 4) {
       send(res, await services.materials.create(bookId,
         await jsonBody(req, 4 * 12 * 1024 * 1024 + 1024 * 1024)), 201);

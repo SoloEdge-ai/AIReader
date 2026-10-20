@@ -61,6 +61,7 @@ import { findOpenCardPlacement } from "./features/workspace/card-placement";
 import { CompareView } from "./features/compare-focus";
 import { relatedComparisonNotes } from "./features/compare-focus/comparison-notes";
 import { InquiryActions } from "./features/chat/InquiryActions";
+import { QuestionCardControls } from "./features/notes/QuestionCardControls";
 
 export interface BookWorkspaceHandle {
   excerpt(selection: ReadingSelection, point?: InkPoint): void;
@@ -70,7 +71,8 @@ export interface BookWorkspaceHandle {
   locate(anchors: PdfAnchor[]): void;
   jumpPage(page: number): void;
   placeNote(note: Note): Promise<void>;
-  saveAnswer(turn: ChatTurn): Promise<void>;
+  saveAnswer(turn: ChatTurn, questionId?: string): Promise<void>;
+  createQuestion(turn?: ChatTurn, parentQuestionId?: string): Promise<void>;
   locateItem(id: string): void;
   restoreItem(id: string): void;
   showPane(pane: "pdf" | "board"): void;
@@ -92,6 +94,7 @@ export const BookWorkspace = forwardRef<
       "workspaceRevision" | "targets" | "previews">, sessionId?: string) => Promise<void>;
     questionSessionId?: string;
     onPrepareInquiry?: (inquiry: Inquiry) => Promise<void>;
+    onContinueQuestion?: (note: Note) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
     notes: BookNotes;
     workspaceSession: WorkspaceEditingSession;
@@ -454,18 +457,19 @@ export const BookWorkspace = forwardRef<
       if (!(await state.flush())) throw new Error("卡片放置未保存；笔记已保留在列表，画板草稿可重试");
     } finally { placing.current = false; }
   }
-  async function saveAnswer(turn: ChatTurn) {
+  async function saveAnswer(turn: ChatTurn, questionId?: string) {
     if (turn.bookId !== props.book.id || !state.value) throw new Error("回答不属于当前工作台");
     if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
-    if (!pendingAnswers.current.has(turn.id)) pendingAnswers.current.set(turn.id, {
-      commandId: crypto.randomUUID(), changes: [{ type: "save-answer", turnId: turn.id,
+    const key = `${turn.id}:${questionId ?? ""}`;
+    if (!pendingAnswers.current.has(key)) pendingAnswers.current.set(key, {
+      commandId: crypto.randomUUID(), changes: [{ type: "save-answer", turnId: turn.id, questionId,
         placement: { id: crypto.randomUUID(), x: Math.max(40, (viewport.current?.scrollLeft ?? 0) / props.zoom + 60),
           y: Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60), width: 320, height: 160 } }],
     });
-    const pending = pendingAnswers.current.get(turn.id)!;
+    const pending = pendingAnswers.current.get(key)!;
     try {
       await props.onBookChanges(pending.changes, pending.commandId);
-      pendingAnswers.current.delete(turn.id);
+      pendingAnswers.current.delete(key);
       await props.notes.refresh();
       if (!mounted.current) return;
       setInkError("");
@@ -474,6 +478,52 @@ export const BookWorkspace = forwardRef<
       setInkError(`回答尚未保存到画布：${String(error)}`);
       throw error;
     }
+  }
+  async function questionCommand(changes: BookChange[]) {
+    if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
+    const key = JSON.stringify(changes);
+    if (!pendingAnswers.current.has(key)) pendingAnswers.current.set(key, { commandId: crypto.randomUUID(), changes });
+    const pending = pendingAnswers.current.get(key)!;
+    const receipt = await props.onBookChanges(pending.changes, pending.commandId);
+    pendingAnswers.current.delete(key);
+    await props.notes.refresh();
+    return receipt;
+  }
+  async function createQuestion(turn?: ChatTurn, parentQuestionId?: string) {
+    if (!state.value || turn && turn.bookId !== props.book.id) throw new Error("问题不属于此工作台");
+    const previous = turn && !parentQuestionId && props.notes.notes.find((note) => note.question?.sourceTurnId === turn.id);
+    if (previous) {
+      const card = state.value.cards.find((card) => card.noteId === previous.id);
+      if (card) { navigate(card.x - 40, card.y - 40); selectTarget(card.id); }
+      return;
+    }
+    const key = `create-question:${turn?.id ?? "blank"}:${parentQuestionId ?? ""}`;
+    if (!pendingAnswers.current.has(key)) {
+      const placement = findOpenCardPlacement({ id: crypto.randomUUID(), x: 40,
+        y: Math.max(40, (viewport.current?.scrollTop ?? 0) / props.zoom + 60), width: 340, height: 240 },
+        state.value.cards.filter((card) => card.placed !== false));
+      pendingAnswers.current.set(key, { commandId: crypto.randomUUID(), changes: [{ type: "create-question",
+        title: parentQuestionId ? `追问：${turn?.question ?? "新的问题"}`.slice(0, 200) : turn?.question.slice(0, 200) || "新的研究问题",
+        sourceTurnId: turn?.id, parentQuestionId, placement }] });
+    }
+    if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
+    const pending = pendingAnswers.current.get(key)!;
+    const receipt = await props.onBookChanges(pending.changes, pending.commandId);
+    pendingAnswers.current.delete(key);
+    await props.notes.refresh();
+    if (!mounted.current) return;
+    const created = receipt.noteChanges.find((item) => !item.before)?.after;
+    const card = receipt.workspaceChanges.find((change) => change.type === "upsert-card");
+    if (card?.type === "upsert-card") { navigate(card.card.x - 40, card.card.y - 40); selectTarget(card.card.id); }
+    if (created && !turn) props.onExpandNote(created);
+  }
+  async function continueQuestion(note: Note) {
+    let current = note;
+    if (!note.question?.sessionId) {
+      const receipt = await questionCommand([{ type: "open-question", noteId: note.id, expectedRevision: note.revision }]);
+      current = receipt.noteChanges.find((item) => item.after.id === note.id)!.after;
+    }
+    if (mounted.current) await props.onContinueQuestion?.(current);
   }
   function prepareInquiry(action: Inquiry["action"], claimId?: string) {
     const ids = [...selectedIds];
@@ -534,6 +584,7 @@ export const BookWorkspace = forwardRef<
   useImperativeHandle(ref, () => ({ excerpt: add,
     placeNote,
     saveAnswer,
+    createQuestion,
     addToQuestion: addSelectedToQuestion,
     dropExcerpt: (selection, x, y) => {
       if (selection.text.length > 20000) { setInkError("选区超过 20,000 字，请分段摘录；原文没有被截断。"); return false; }
@@ -1398,7 +1449,15 @@ export const BookWorkspace = forwardRef<
             <div className="workspace-card-body">
               {card.kind === "note" ? (card.noteId
                 ? <NoteCardContent note={props.notes.notes.find((note) => note.id === card.noteId)}
-                  state={props.notes} showMeta={false} materialLocations={materialLocations} />
+                  state={props.notes} showMeta={false} materialLocations={materialLocations}
+                  questionControls={(() => {
+                    const note = props.notes.notes.find((note) => note.id === card.noteId);
+                    return note?.question ? <QuestionCardControls note={note} notes={props.notes.notes}
+                      onOpenNote={props.onExpandNote}
+                      onContinue={() => continueQuestion(note)}
+                      onUpdate={async (status, currentConclusionId) => { await questionCommand([{ type: "update-question",
+                        noteId: note.id, expectedRevision: note.revision, status, currentConclusionId }]); }} /> : undefined;
+                  })()} />
                 : <div className="workspace-legacy-note">
                     <strong>{card.title || "未命名笔记"}</strong>
                     <p>{[card.text, card.comment].filter(Boolean).join("\n") || "还没有内容"}</p>
@@ -1875,6 +1934,7 @@ export const BookWorkspace = forwardRef<
                 role="menu" width={230} autoFocusFirst>
                 {(close) => <div className="reader-context-menu">
                   <button role="menuitem" onClick={() => { add(); close(); }}>新建笔记</button>
+                  <button role="menuitem" onClick={() => { void createQuestion().catch((error) => setInkError(String(error))); close(); }}>新建问题</button>
                   <button role="menuitem" disabled={!selectedIds.some((id) => state.value && boardMemberBounds(state.value, id))}
                     onClick={() => { createThemeGroup(); close(); }}>将所选材料建为主题组</button>
                   <button role="menuitem" disabled={selectedIds.filter((id) => state.value?.cards.some((card) =>
@@ -2000,6 +2060,10 @@ export const BookWorkspace = forwardRef<
           onClick={() => { add(); close(); }}
         >
           <Icon name="plus" /> 笔记
+        </button>
+        <button role="menuitem" disabled={!state.value}
+          onClick={() => { void createQuestion().catch((error) => setInkError(String(error))); close(); }}>
+          <Icon name="plus" /> 新建问题
         </button>
         <button
           aria-label="撤销工作区修改"

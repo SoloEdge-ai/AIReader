@@ -10,6 +10,7 @@ import {
   PdfRegionSourceInputSchema,
   ReaderPreferencesSchema,
   ReadingSnapshotSchema,
+  QuestionMetadataSchema,
   type Annotation,
   type Note,
   type Book,
@@ -93,6 +94,7 @@ const note = z
       region: WorkspaceCardSchema.shape.region,
     }).strict().optional(),
     sourceReferences: NoteSourceReferencesSchema,
+    question: QuestionMetadataSchema.optional(),
     title: z.string().max(200),
     document: z.unknown().transform(richDocument),
     revision: z.number().int().nonnegative(),
@@ -336,6 +338,17 @@ export class WorkspaceArchives {
       if (a.assetId) referencedAssets.add(a.assetId);
     }
     for (const n of data.notes) {
+      if (n.question) {
+        if (n.origin || n.question.parentQuestionId === n.id || n.question.conclusionNoteIds.includes(n.id))
+          throw new Error("问题身份与来源或引用不匹配");
+        const parent = data.notes.find((note) => note.id === n.question!.parentQuestionId);
+        if (parent && !parent.question) throw new Error("父问题引用不是问题");
+        for (const id of n.question.conclusionNoteIds) {
+          const conclusion = data.notes.find((note) => note.id === id);
+          if (conclusion && (!conclusion.origin || conclusion.question))
+            throw new Error("问题结论引用不是独立回答笔记");
+        }
+      }
       if (
         n.bookId !== data.bookId ||
         (n.annotationId &&
@@ -530,6 +543,12 @@ export class WorkspaceArchives {
         id: mapped(n.id),
         bookId,
         revision: 1,
+        question: n.question ? { ...n.question, sessionId: undefined, sourceTurnId: undefined,
+          parentQuestionId: n.question.parentQuestionId && noteIds.has(n.question.parentQuestionId)
+            ? mapped(n.question.parentQuestionId) : undefined,
+          conclusionNoteIds: n.question.conclusionNoteIds.filter((id) => noteIds.has(id)).map(mapped),
+          currentConclusionId: n.question.currentConclusionId && noteIds.has(n.question.currentConclusionId)
+            ? mapped(n.question.currentConclusionId) : undefined } : undefined,
         annotationId: n.annotationId ? mapped(n.annotationId) : undefined,
         sourceCard: n.sourceCard ? {
           ...n.sourceCard,

@@ -2,6 +2,7 @@ import type { Note, RichNode } from "../../../../../packages/protocol/src";
 import type { BookNotes } from "./useBookNotes";
 import { MaterialKind } from "../../ui/MaterialKind";
 import { IconButton } from "../../ui/IconButton";
+import type { ReactNode } from "react";
 
 const text = (node: RichNode): string => {
   if (node.type === "inlineMath") return String(node.attrs?.latex ?? "");
@@ -27,7 +28,7 @@ export const noteSourceCount = (note: Note) => {
 };
 
 /** Placements are always lightweight previews. Rich-text editing belongs to ExpandedNote. */
-export function NoteCardContent({ note, state, editing: _editing, compact = false, showMeta = true, onExpand, materialLocations }: {
+export function NoteCardContent({ note, state, editing: _editing, compact = false, showMeta = true, onExpand, materialLocations, questionControls }: {
   note?: Note;
   state?: BookNotes;
   /** Kept while callers migrate; selection never mounts a second editor. */
@@ -36,6 +37,7 @@ export function NoteCardContent({ note, state, editing: _editing, compact = fals
   showMeta?: boolean;
   onExpand?: (note: Note) => void;
   materialLocations?: Map<string, "placed" | "unplaced">;
+  questionControls?: ReactNode;
 }) {
   if (!note) return <p role="status">笔记正在加载或已删除，请刷新工作区。</p>;
   const sources = noteSourceCount(note);
@@ -45,6 +47,7 @@ export function NoteCardContent({ note, state, editing: _editing, compact = fals
       [section.targetId ?? `${material.title}:${index}`, section] as const))).values()];
   return <div className="workspace-note-content">
     {!compact && <strong>{note.title || "未命名笔记"}</strong>}
+    {questionControls}
     <p className="workspace-note-preview">{text(note.document).trim() || "还没有写下内容"}</p>
     {used.length > 0 && <details className="note-used-materials"><summary>使用材料 · {used.length} 项</summary>
       {used.map((section, index) => <div key={index}><strong>{section.title || "所选材料"}</strong>

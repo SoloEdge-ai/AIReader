@@ -51,6 +51,8 @@ test("workspace actions live in the reader header, not over the PDF", async ({
     page.getByRole("menuitem", { name: "＋ 笔记卡片" }),
   ).toBeFocused();
   await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "新建问题", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitem", { name: "定位正文" })).toBeFocused();
   await page.setViewportSize({ width: 960, height: 720 });
   await expect.poll(async () => {

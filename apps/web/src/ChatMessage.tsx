@@ -48,6 +48,12 @@ export function ChatMessage({
   onLocateAnswer,
   answerPlaced,
   onMaterialLocate,
+  onCreateQuestion,
+  onBranchQuestion,
+  onSaveConclusion,
+  conclusionSaved,
+  onReuseMaterials,
+  materialsReused,
 }: {
   turn: ChatTurn;
   onCitation: (page: number, anchor: SourceAnchor) => void;
@@ -57,12 +63,25 @@ export function ChatMessage({
   onLocateAnswer?: (note: Note) => void;
   answerPlaced?: boolean;
   onMaterialLocate: (anchors: PdfAnchor[]) => void;
+  onCreateQuestion?: () => Promise<void>;
+  onBranchQuestion?: () => Promise<void>;
+  onSaveConclusion?: () => Promise<void>;
+  conclusionSaved?: boolean;
+  onReuseMaterials?: () => Promise<void>;
+  materialsReused?: boolean;
 }) {
   const [copyStatus, setCopyStatus] = useState("");
   const [savingNote, setSavingNote] = useState(false),
     [noteError, setNoteError] = useState("");
   const [reasoningExpanded, setReasoningExpanded] = useState<boolean>();
   const [savedOnCanvas, setSavedOnCanvas] = useState(false);
+  const [questionSaved, setQuestionSaved] = useState(false);
+  async function questionAction(action?: () => Promise<void>, done?: () => void) {
+    if (!action || savingNote) return;
+    setSavingNote(true); setNoteError("");
+    try { await action(); done?.(); } catch (error) { setNoteError(String(error)); }
+    finally { setSavingNote(false); }
+  }
   const reasoningId = useId();
   const showReasoning = reasoningExpanded ?? turn.status === "running";
   const sources = citationSnapshots(turn);
@@ -243,6 +262,14 @@ export function ChatMessage({
         <details className="answer-details">
           <summary aria-label="回答详情" title="回答详情"><Icon name="more" /></summary>
           <div className="answer-metadata">
+            {onCreateQuestion && <button disabled={savingNote || questionSaved || turn.status !== "complete"}
+              onClick={() => void questionAction(onCreateQuestion, () => setQuestionSaved(true))}>{questionSaved ? "问题已保存" : "保存为问题"}</button>}
+            {onSaveConclusion && <button disabled={savingNote || conclusionSaved || turn.status !== "complete"}
+              onClick={() => void questionAction(onSaveConclusion)}>{conclusionSaved ? "已收为结论" : "收为结论版本"}</button>}
+            {onBranchQuestion && <button disabled={savingNote || turn.status !== "complete"}
+              onClick={() => void questionAction(onBranchQuestion)}>从此回答分支新问题</button>}
+            {onReuseMaterials && <button disabled={savingNote || materialsReused}
+              onClick={() => void questionAction(onReuseMaterials)}>{materialsReused ? "冻结材料已加入" : "沿用本轮冻结材料"}</button>}
             {onSaveAnswer && <button disabled={turn.status !== "complete" || !turn.answer || savingNote}
               onClick={() => void saveNote()}>{savedNote ? "打开笔记" : "存为笔记"}</button>}
             <p>

@@ -1,4 +1,5 @@
 import type { Note } from "../../../../../packages/protocol/src/notes";
+import { questionStateLabels } from "../../../../../packages/protocol/src/questions";
 import type { BookWorkspace, WorkspaceObject } from "../../../../../packages/protocol/src/workspace";
 
 type Catalog = Pick<BookWorkspace, "cards" | "objects" | "links"> & Partial<Pick<BookWorkspace, "groups">>;
@@ -49,7 +50,7 @@ export function buildMaterialCatalog(catalog: Catalog | undefined, notes: Note[]
     if (card.kind === "note" && card.noteId) representedNotes.add(card.noteId);
     const title = note?.title ?? (card.noteId ? "未命名笔记" : card.title || "未命名卡片");
     const page = card.region?.page ?? card.source?.anchors[0]?.page;
-    const kind = card.kind === "note" ? "个人笔记" : card.kind === "region" ? "图片摘录" : "原文摘录";
+    const kind = card.kind === "note" ? note?.question ? `问题 · ${questionStateLabels[note.question.status]}` : "个人笔记" : card.kind === "region" ? "图片摘录" : "原文摘录";
     entries.push({ id: card.id, category: card.kind === "note" ? "note" : "excerpt", title,
       detail: `${page ? `第 ${page} 页 · ` : ""}${kind}${card.placed === false ? " · 未放置" : ""}`, page,
       placed: card.placed !== false, noteId: card.noteId,
@@ -59,7 +60,7 @@ export function buildMaterialCatalog(catalog: Catalog | undefined, notes: Note[]
   }
   for (const note of notes) if (!representedNotes.has(note.id) && !note.deletedAt) {
     entries.push({ id: note.id, category: "note", title: note.title,
-      detail: note.origin ? "AI 笔记 · 仅在材料库" : "个人笔记 · 仅在材料库",
+      detail: note.question ? `问题 · ${questionStateLabels[note.question.status]} · 仅在材料库` : note.origin ? "AI 笔记 · 仅在材料库" : "个人笔记 · 仅在材料库",
       noteId: note.id, placed: false,
       searchText: `${note.title} ${documentText(note.document)} ${note.sourceReferences.map((source) => `${source.title} ${source.text}`).join(" ")}`,
       sourceOrder: entries.length });

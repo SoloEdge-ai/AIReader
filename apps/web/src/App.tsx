@@ -76,6 +76,7 @@ export function App() {
   const [draggedExcerpt, setDraggedExcerpt] = useState<{ bookId: string; selection: ReadingSelection }>();
   const [questionDrafts] = useState(() => new QuestionDraftStore());
   const [chatSessions, setChatSessions] = useState<Record<string, string>>({});
+  const [requestedChat, setRequestedChat] = useState<{ bookId: string; sessionId: string; questionId: string; nonce: number }>();
   const [readerHost, setReaderHost] = useState<HTMLDivElement | null>(null);
   const questionDraftKey = active && chatSessions[active] ? `${active}:${chatSessions[active]}` : "";
   const activeQuestionDraft = useSyncExternalStore(questionDrafts.subscribe,
@@ -1023,6 +1024,20 @@ export function App() {
                 onQuestionMaterials={(selection, sessionId) => addQuestionMaterials(book.id, selection, sessionId)}
                 questionSessionId={chatSessions[book.id]}
                 onPrepareInquiry={(inquiry) => prepareCanvasInquiry(book.id, inquiry)}
+                onContinueQuestion={async (note) => {
+                  if (current.current !== note.bookId || !note.question?.sessionId) return;
+                  // Opening a question is navigation, not consent to send its own summary as evidence.
+                  workspace.current?.escape();
+                  setSelectedMaterialIds([]);
+                  const sessionId = note.question.sessionId;
+                  const key = `${note.bookId}:${sessionId}`;
+                  const draft = questionDrafts.get(key);
+                  if (!draft.question.trim()) questionDrafts.update(key, { question: note.title });
+                  localStorage.setItem(`session-${note.bookId}`, sessionId);
+                  setChatSessions((old) => ({ ...old, [note.bookId]: sessionId }));
+                  setRequestedChat({ bookId: note.bookId, sessionId, questionId: note.id, nonce: Date.now() });
+                  await openChatPanel();
+                }}
                 key={active}
                 id={active!}
                 initialPage={book.progress}
@@ -1151,6 +1166,7 @@ export function App() {
                       selection={selection}
                       action={action}
                       savedDrafts={questionDrafts}
+                      requestedSession={requestedChat?.bookId === book.id ? requestedChat : undefined}
                       onActionConsumed={() => setAction(undefined)}
                       onClearSelection={clearSelection}
                       onPickSelection={() => {
@@ -1168,12 +1184,16 @@ export function App() {
                       materialSourcesReady={Boolean(canvasCatalog?.bookId === book.id && notes.loaded)}
                       onNoteSaved={openSavedNote}
                       onSaveAnswer={(turn) => workspace.current?.saveAnswer(turn) ?? Promise.reject(new Error("工作台尚未就绪"))}
+                      onCreateQuestion={(turn, parentQuestionId) => workspace.current?.createQuestion(turn, parentQuestionId) ?? Promise.reject(new Error("工作台尚未就绪"))}
+                      onSaveConclusion={(turn, questionId) => workspace.current?.saveAnswer(turn, questionId) ?? Promise.reject(new Error("工作台尚未就绪"))}
                       onLocateAnswer={(note) => {
                         const card = canvasCatalog?.bookId === book.id ? canvasCatalog.catalog.cards.find((card) => card.noteId === note.id) : undefined;
                         if (card) workspace.current?.locateItem(card.id);
                       }}
                       onStartRegion={startQuestionCapture}
                       onSessionChange={(sessionId) => {
+                        setRequestedChat((pending) => pending?.bookId === book.id && pending.sessionId === sessionId
+                          ? undefined : pending);
                         setChatSessions((old) => old[book.id] === sessionId ? old :
                           { ...old, [book.id]: sessionId });
                         if (

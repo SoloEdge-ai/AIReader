@@ -166,6 +166,18 @@ export class BookCommands {
       for (const change of command.changes) {
         if (change.type === "save-answer") {
           const note = prepared!.note;
+          if (change.questionId) {
+            const question = this.note(bookId, change.questionId);
+            const turn = this.library.chat.turn(bookId, change.turnId)!;
+            if (question.deletedAt || !question.question || question.question.sessionId !== turn.sessionId)
+              throw new Error("回答不属于此问题的会话");
+            if (!question.question.conclusionNoteIds.includes(note.id)) {
+              if (question.question.conclusionNoteIds.length >= 100) throw new Error("每个问题最多保存 100 个结论版本");
+              remember({ ...question, question: { ...question.question,
+                conclusionNoteIds: [...question.question.conclusionNoteIds, note.id] },
+                revision: question.revision + 1, updatedAt: timestamp() }, question);
+            }
+          }
           const original = workspace.cards.find((card) => card.kind === "note" && card.noteId === note.id);
           if (original) {
             if (original.placed === false) workspace = { ...workspace, cards: workspace.cards.map((card) =>
@@ -180,6 +192,53 @@ export class BookCommands {
           if (prepared!.created) remember(note);
           workspace = { ...workspace, cards: [...workspace.cards, { ...placement, kind: "note", noteId: note.id,
             title: "", text: "", comment: "" }] };
+        } else if (change.type === "create-question") {
+          const turn = change.sourceTurnId ? this.library.chat.turn(bookId, change.sourceTurnId) : undefined;
+          if (change.sourceTurnId && !turn) throw new Error("问题起点轮次不存在或不属于此书籍");
+          if (change.parentQuestionId) {
+            const parent = this.note(bookId, change.parentQuestionId);
+            if (!parent.question || parent.deletedAt || turn && parent.question.sessionId !== turn.sessionId)
+              throw new Error("父问题或起点轮次无效");
+          }
+          const sessionId = turn && !change.parentQuestionId ? turn.sessionId : randomUUID();
+          if (!turn || change.parentQuestionId) this.library.chat.saveSession(bookId, {
+            id: sessionId, title: change.title.slice(0, 100), updatedAt: timestamp(),
+          });
+          const now = timestamp();
+          const note: Note = { id: randomUUID(), bookId, title: change.title,
+            document: noteDocument({ type: "doc", content: [{ type: "paragraph" }] }, []),
+            sourceReferences: [], revision: 1, createdAt: now, updatedAt: now,
+            question: { status: "open", sessionId, sourceTurnId: turn?.id,
+              sourceQuestion: turn?.question,
+              materialCount: (turn?.context.materials ?? []).reduce((count, material) => count + material.itemCount, 0),
+              parentQuestionId: change.parentQuestionId, conclusionNoteIds: [] } };
+          remember(note);
+          workspace = { ...workspace, cards: [...workspace.cards, { ...change.placement,
+            kind: "note", noteId: note.id, title: "", text: "", comment: "" }] };
+        } else if (change.type === "open-question" || change.type === "update-question") {
+          const old = existing(change.noteId, change.expectedRevision);
+          if (!old.question) throw new Error("这篇笔记不是问题");
+          let question = { ...old.question };
+          if (change.type === "open-question") {
+            if (question.sessionId && !this.library.chat.sessions(bookId).some((session) => session.id === question.sessionId))
+              throw new Error("问题会话不存在");
+            if (!question.sessionId) {
+              question.sessionId = randomUUID();
+              this.library.chat.saveSession(bookId, { id: question.sessionId,
+                title: old.title.slice(0, 100), updatedAt: timestamp() });
+            }
+          } else {
+            question.status = change.status;
+            if (change.currentConclusionId !== undefined) {
+              if (change.currentConclusionId !== null) {
+                const conclusion = this.note(bookId, change.currentConclusionId);
+                if (conclusion.deletedAt || !question.conclusionNoteIds.includes(conclusion.id))
+                  throw new Error("此结论已删除或不属于当前问题");
+              }
+              question.currentConclusionId = change.currentConclusionId ?? undefined;
+            }
+          }
+          remember({ ...old, question, revision: old.revision + 1, updatedAt: timestamp() }, old);
         } else if (change.type === "create-note") {
           const now = timestamp();
           const title = change.title.trim();

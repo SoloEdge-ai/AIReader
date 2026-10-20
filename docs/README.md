@@ -40,7 +40,7 @@ PR #24 的重构基线已于 2026-09-25 合入 main（eaa2403）；未完成的�
 
 ## 产品设计与后续规划
 
-[无限画布与 AI 知识问答设计](plans/canvas-inquiry.md) 定义问题、材料、回答与结论的操作闭环；阶段 A 已接入快捷提问、材料范围与回答原位保存，实际验证及限制见[画布问答实施记录](verification/2026-10-20-canvas-inquiry.md)。问题卡片、持续探究与结论历史仍为后续阶段。
+[无限画布与 AI 知识问答设计](plans/canvas-inquiry.md) 定义问题、材料、回答与结论的操作闭环；阶段 A 已接入快捷提问、材料范围与回答原位保存，实际验证及限制见[画布问答实施记录](verification/2026-10-20-canvas-inquiry.md)。阶段 B 首个切片接入问题卡片、结论历史及冻结材料续问，边界见[问题卡片决策](decisions/0009-question-cards.md)与[本轮检查](verification/2026-10-20-question-cards.md)。材料更新差异清单及全局问题导航仍待后续实施。
 
 [画布问答决策](decisions/0008-canvas-inquiry.md) 记录范围控制、来源身份、材料关联和原子保存的边界。产品/UI 描述当前工作区行为；本地实现与检查不等于正式发布。
 
