@@ -716,6 +716,58 @@ test("reading chrome collapses without losing the document and persists per book
   await expect(page.getByRole('button', { name: '新建笔记', exact: true })).toBeVisible();
 });
 
+for (const height of [720, 1800]) test(`spatial PDF height ${height} keeps its bottom and width control reachable`, async ({ page }) => {
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "spatial", chromeCollapsed: true,
+    navigation: false, panel: "none", documentRect: { x: 170, y: 24, width: 1400, height } });
+  await page.setViewportSize({ width: 3440, height: 1343 });
+  await openBook(page);
+  const pdf = page.getByRole("region", { name: "原文", exact: true });
+  const surface = (await page.locator(".reader-split").boundingBox())!;
+  const document = (await pdf.boundingBox())!;
+  expect(document.y + document.height).toBeLessThanOrEqual(surface.y + surface.height);
+  await expect(pdf.getByRole("separator", { name: "调整文档大小", exact: true })).toBeInViewport({ ratio: 1 });
+  const widthControl = pdf.getByRole("separator", { name: "调整文档宽度", exact: true });
+  await expect(widthControl).toBeInViewport({ ratio: 1 });
+  const scroll = pdf.locator(".pdf-scroll");
+  await scroll.evaluate((element) => { element.scrollTop = 450; });
+  await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(400);
+  const scrollBefore = await scroll.evaluate((element) => element.scrollTop);
+  const grip = (await widthControl.boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 - 140, grip.y + grip.height / 2 + 80, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => new Preferences(core.library).forBook(bookId).documentRect?.width).toBe(1260);
+  expect(new Preferences(core.library).forBook(bookId).documentRect?.height).toBe(height);
+  expect((await pdf.boundingBox())!.height).toBe(document.height);
+  expect(Math.abs(await scroll.evaluate((element) => element.scrollTop) - scrollBefore)).toBeLessThan(2);
+  await widthControl.focus(); await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => new Preferences(core.library).forBook(bookId).documentRect?.width).toBe(1240);
+  expect(new Preferences(core.library).forBook(bookId).documentRect?.height).toBe(height);
+  const resized = (await widthControl.boundingBox())!;
+  await page.mouse.move(resized.x + 6, resized.y + resized.height / 2); await page.mouse.down();
+  await page.mouse.move(resized.x - 80, resized.y + resized.height / 2, { steps: 4 });
+  await page.keyboard.press("Escape"); await page.mouse.up();
+  expect((await pdf.boundingBox())!.width).toBe(1240);
+  const preferred = new Preferences(core.library).forBook(bookId).documentRect;
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await expect.poll(async () => { const rect = (await pdf.boundingBox())!; return rect.y + rect.height; }).toBeLessThanOrEqual(640);
+  await expect(widthControl).toBeInViewport({ ratio: 1 });
+  await expect(pdf.getByRole("separator", { name: "调整文档大小", exact: true })).toBeInViewport({ ratio: 1 });
+  await page.getByRole("button", { name: "展开阅读工具栏", exact: true }).click();
+  await expect.poll(async () => { const rect = (await pdf.boundingBox())!; return rect.y + rect.height; }).toBeLessThanOrEqual(640);
+  expect(new Preferences(core.library).forBook(bookId).documentRect).toEqual(preferred);
+  await page.screenshot({ path: `test-results/document-visible-bottom-${height}.png` });
+  await page.setViewportSize({ width: 3440, height: 1343 });
+  await expect.poll(async () => (await pdf.boundingBox())!.width).toBe(1240);
+  expect(new Preferences(core.library).forBook(bookId).documentRect).toEqual(preferred);
+  const maximumGrip = (await widthControl.boundingBox())!;
+  await page.mouse.move(maximumGrip.x + 6, maximumGrip.y + maximumGrip.height / 2); await page.mouse.down();
+  await page.mouse.move(maximumGrip.x + 2000, maximumGrip.y + maximumGrip.height / 2, { steps: 8 }); await page.mouse.up();
+  await expect.poll(() => new Preferences(core.library).forBook(bookId).documentRect?.width).toBe(1600);
+  expect((await pdf.boundingBox())!.width).toBe(1600);
+});
+
 
 test("immediate PDF import establishes its session before the startup handshake finishes", async ({ page }) => {
   await page.route('**/api/session', async route => {

@@ -175,8 +175,9 @@ export const BookWorkspace = forwardRef<
   const [showOverview, setShowOverview] = useState(false);
   const [documentWidth, setDocumentWidth] = useState(0);
   const [narrow, setNarrow] = useState(false);
+  const [documentBounds, setDocumentBounds] = useState<{ width: number; height: number }>();
   const spatial = props.deskLayout === "spatial" && !narrow && props.readerPaneMode === "split";
-  const documentObject = useDocumentObject(props.documentRect, props.onDocumentRect);
+  const documentObject = useDocumentObject(props.documentRect, props.onDocumentRect, documentBounds);
   const documentZoom = props.pdfZoom;
   const [narrowPane, setNarrowPane] = useState<"pdf" | "board">("pdf");
   const [splitDraft, setSplitDraft] = useState(props.splitRatio);
@@ -261,7 +262,10 @@ export const BookWorkspace = forwardRef<
   useEffect(() => {
     const root = splitRoot.current;
     if (!root) return;
-    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < 840));
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrow(entry.contentRect.width < 840);
+      setDocumentBounds({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
     observer.observe(root);
     return () => observer.disconnect();
   }, []);
@@ -1851,9 +1855,8 @@ export const BookWorkspace = forwardRef<
             onKeyDown={(event) => {
               if (!spatial || event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return;
               event.preventDefault();
-              props.onDocumentRect({ ...documentObject.rect,
-                x: Math.max(0, Math.min(10000, documentObject.rect.x + (event.key === "ArrowRight" ? 24 : event.key === "ArrowLeft" ? -24 : 0))),
-                y: Math.max(0, Math.min(10000, documentObject.rect.y + (event.key === "ArrowDown" ? 24 : event.key === "ArrowUp" ? -24 : 0))) });
+              documentObject.moveBy(event.key === "ArrowRight" ? 24 : event.key === "ArrowLeft" ? -24 : 0,
+                event.key === "ArrowDown" ? 24 : event.key === "ArrowUp" ? -24 : 0);
             }}>
             <span><Icon name="book" /> 原文 <small>第 {props.page} 页</small></span>
             <div className="reader-pane-actions">
@@ -1895,15 +1898,22 @@ export const BookWorkspace = forwardRef<
               onAnnotationTarget: (id) => selectTarget(id),
             }} />
           </div>
-          {spatial && <div className="desk-document-resize" role="separator" tabIndex={0}
+          {spatial && <><div className="desk-document-width-resize" role="separator" tabIndex={0}
+            aria-label="调整文档宽度" title="拖动调整文档宽度；方向键微调" aria-orientation="vertical"
+            aria-valuemin={360} aria-valuemax={Math.min(1600, (documentBounds?.width ?? 1624) - 24)} aria-valuenow={Math.round(documentObject.rect.width)}
+            {...documentObject.resizeWidth} onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+              event.preventDefault(); documentObject.resizeBy("e", event.key === "ArrowRight" ? 20 : -20, 0);
+            }} />
+          <div className="desk-document-resize" role="separator" tabIndex={0}
             aria-label="调整文档大小" aria-orientation="vertical" aria-valuenow={documentObject.rect.width}
             {...documentObject.resize} onKeyDown={(event) => {
               if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
               event.preventDefault();
-              props.onDocumentRect({ ...documentObject.rect,
-                width: Math.max(360, Math.min(1600, documentObject.rect.width + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0))),
-                height: Math.max(320, Math.min(2000, documentObject.rect.height + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0))) });
-            }} />}
+              documentObject.resizeBy(["ArrowLeft", "ArrowRight"].includes(event.key) ? "e" : "s",
+                event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0,
+                event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0);
+            }} /></>}
         </section>
         {!narrow && !spatial && paneMode === "split" && <div className="reader-pane-separator" role="separator" tabIndex={0}
           aria-label="调整原文与工作台宽度" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={70}
