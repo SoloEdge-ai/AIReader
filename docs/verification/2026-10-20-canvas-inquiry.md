@@ -1,5 +1,9 @@
 # 2026-10-20：画布问答阶段 A 实施与检查
 
+## PR 整理后的补充检查
+
+已将原工作区保存为原分支快照，基于 main `332965a` 整理为 `codex/canvas-inquiry`、PR #29；整理后重新通过类型检查。第一次 Windows PR 检查在 `chat-smoke.ts` 查找旧的“本轮上下文”文案时失败；脚本已对齐“本轮证据”，回答笔记验收同步从“回答详情”进入原有操作。修正后重新构建 web/Core，实际执行 chat-smoke、answer-notes-smoke、citation-navigation-smoke 全部通过；没有跳过或降低行为断言。远端后续结果仍以 PR 检查为准，正式安装更新另行记录。
+
 状态：本地实现与验收记录，尚未发布。分支 `codex/citation-preview-navigation`；工作开始时已有大量暂存／未提交变更，本轮保留这些内容，新增差异以 `.local/canvas-inquiry-baseline` 的工作前快照核对。构建元数据中的 HEAD 不是本轮完整代码身份，须同时看 `workingTreeDirty`。
 
 ## 实现范围

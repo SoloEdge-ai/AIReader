@@ -178,7 +178,7 @@ try {
   await expect(page.locator(".answer-metadata")).toContainText(
     "fixture-a · 中",
   );
-  await page.getByText(/^本轮上下文 ·/).click();
+  await page.getByText(/^本轮证据 ·/).click();
   const positionAfterExpansion = await page
     .locator(".messages")
     .evaluate((node) => node.scrollTop);
@@ -193,7 +193,7 @@ try {
   expect(
     await page.locator(".messages").evaluate((node) => node.scrollTop),
   ).toBe(positionAfterExpansion);
-  await page.getByText(/^本轮上下文 ·/).click();
+  await page.getByText(/^本轮证据 ·/).click();
   await page.getByRole("button", { name: "复制回答", exact: true }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "已复制" }),

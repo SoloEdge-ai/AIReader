@@ -71,6 +71,7 @@ try {
       response.request().method() === "POST" &&
       /\/turns\/[^/]+\/note$/.test(new URL(response.url()).pathname),
   );
+  await page.getByLabel("回答详情", { exact: true }).click();
   await page.getByRole("button", { name: "存为笔记", exact: true }).click();
   const saved: { note: Note; created: boolean } = await (
     await firstSave
