@@ -52,6 +52,9 @@ test("material navigation and chat remain visible beside the same PDF", async ({
   await expect(page.locator(".floating-chat .chat")).toBeVisible();
   await expect(page.locator(".reading .pdf-page").first()).toBeVisible();
   await page.screenshot({ path: "test-results/materials-and-chat.png" });
+  // Seed the legacy preference with no active reader still saving newer UI
+  // preferences; this scenario tests reopening that persisted format.
+  await page.goto("http://127.0.0.1:5173/");
   await page.evaluate(async (id) => {
     const url = `http://127.0.0.1:43120/api/books/${id}/preferences`;
     const previous = await (await fetch(url, { credentials: "include" })).json();
