@@ -29,6 +29,7 @@ export class Questions {
       return { id: note.id, bookId: note.bookId, bookTitle: books.get(note.bookId)!.title, title: note.title,
         status: note.question.status, updatedAt: note.updatedAt,
         lastOpenedAt: visits.get(`${note.bookId}:${note.id}`), materialCount: note.question.materialCount,
+        currentConclusionId: note.question.currentConclusionId,
         conclusionTitle: this.records.title(note.bookId, note.question.currentConclusionId),
         cardId: card?.id, placed: card?.placed ?? false };
     }).sort((a, b) => (b.lastOpenedAt ?? "").localeCompare(a.lastOpenedAt ?? "") || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));

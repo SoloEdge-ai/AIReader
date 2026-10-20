@@ -1110,6 +1110,9 @@ export function App() {
                 onContinueQuestion={continueQuestionInChat}
                 onReviewQuestion={async (note) => {
                   if (current.current !== note.bookId) throw new Error("问题工作台已切换");
+                  await post(`books/${note.bookId}/questions/${note.id}/visit`, {});
+                  if (current.current !== note.bookId) throw new Error("问题工作台已切换");
+                  setQuestionNavRevision((old) => old + 1);
                   setMaterialReview(note);
                 }}
                 key={active}

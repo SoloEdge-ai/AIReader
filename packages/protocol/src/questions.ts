@@ -25,7 +25,7 @@ export const questionStateLabels: Record<QuestionMetadata["status"], string> = {
 export type QuestionSummary = {
   id: string; bookId: string; bookTitle: string; title: string;
   status: QuestionMetadata["status"]; updatedAt: string; lastOpenedAt?: string;
-  conclusionTitle?: string; materialCount: number; cardId?: string; placed: boolean;
+  currentConclusionId?: string; conclusionTitle?: string; materialCount: number; cardId?: string; placed: boolean;
 };
 export type MaterialReviewPlan = {
   bookId: string; questionId: string; questionRevision: number; sessionId: string;

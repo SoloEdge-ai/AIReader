@@ -26,8 +26,8 @@ export function QuestionCardControls({ note, notes, onContinue, onReview, onUpda
       <button disabled={busy} onClick={() => void run(onContinue)}>继续探究</button></div>
     <p className="question-card-conclusion">材料 · {materialCount} 项 · {current ? `当前结论：${current.title}` : question.currentConclusionId ? "当前结论已删除" : "尚未选定当前结论"}</p>
     <Popover label="问题状态与结论" trigger={<span>状态与结论 · {question.conclusionNoteIds.length}</span>}>
-      {() => <div className="question-card-settings">
-        <button disabled={busy} onClick={() => void run(onReview)}>检查材料更新</button>
+      {(close) => <div className="question-card-settings">
+        <button disabled={busy} onClick={() => void run(async () => { await onReview(); close(false); })}>检查材料更新</button>
         <label>问题状态<select aria-label="问题状态" disabled={busy} value={question.status}
           onChange={(event) => void run(() => onUpdate(event.target.value as QuestionMetadata["status"]))}>
           {Object.entries(questionStateLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}

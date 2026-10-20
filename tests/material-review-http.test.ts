@@ -155,5 +155,9 @@ test("material reviews freeze real differences and navigation stays durable and 
     await execute([{ type: "delete-note", noteId: other.id, expectedRevision: other.revision }], foreign.id);
     expect((await ok<QuestionSummary[]>("questions")).some((item) => item.bookId === foreign.id)).toBe(false);
     expect((await notes()).find((note) => note.id === question.id)).toEqual(question);
+    await execute([{ type: "delete-note", noteId: conclusion.id, expectedRevision: conclusion.revision }]);
+    expect((await ok<QuestionSummary[]>("questions")).find((item) => item.id === question.id))
+      .toMatchObject({ currentConclusionId: conclusion.id });
+    expect((await ok<QuestionSummary[]>("questions")).find((item) => item.id === question.id)?.conclusionTitle).toBeUndefined();
   } finally { await core.close(); await rm(directory, { recursive: true, force: true }); }
 }, 40000);

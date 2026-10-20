@@ -51,7 +51,7 @@ export function QuestionNavigator({ currentBookId, onNavigate, revision }: {
       {!loading && !visible.length && <p>没有符合条件的问题。</p>}
       <div className="question-directory">{visible.map((item) => <article key={`${item.bookId}:${item.id}`} data-question-id={item.id}>
         <strong>{item.title}</strong><small>{item.bookTitle} · {questionStateLabels[item.status]} · {item.placed ? "已放置" : "未放置在画布"}</small>
-        <p>{item.conclusionTitle ? `当前结论：${item.conclusionTitle}` : "尚未选定当前结论"}</p>
+        <p>{item.conclusionTitle ? `当前结论：${item.conclusionTitle}` : item.currentConclusionId ? "当前结论已删除或不可用" : "尚未选定当前结论"}</p>
         <div><button disabled={busy} onClick={() => void navigate(item, "continue")}>继续探究</button>
           <button disabled={busy} onClick={() => void navigate(item, "locate")}>查看问题</button>
           <button disabled={busy} onClick={() => void navigate(item, "review")}>检查材料更新</button></div>

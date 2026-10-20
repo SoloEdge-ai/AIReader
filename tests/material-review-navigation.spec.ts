@@ -107,6 +107,12 @@ test("review exact frozen versions, preserve a draft, then send only after confi
   expect(prompt).toContain("LATEST_PERSONAL"); expect(prompt).not.toContain("CHANGED_AFTER_REVIEW"); expect(prompt).not.toContain("INITIAL_PERSONAL");
   expect(core.library.store.get<Note>("note", conclusion.id)).toEqual(conclusion);
   expect(core.library.store.get<Note>("note", question.id)).toEqual(question);
+  await chat.getByRole("button", { name: "关闭问答浮窗", exact: true }).click();
+  await page.locator('[data-card-id="q"]').getByRole("button", { name: "问题状态与结论", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "问题状态与结论", exact: true });
+  await settings.getByRole("button", { name: "检查材料更新", exact: true }).click();
+  await expect(settings).toBeHidden();
+  await expect(page.getByLabel("材料更新差异清单", { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
