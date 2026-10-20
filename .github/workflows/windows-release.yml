@@ -59,6 +59,8 @@ jobs:
           node --import tsx scripts/pdf-region-chat-smoke.ts 1
           node --import tsx scripts/pdf-region-chat-smoke.ts 1.5
           node --import tsx scripts/pdf-region-chat-smoke.ts 2
+      - name: Citation preview and reading position acceptance
+        run: node --import tsx scripts/citation-navigation-smoke.ts
       - name: Annotation and save-recovery acceptance
         run: node scripts/annotations-smoke.mjs 1 release/win-unpacked/AIReader.exe
         env:
@@ -73,6 +75,14 @@ jobs:
           AIREADER_CI: "1"
       - name: Packaged canvas objects acceptance
         run: node scripts/objects-packaged-smoke.mjs release/win-unpacked/AIReader.exe
+        env:
+          AIREADER_CI: "1"
+      - name: Existing compact cards and restart acceptance
+        run: node --import tsx scripts/compact-cards-packaged-smoke.ts release/win-unpacked/AIReader.exe
+        env:
+          AIREADER_CI: "1"
+      - name: Packaged canvas inquiry and restart acceptance
+        run: node --import tsx scripts/canvas-inquiry-packaged-smoke.ts release/win-unpacked/AIReader.exe
         env:
           AIREADER_CI: "1"
       - name: Packaged desktop smoke test

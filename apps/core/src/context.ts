@@ -21,7 +21,8 @@ export function renderPrompt(
   let inputImageIndex = images.length;
   const selectedMaterials = (context.materials ?? []).map((material) => ({
     snapshotId: material.id, title: material.title,
-    sections: material.sections.map((section) => ({ kind: section.kind, title: section.title,
+    sections: material.sections.map((section) => ({ kind: section.kind, targetId: section.targetId,
+      title: section.title, provenance: section.provenance, relation: section.relation,
       text: section.text, anchors: section.anchors, imageIds: section.imageIds })),
     images: material.images.map((image) => ({ inputImageIndex: ++inputImageIndex,
       id: image.id, userRendered: image.userRendered,
@@ -41,6 +42,22 @@ export function buildContext(
 ): ContextManifest {
   const snapshot = structuredClone(reading);
   const book = library.book(snapshot.bookId);
+  if (snapshot.scope === "materials") {
+    if (!materials.length && !images.length) throw new Error("仅所选材料范围需要先加入有效材料");
+    // A raw renderer selection is not a Core-verified material snapshot.
+    snapshot.selection = "";
+    const evidence: Passage[] = materials.flatMap((material) => material.sections.flatMap((section) =>
+      section.kind === "book-excerpt" && section.citation && section.citation.bookId === book.id &&
+      section.citation.fingerprint === book.fingerprint
+        ? [{ id: section.citation.passageId, bookId: book.id, page: section.citation.page, text: section.text,
+          anchor: structuredClone(section.citation) }] : []));
+    const context: ContextManifest = { estimatedTokens: 0, budget: 12000,
+      coverage: "仅所选材料；未加入阅读位置、邻近段落、章节导航、会话记忆或旧对话。无核验文字引用的材料仅按用户资料分析，信息不足时明确说明。",
+      reading: snapshot, evidence, memory: "", recent: "", navigation: "", materials: structuredClone(materials) };
+    context.estimatedTokens = estimateTokens(renderPrompt(context, question, images));
+    if (context.estimatedTokens > context.budget) throw new Error("所选材料超出上下文预算，请缩小选择");
+    return context;
+  }
   const all = library.passages(book.id);
   const chapter = [...book.chapters]
     .sort((a, b) => (b.depth ?? 0) - (a.depth ?? 0))

@@ -9,7 +9,7 @@ export type ConnectionRect = Readonly<{
 
 export type ConnectionAnchor = ConnectionPoint | ConnectionRect;
 
-export type ConnectionKind = "source" | "relation" | "ai-preview" | "ai-frozen";
+export type ConnectionKind = "source" | "relation" | "ai-preview" | "ai-frozen" | "material-use";
 
 export type ConnectionEdge = "top" | "right" | "bottom" | "left";
 

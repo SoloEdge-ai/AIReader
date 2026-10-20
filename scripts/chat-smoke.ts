@@ -168,7 +168,11 @@ try {
   await expect(page.locator(".question-source")).toContainText("本轮引用");
   await expect(page.locator(".question-attachment")).toHaveCount(0);
   await page
-    .getByRole("button", { name: "返回第 1 页原文", exact: true })
+    .getByRole("button", { name: "预览第 1 页原文", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "原文预览", exact: true })
+    .getByRole("button", { name: "前往原文", exact: true })
     .click();
   await page.getByLabel("回答详情", { exact: true }).click();
   await expect(page.locator(".answer-metadata")).toContainText(

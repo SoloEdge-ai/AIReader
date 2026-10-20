@@ -16,6 +16,10 @@ PR #24 已合入 main；后续功能继续使用 `codex/*` 分支、PR 检查和
 
 ## 验收
 
+画布问答阶段 A 使用 `tests/canvas-inquiry-http.test.ts`、`tests/inquiry-drafts.test.ts` 与 `tests/canvas-inquiry.spec.ts`。前两项进入 `pnpm test`，浏览器场景进入 `pnpm test:reader-ui`；验证范围详情见[本轮记录](verification/2026-10-20-canvas-inquiry.md)。实际线上模型、满载压力与系统 DPI 必须分别记录，不能由夹具或普通浏览器测试推定通过。
+
+紧凑卡片回归执行 `node --import tsx scripts/compact-cards-packaged-smoke.ts release/win-unpacked/AIReader.exe`，直接在隔离 v6 数据库中准备已有 120／128 高度卡片，再由实际打包程序检查 Core HTTP 读取和 renderer 显示，创建 120 高度笔记，并关闭、重启检查持久化。PR Windows 构建后执行同一验收；不使用或改写用户书库。
+
 书籍隔离、来源冻结、模型实际图片、预算；保存失败/响应丢失/幂等/冲突/切书/退出；工具焦点/IME/取消/平移；旋转/CropBox/跨页/区域/来源返回；归档独立恢复与恶意文件拒绝。
 
 浅深主题、1280×720/1440×900/1920×1080、100/150/200%DPI。516页/500卡片/1000关系/5000对象/250000点压力样本，记录机器/帧/长任务/内存/保存时间。

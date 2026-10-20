@@ -12,6 +12,7 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 | pnpm build | 桌面/Core/web构建与Core smoke |
 | pnpm desktop:windows | Setup和Portable |
 | pnpm test:e2e | 桌面smoke |
+| node --import tsx scripts/compact-cards-packaged-smoke.ts release/win-unpacked/AIReader.exe | 隔离书库验证已有紧凑卡片加载、显示、笔记保存及重启 |
 | node scripts/close-save-smoke.mjs | 隔离 Electron 关闭／真实 Core 冲突与 SQLite 写锁失败恢复、重开持久化验收 |
 
 开发默认数据位置与桌面相同；隔离时显式设置AIREADER_DATA为临时目录。测试不得使用用户数据库。`pnpm test:e2e` 现在默认创建并清理独立临时数据库，避免旧测试库版本阻止窗口启动；安装连续性测试通过 `AIREADER_SMOKE_USE_DEFAULT=1` 明确选择受控的安装测试目录，不能对用户默认目录运行。工作前读索引/规范、检查分支/用户改动；按可观察流程实现、验证、同步文档，再提交。
@@ -27,6 +28,10 @@ Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能
 新增对象：schema、Core事务校验、呈现/命中、材料投影、资源来源、归档及跨书/撤销验收。
 
 新增AI材料：Core读取/版本校验、加入时冻结、实际发送预览、预算/图片上限、引用类别、删除后可用性。
+
+画布问答回归：`pnpm exec vitest run tests/canvas-inquiry-http.test.ts tests/inquiry-drafts.test.ts tests/question-materials-http.test.ts` 覆盖实际模型输入、冻结排除、来源身份、原子保存与归档；`pnpm exec playwright test tests/canvas-inquiry.spec.ts --config tests/palette-playwright.config.ts` 覆盖真实阅读页流程，已包含在 `pnpm test:reader-ui`。严格材料范围的修改同时检查 `context`、Codex 配置与工具入口，不能只验证范围文案。
+
+`node --import tsx scripts/canvas-inquiry-packaged-smoke.ts release/win-unpacked/AIReader.exe` 在临时书库准备生成 PDF、真实冻结材料和已完成回答，再用实际打包程序保存到画布、检查材料使用连线并关闭重开。该命令不连接线上模型，已加入 Windows PR 工作流。
 
 新模块入口稳定后补完整例子；不把尚未存在的目标目录写成现状。
 

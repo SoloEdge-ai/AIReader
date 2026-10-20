@@ -5,7 +5,6 @@ import {
   QuestionMaterialInputSchema,
   MAX_QUESTION_MATERIALS,
   MAX_CHAT_IMAGES,
-  questionMaterialCount,
   type Annotation,
   type Note,
   type QuestionMaterialImage,
@@ -20,9 +19,11 @@ import { Notes } from "./notes";
 import { WorkspaceAssets } from "./workspace-assets";
 import { Workspaces } from "./workspace";
 import { QuestionMaterialRepository } from "./question-material-repository";
+import { selectedCitations } from "./selected-evidence";
 
 const plainText = (node: RichNode): string => {
-  const content = (node.content ?? []).map(plainText).join("");
+  if (node.type === "inlineMath" || node.type === "blockMath") return String(node.attrs?.latex ?? "") + "\n";
+  const content = (node.content ?? []).map(plainText).join(node.type === "tableRow" ? " | " : "");
   return (node.text ?? "") + content +
     (["paragraph", "heading", "blockquote", "listItem", "codeBlock"].includes(node.type) ? "\n" : "");
 };
@@ -64,8 +65,6 @@ export class QuestionMaterials {
     const values = ids.map((id) => this.get(bookId, sessionId, id));
     if (values.some((value) => value.committedTurnId))
       throw new Error("材料快照已用于上一轮，请重新添加以生成新快照");
-    if (questionMaterialCount(values) > MAX_QUESTION_MATERIALS)
-      throw new Error("每轮最多 20 项材料，请移除部分材料");
     return values;
   }
   commit(bookId: string, sessionId: string, ids: string[], turnId: string) {
@@ -109,6 +108,8 @@ export class QuestionMaterials {
     const includedLinks = workspace.links.filter((link) =>
       input.targets.some((target) => target.kind === "relation" && target.id === link.id) ||
       (selected.has(link.from) && selected.has(link.to)));
+    if (includedLinks.some((link) => !selected.has(link.from) || !selected.has(link.to)))
+      throw new Error("请同时选择关系的两个端点材料，或移除此关系");
     if (input.targets.length + includedLinks.filter((link) =>
       !input.targets.some((target) => target.kind === "relation" && target.id === link.id)).length > MAX_QUESTION_MATERIALS)
       throw new Error("关联关系使本轮材料超过 20 项，请缩小选择");
@@ -149,7 +150,8 @@ export class QuestionMaterials {
           const note = notes.get(card.noteId);
           if (!note || target.revision !== note.revision) throw new Error("卡片笔记已变化，请重新加入材料");
           linkedNotes.set(note.id, note.revision);
-          sections.push({ kind: "user-note", targetId: card.id, title: note.title, text: plainText(note.document) });
+          sections.push({ kind: "user-note", targetId: card.id, title: note.title, text: plainText(note.document),
+            provenance: note.origin ? { kind: "ai", turnId: note.origin.turnId, edited: Boolean(note.origin.edited || note.revision > 1) } : undefined });
         }
         if (card.comment) sections.push({ kind: "user-note", targetId: card.id,
           title: `${card.title} · 个人评论`, text: card.comment });
@@ -185,12 +187,21 @@ export class QuestionMaterials {
         if (target.revision !== note.revision)
           throw new Error("笔记已变化，请重新加入材料");
         sections.push({ kind: "user-note", targetId: note.id, title: note.title,
-          text: plainText(note.document) });
+          text: plainText(note.document),
+          provenance: note.origin ? { kind: "ai", turnId: note.origin.turnId, edited: Boolean(note.origin.edited || note.revision > 1) } : undefined });
       }
     }
     for (const link of includedLinks) {
       sections.push({ kind: "relation", targetId: link.id, title: link.label || "对象关系",
+        relation: { from: link.from, to: link.to, directed: link.directed },
         text: `关系 ${link.from} ${link.directed ? "→" : "—"} ${link.to}${link.label ? `：${link.label}` : ""}` });
+    }
+    // Verify a selected quote without promoting the containing passage/page to evidence.
+    const citations = await selectedCitations(this.library.file(bookId), this.library.passages(bookId),
+      sections.flatMap((section, index) => section.kind === "book-excerpt"
+        ? [{ text: section.text, anchors: section.anchors, id: `material:${materialId}:${index}` }] : []));
+    for (const [index, section] of sections.entries()) {
+      section.citation = citations.get(`material:${materialId}:${index}`);
     }
     const covered = new Set<string>();
     for (const preview of input.previews) {

@@ -823,6 +823,62 @@ progress::-webkit-progress-value {
   line-height: 1.5;
   border-radius: 5px;
 }
+.citation-preview {
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.citation-preview:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+.citation-preview-heading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.citation-preview-heading strong {
+  display: block;
+  font-weight: 600;
+}
+.citation-preview-heading span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.citation-preview-heading button {
+  flex-shrink: 0;
+  padding: 4px;
+}
+.citation-preview-text {
+  min-height: 0;
+  max-height: min(300px, 45vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 14px 0 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--line);
+  background: var(--bg);
+}
+.citation-preview-caption {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+}
+.citation-preview-actions {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.citation-preview-actions button {
+  border-color: var(--line);
+}
 .turn-status,
 .copy-status {
   color: var(--muted);

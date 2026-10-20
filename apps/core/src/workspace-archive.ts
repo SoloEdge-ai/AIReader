@@ -9,6 +9,7 @@ import {
   PdfAnchorSchema,
   PdfRegionSourceInputSchema,
   ReaderPreferencesSchema,
+  ReadingSnapshotSchema,
   type Annotation,
   type Note,
   type Book,
@@ -106,6 +107,8 @@ const note = z
         createdAt: z.string().max(100),
         model: z.string().max(200).optional(),
         effort: z.string().max(100).optional(),
+        scope: ReadingSnapshotSchema.shape.scope.optional(),
+        edited: z.boolean().optional(),
         sources: z
           .array(z.object({ anchor, text: z.string().max(100000) }))
           .max(500),
@@ -114,10 +117,14 @@ const note = z
           title: z.string().max(300),
           sections: z.array(z.object({
             kind: z.enum(["book-excerpt", "book-region", "user-note", "user-mark", "relation"]),
+            targetId: id.optional(),
+            citation: anchor.optional(),
+            provenance: z.object({ kind: z.literal("ai"), turnId: id, edited: z.boolean() }).optional(),
+            relation: z.object({ from: id, to: id, directed: z.boolean().optional() }).optional(),
             title: z.string().max(300), text: z.string().max(100000),
             anchors: z.array(PdfAnchorSchema).max(500).optional(),
             imageIds: z.array(id).max(4).optional(),
-          })).max(20),
+          })).max(40),
           images: z.array(materialImage).max(4),
         })).max(20).optional(),
       })
@@ -403,6 +410,9 @@ export class WorkspaceArchives {
       for (const material of n.origin?.materials ?? []) {
         for (const section of material.sections) {
           section.anchors?.forEach(validAnchor);
+          if (section.citation && (section.kind !== "book-excerpt" || section.citation.bookId !== data.bookId ||
+              section.citation.fingerprint !== data.fingerprint || section.citation.page > data.pages))
+            throw new Error("笔记材料文字引用不属于此文档");
           for (const imageId of section.imageIds ?? [])
             if (!material.images.some((image) => image.id === imageId) ||
               !n.origin?.images?.some((image) => image.id === imageId))
@@ -498,6 +508,10 @@ export class WorkspaceArchives {
           ...data.notes.flatMap((note) => [
             ...(note.sourceCard ? [note.sourceCard.cardId] : []),
             ...note.sourceReferences.flatMap((reference) => [reference.id, reference.targetId]),
+            ...(note.origin?.materials ?? []).flatMap((material) => material.sections.flatMap((section) => [
+              ...(section.targetId ? [section.targetId] : []),
+              ...(section.relation ? [section.relation.from, section.relation.to] : []),
+            ])),
           ]), ...objectIds,
           ...data.workspace.links.map((link) => link.id)].map((old) => [
           old,
@@ -533,6 +547,7 @@ export class WorkspaceArchives {
         origin: n.origin
           ? {
               ...n.origin,
+              edited: Boolean(n.origin.edited || n.revision > 1),
               sources: n.origin.sources.map((s) => ({
                 ...s,
                 anchor: { ...s.anchor, bookId },
@@ -552,6 +567,10 @@ export class WorkspaceArchives {
                 ...material,
                 images: material.images.map((image) => ({ ...image, id: mapped(image.id) })),
                 sections: material.sections.map((section) => ({ ...section,
+                  targetId: section.targetId ? mapped(section.targetId) : undefined,
+                  relation: section.relation ? { ...section.relation,
+                    from: mapped(section.relation.from), to: mapped(section.relation.to) } : undefined,
+                  citation: section.citation ? { ...section.citation, bookId } : undefined,
                   imageIds: section.imageIds?.map(mapped),
                 })),
               })),

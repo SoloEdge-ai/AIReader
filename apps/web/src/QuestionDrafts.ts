@@ -3,9 +3,10 @@ import type {
   ReadingSnapshot,
   PdfRegionSourceInput,
   QuestionMaterialSnapshot,
+  Inquiry,
 } from "../../../packages/protocol/src";
 import { MAX_CHAT_IMAGES, MAX_QUESTION_MATERIALS, questionMaterialCount,
-  questionMaterialImageCount } from "../../../packages/protocol/src";
+  questionMaterialImageCount, omitMaterialTargets } from "../../../packages/protocol/src";
 import { prepareQuestionImage, type DraftImage } from "./QuestionImages";
 
 export type QuestionDraft = {
@@ -17,6 +18,10 @@ export type QuestionDraft = {
   preparing: number;
   imageError?: string;
   materialError?: string;
+  inquiry?: Inquiry;
+  pendingPrompt?: string;
+  pendingMaterialIds?: string[];
+  materialExclusions?: { materialId: string; targetIds: string[] }[];
 };
 
 const emptyDraft: QuestionDraft = {
@@ -53,6 +58,24 @@ export class QuestionDraftStore {
     if (this.get(key) !== submitted) return;
     this.drafts.delete(key);
     this.emit();
+  }
+  prepareInquiry(key: string, inquiry: Inquiry, prompt: string) {
+    const draft = this.get(key);
+    this.update(key, { inquiry, scope: "materials", attachment: undefined,
+      pendingMaterialIds: inquiry.targetIds.filter((id) => !draft.materials.some((material) => material.targets.some((target) => target.id === id))),
+      ...(draft.question.trim() && prompt ? { pendingPrompt: prompt } : { question: prompt || draft.question, pendingPrompt: undefined }) });
+  }
+  removeMaterialTarget(key: string, materialId: string, targetId: string) {
+    const draft = this.get(key);
+    const snapshot = draft.materials.find((material) => material.id === materialId);
+    if (!snapshot) return;
+    const filtered = omitMaterialTargets(snapshot, [targetId]);
+    const exclusions = draft.materialExclusions ?? [];
+    const previous = exclusions.find((entry) => entry.materialId === materialId)?.targetIds ?? [];
+    this.update(key, { materials: draft.materials.flatMap((material) => material.id !== materialId ? [material] :
+      filtered.targets.some((target) => target.kind !== "relation") ? [filtered] : []),
+      materialExclusions: [...exclusions.filter((entry) => entry.materialId !== materialId),
+        { materialId, targetIds: [...new Set([...previous, targetId])] }], materialError: undefined });
   }
   async addImages(key: string, files: File[], source?: PdfRegionSourceInput) {
     const draft = this.get(key);

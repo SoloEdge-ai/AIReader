@@ -5,7 +5,7 @@ export const ReadingSnapshotSchema = z.object({
   bookId: z.string().min(1),
   page: z.number().int().positive(),
   selection: z.string().max(12000).default(""),
-  scope: z.enum(["auto", "selection", "chapter", "book"]).default("auto"),
+  scope: z.enum(["auto", "selection", "chapter", "book", "materials", "search"]).default("auto"),
 });
 export type ReadingSnapshot = z.infer<typeof ReadingSnapshotSchema>;
 export interface SourceAnchor {

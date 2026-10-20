@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WorkspaceCommandSchema } from "./workspace";
+import { WorkspaceCardSchema, WorkspaceCommandSchema } from "./workspace";
 import type { Annotation, Note } from "./notes";
 import type { WorkspaceCommand } from "./workspace";
 
@@ -9,12 +9,13 @@ const placement = z.object({
   id,
   x: position,
   y: position,
-  width: z.number().finite().min(220).max(1200),
-  height: z.number().finite().min(120).max(1600),
+  width: WorkspaceCardSchema.shape.width,
+  height: WorkspaceCardSchema.shape.height,
 }).strict();
 
 /** One book transaction may change notes and the board together. */
 export const BookChangeSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("save-answer"), turnId: id, placement }).strict(),
   z.object({ type: z.literal("create-note"), title: z.string().min(1).max(200),
     document: z.unknown().optional(), placement }).strict(),
   z.object({ type: z.literal("update-note"), noteId: id, expectedRevision: z.number().int().positive(),
@@ -39,6 +40,8 @@ export const BookCommandSchema = z.object({
 }).strict().superRefine((value, context) => {
   if (value.changes.some((change) => change.type === "undo") && value.changes.length !== 1)
     context.addIssue({ code: "custom", message: "撤销必须单独提交" });
+  if (value.changes.some((change) => change.type === "save-answer") && value.changes.length !== 1)
+    context.addIssue({ code: "custom", message: "回答保存必须单独提交" });
 });
 export type BookCommand = z.infer<typeof BookCommandSchema>;
 

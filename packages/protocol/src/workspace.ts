@@ -12,6 +12,8 @@ const coordinate = z.tuple([inkAxis, inkAxis]);
 const fingerprint = z.string().regex(/^[a-f0-9]{64}$/);
 // The document column leaves room for notes on either side. Coordinates are world units.
 export const WORKSPACE_DOCUMENT_X = 1280;
+// Shared by stored cards, note placement and renderer resize gestures.
+export const WORKSPACE_CARD_MIN_HEIGHT = 120;
 export const WorkspaceCameraSchema = z
   .object({
     x: position,
@@ -96,7 +98,7 @@ export const WorkspaceCardSchema = z
     x: position,
     y: position,
     width: z.number().finite().min(220).max(1200),
-    height: z.number().finite().min(120).max(1600),
+    height: z.number().finite().min(WORKSPACE_CARD_MIN_HEIGHT).max(1600),
     source: z
       .object({
         fingerprint: z.string().min(1).max(128),

@@ -22,6 +22,7 @@ export interface ToolRun {
   files?: string[];
 }
 export interface ChatTurn {
+  inquiry?: import("./inquiry").Inquiry;
   images?: ChatImage[];
   materialIds?: string[];
   /** Service-provided public summary only; absent on records predating summary support. */

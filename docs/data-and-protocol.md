@@ -2,6 +2,14 @@
 
 状态：当前 DB v6、workspace 快照 v5/layoutVersion 3、归档 v4；API v2 已接入工作区增量命令和书籍级 Note／工作台原子命令。仍保留少量 v1 Note／Annotation 入口，调用方应优先使用书籍级命令。
 
+画布问答以当前 JSON 记录内的可选字段扩展，格式版本保持不变。`ReadingSnapshot.scope` 增加 `materials`（仅所选材料）和 `search`（结合本书检索）；前者的 Core 上下文不包含自动检索、整页文字、历史、学习记忆或导航，并禁止书籍工作区工具。已有原文摘录缺少新核验字段时可作为选定资料分析，但不能因此生成文字引用。
+
+冻结材料 section 可包含 Core 生成的 `citation`、AI `provenance`（原轮次和是否编辑）、结构化 `relation`（端点及方向），其 `targetId` 在提示词及回答笔记中继续保留。文字 citation 绑定当时选定文字与归一化位置，不扩展到整页。创建材料时，显式关系必须同时选择两个端点。发送轮次可提交 `materialExclusions`，Core 仅从已冻结集合中排除指定对象及失去端点的关系、图片，不读取新版材料；原始快照不被改写。
+
+轮次可包含 `inquiry`：动作、来自已冻结材料的 `targetIds`、可选的待检查观点 ID 和发起时边界。Core 校验比较／检查所需项目与笔记身份，不能引用外书或未加入的对象。`BookChange` 增加单独提交的 `save-answer`，接受本书已完成轮次与位置提示；Core 生成来源内容，原子保存回答 Note、位置与回执，重复轮次复用已有活跃回答笔记，撤销恢复保存前状态。`Note.origin.scope` 保存当时有效范围；`origin.materials.sections` 保留对象引用、来源身份与冻结内容，显示用的材料使用关联从中派生。
+
+归档 v4 的可选来源元数据随新版导出和恢复，恢复时重映射材料 `targetId`、关系端点和 citation 的 book ID；来源被删除时仍保留独立快照。一个集合最多 20 项对象／关系，单张摘录及其评论分别保存 section，因此归档允许一个集合最多 40 个 section。AI 来源的 `origin.edited` 在恢复 revision 重置后保留曾编辑状态。旧程序可能忽略新增元数据，或拒绝超过其旧 section 上限的归档；完整保存与再导出应使用支持画布问答的版本。此变更不转换或清空旧数据库，也不恢复归档中未包含的聊天会话。
+
 SQLite records 仍保存笔记、批注等独立 JSON 实体，passages/FTS5 保存索引；工作区不再写整份 JSON。笔记仍有独立 revision／保存接口。
 
 `ReaderPreferences` 将内容外的阅读布局按书籍保存：`visualStyle` 为 `professional | paper`，`splitRatio` 为 0.3–0.7，`readerPaneMode` 为 `split | pdf | board`，`pdfZoom` 与 `boardZoom` 分别为 0.4–3；可选 `pdfView` 用页码及页内归一化 x/y 保存阅读位置。`navigationWidth` 为 220–320（默认 240），可选 `chatWindow` 保存浮窗的 CSS 像素 x/y/宽/高。旧单一 `zoom` 不再属于协议。分区、视野和浮窗变化不增加工作区内容版本。
@@ -9,6 +17,8 @@ SQLite records 仍保存笔记、批注等独立 JSON 实体，passages/FTS5 保
 ## v6 工作区存储
 
 卡片与书籍级 `create-note` 的 placement 共用 220–1200 宽、120–1600 高的尺寸范围（工作台坐标）；最小高度从 160 放宽到 120，以容纳紧凑预览。已有卡片尺寸保留，不迁移或自动压缩其位置与大小。
+
+`create-note` placement 直接复用卡片的宽高校验；renderer 缩放与卡片 schema 共用最小高度常量，避免写入、重开读取和交互规则分离。此修复须更新实际安装程序；仍要求最小高度 160 的旧程序无法读取已保存的紧凑卡片，反复重新加载不能修复版本差异。
 
 `WorkspaceRepository` 独占工作区 SQL。workspace_books 保存书籍工作区版本；workspace_entities 按书籍／类型／ID 分行保存卡片和对象的校验后 JSON；workspace_groups 按书籍／组 ID 分行保存单层主题组；workspace_links 单独保存端点、名称、方向与顺序；workspace_views 保存视野；workspace_receipts 保存命令摘要和原始回执。子表外键引用工作区根，清理失败恢复副本时一起删除；连线端点可能是 records 中的批注，因此端点有效性仍由 Core 在事务中校验。
 
