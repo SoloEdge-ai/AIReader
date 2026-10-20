@@ -1,5 +1,13 @@
 # 数据与协议
 
+阶段 B2 保持 DB6／workspace5／archive4／API2。轮次 POST 可选 `questionId`，Core 在创建前及提交事务内校验 Note 是同书活跃问题且绑定本会话，写入不可变的轮次身份。材料审阅优先取最新显式归属轮次；不存在时才回退到问题起点或明确收录结论的轮次，不扫描共享会话的任意最后回答。
+
+`GET /api/questions` 仅返回本地全书库的问题导航摘要：书籍、标题、状态、当前结论标题、放置位置和最近访问，不读出所有 Note 正文／工作区绘图。`POST /api/books/:bookId/questions/:id/visit` 接受空对象，在独立 `question-navigation` 记录保存访问，不改变 Note revision。接口均通过现有本地会话认证；书籍内操作验证 book/question 归属。
+
+`POST .../questions/:id/material-plan` 接受最多 20 个明确的 `additionalIds`，返回基线快照、目标身份／当前版本／可用性及关系端点。`POST .../questions/:id/material-review` 接受 requestId、questionRevision、baselineTurnId、workspaceRevision、targets 和 previews；Core 校验计划及目标版本，调用既有材料冻结并返回 `MaterialReview`。差异比较实际 section 文字、锚点、来源、关系和图片字节 SHA-256，不比较位置、时间或重建的 citation ID。审阅回执单独保存最新快照 ID 与计划引用，同载荷重试保持原冻结内容；不同载荷复用 ID 拒绝，已发送的审阅不可重放。原材料变化不改写历史，过期计划必须重新审阅。旧版复制仍使用 `question-materials/reuse-turn`。
+
+确认仅影响 book/session 草稿，严格材料范围沿用原预算、预览身份和提交规则。导航／审阅回执及完整聊天不加入归档；恢复后没有轮次基线，打开问题创建本书新会话，再明确加入新材料。
+
 状态：当前 DB v6、workspace 快照 v5/layoutVersion 3、归档 v4；API v2 已接入工作区增量命令和书籍级 Note／工作台原子命令。仍保留少量 v1 Note／Annotation 入口，调用方应优先使用书籍级命令。
 
 画布问答以当前 JSON 记录内的可选字段扩展，格式版本保持不变。`ReadingSnapshot.scope` 增加 `materials`（仅所选材料）和 `search`（结合本书检索）；前者的 Core 上下文不包含自动检索、整页文字、历史、学习记忆或导航，并禁止书籍工作区工具。已有原文摘录缺少新核验字段时可作为选定资料分析，但不能因此生成文字引用。

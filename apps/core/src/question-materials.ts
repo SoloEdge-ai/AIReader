@@ -10,6 +10,7 @@ import {
   type QuestionMaterialImage,
   type QuestionMaterialSection,
   type QuestionMaterialSnapshot,
+  type QuestionMaterialTarget,
   type RichNode,
 } from "../../../packages/protocol/src";
 import type { WorkspaceObject } from "../../../packages/protocol/src/workspace";
@@ -58,6 +59,24 @@ export class QuestionMaterials {
     const value = this.get(bookId, sessionId, materialId);
     if (!value.images.some((image) => image.id === imageId)) throw new Error("材料图片不存在");
     return this.imagePath(bookId, materialId, imageId);
+  }
+  /** Resolve current identities and revisions, without freezing or expanding the selected set. */
+  currentTargets(bookId: string, targets: QuestionMaterialTarget[]) {
+    const workspace = this.workspaces.get(bookId);
+    const notes = new Map(this.notes.list(bookId).map((note) => [note.id, note]));
+    const annotations = new Map(this.library.store.list<Annotation>("annotation", bookId)
+      .filter((annotation) => !annotation.deletedAt).map((annotation) => [annotation.id, annotation]));
+    return targets.map((target) => {
+      const card = target.kind === "card" ? workspace.cards.find((item) => item.id === target.id) : undefined;
+      const object = target.kind === "object" ? workspace.objects.find((item) => item.id === target.id) : undefined;
+      const annotation = target.kind === "annotation" ? annotations.get(target.id) : undefined;
+      const note = target.kind === "note" ? notes.get(target.id) : card?.noteId ? notes.get(card.noteId) : undefined;
+      const link = target.kind === "relation" ? workspace.links.find((item) => item.id === target.id) : undefined;
+      return { target: { ...target, revision: note?.revision ?? annotation?.revision },
+        available: Boolean(card && (!card.noteId || note) || object || annotation || target.kind === "note" && note || link),
+        title: note?.title || card?.title || (object ? "个人绘图" : annotation ? "个人批注" : link?.label || "所选材料"),
+        relation: link ? { from: link.from, to: link.to } : undefined };
+    });
   }
   resolveForTurn(bookId: string, sessionId: string, ids: string[]) {
     if (ids.length > MAX_QUESTION_MATERIALS || new Set(ids).size !== ids.length)

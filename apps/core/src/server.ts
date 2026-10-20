@@ -26,6 +26,8 @@ import { QuestionMaterials } from "./question-materials";
 import { WorkspaceArchives } from "./workspace-archive";
 import { handleBookWorkspaceRoutes, handleGlobalWorkspaceRoutes } from "./workspace-routes";
 import { BookCommands } from "./book-commands";
+import { Questions } from "./questions";
+import { handleQuestionRoutes } from "./question-routes";
 import { join } from "node:path";
 import type { CoreEvent } from "../../../packages/protocol/src/index";
 export function createCore(
@@ -47,6 +49,7 @@ export function createCore(
   const notes = new Notes(library, workspaceAssets);
   const bookCommands = new BookCommands(library);
   const questionMaterials = new QuestionMaterials(library, workspaces, notes, workspaceAssets);
+  const questions = new Questions(library, questionMaterials);
   const workspaceArchives = new WorkspaceArchives(library, workspaceAssets);
   const workspaceRoutes = { workspaces, assets: workspaceAssets, materials: questionMaterials,
     archives: workspaceArchives, notes };
@@ -139,6 +142,7 @@ export function createCore(
         if (await handleGlobalWorkspaceRoutes(req, res, parts, workspaceRoutes)) return;
         if (await handleGlobalPreferenceRoutes(req, res, parts, preferences)) return;
         if (await handleAiRoutes(req, res, parts, ai)) return;
+        if (await handleQuestionRoutes(req, res, parts, questions)) return;
         if (await handleBookCollectionRoutes(req, res, parts, library)) return;
         if (parts[1] === "books" && parts[2]) {
           const id = parts[2];

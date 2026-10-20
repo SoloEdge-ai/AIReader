@@ -88,8 +88,16 @@ export class ChatService {
     materialIds: string[] = [],
     inquiry?: Inquiry,
     exclusions: { materialId: string; targetIds: string[] }[] = [],
+    questionId?: string,
   ) {
     if (this.closed) throw new Error("Core 正在关闭");
+    const validateQuestion = () => {
+      if (!questionId) return;
+      const note = this.library.store.getForBook<import("../../../packages/protocol/src").Note>("note", questionId, reading.bookId);
+      if (!note?.question || note.deletedAt || note.question.sessionId !== sessionId)
+        throw new Error("当前问题不存在或不属于此书籍会话");
+    };
+    validateQuestion();
     if (
       this.list(reading.bookId, sessionId).some((t) => t.status === "running")
     )
@@ -145,6 +153,7 @@ export class ChatService {
     if (session?.title === "新会话")
       this.renameSession(reading.bookId, sessionId, question.slice(0, 60));
     const turn: ChatTurn = {
+      questionId,
       id: randomUUID(),
       inquiry: inquiry ? structuredClone(inquiry) : undefined,
       images,
@@ -166,6 +175,7 @@ export class ChatService {
     this.running.set(turn.id, control);
     try {
       this.library.chat.createTurn(turn, () => {
+        validateQuestion();
         this.materials.commit(turn.bookId, sessionId, materialIds, turn.id);
       });
       this.library.emit({ type: "turn", bookId: turn.bookId, taskId: turn.id, data: turn });

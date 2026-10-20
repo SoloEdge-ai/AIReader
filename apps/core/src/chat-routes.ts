@@ -77,6 +77,7 @@ export async function handleBookChatRoutes(
           images: ChatImageInputSchema.array().max(MAX_CHAT_IMAGES).default([]),
           materialIds: z.array(z.string().uuid()).max(20).default([]),
           inquiry: InquirySchema.optional(),
+          questionId: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/).optional(),
           materialExclusions: z.array(z.object({ materialId: z.string().uuid(),
             targetIds: z.array(z.string().min(1).max(100)).max(20) }).strict()).max(20).default([]),
           sessionId: z.string().min(1).max(100),
@@ -110,6 +111,7 @@ export async function handleBookChatRoutes(
           value.materialIds,
           value.inquiry,
           value.materialExclusions,
+          value.questionId,
         ),
         202,
       );

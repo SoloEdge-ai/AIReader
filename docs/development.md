@@ -1,5 +1,7 @@
 # 开发指南
 
+材料审阅与全局问题导航回归：`pnpm exec vitest run tests/material-review-http.test.ts tests/inquiry-drafts.test.ts` 验证真实冻结差异／幂等回执／问题归属／访问持久化和草稿边界；`pnpm test:reader-ui material-review-navigation.spec.ts` 验证浏览器审阅确认与跨书恢复，两者均进入完整套件。`node --import tsx scripts/canvas-inquiry-packaged-smoke.ts release/win-unpacked/AIReader.exe` 已扩展为实际打包 Core 的差异审阅、明确替换、问题导航及再次重启；不使用用户数据目录。
+
 问题卡片回归：`pnpm exec vitest run tests/question-cards-http.test.ts` 验证真实书籍命令、会话隔离、结论版本、冻结图像复制、归档和重启；`tests/canvas-inquiry.spec.ts` 同时覆盖浏览器创建问题、手选结论与状态、继续、沿用和再次发送。问题正文仍走统一 Note 编辑器和退出保护，不能直接从 renderer 写问题元数据。
 
 Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能只检查配置。桌面使用Electron内置运行时。

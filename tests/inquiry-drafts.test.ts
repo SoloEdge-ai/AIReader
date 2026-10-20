@@ -35,3 +35,23 @@ test("removing an item keeps its neighbour's exact frozen content and drops dang
   expect(store.get("book:session").materials[0].sections[0]).toBe(snapshot.sections[0]);
   expect(store.get("book:session").materialExclusions).toEqual([{ materialId: "snapshot", targetIds: ["b"] }]);
 });
+
+test("review confirmation is explicit, atomic and preserves the newest question and other books", () => {
+  const store = new QuestionDraftStore();
+  store.update("book:session", { question: "Newest typed draft", materials: [snapshot], pendingPrompt: "Suggested follow-up",
+    pendingMaterialIds: ["old"], materialExclusions: [{ materialId: snapshot.id, targetIds: ["b"] }] });
+  store.update("other:session", { question: "Other draft", materials: [snapshot] });
+  const newest = { ...snapshot, id: "reviewed" };
+  store.applyReviewedMaterials("book:session", [newest], "replace");
+  expect(store.get("book:session")).toMatchObject({ question: "Newest typed draft", pendingPrompt: "Suggested follow-up",
+    scope: "materials", materials: [newest], images: [], attachment: undefined, pendingMaterialIds: [], materialExclusions: [] });
+  expect(store.get("other:session").materials).toEqual([snapshot]);
+  const before = store.get("book:session");
+  expect(() => store.applyReviewedMaterials("book:session", [{ ...snapshot, itemCount: 20 }], "append")).toThrow("超过");
+  expect(store.get("book:session")).toBe(before);
+  store.update("book:session", { preparing: 1 });
+  expect(() => store.applyReviewedMaterials("book:session", [snapshot], "replace")).toThrow("准备");
+  store.update("book:session", { preparing: 0 });
+  store.applyReviewedMaterials("book:session", [newest], "append");
+  expect(store.get("book:session").materials).toHaveLength(1);
+});

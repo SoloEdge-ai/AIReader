@@ -327,6 +327,7 @@ export function ChatPanel({
         materialExclusions: draft.materialExclusions?.filter((entry) => materials.some((material) => material.id === entry.materialId)),
         inquiry: draft.inquiry && inquiryTargets?.length ? { ...draft.inquiry, targetIds: inquiryTargets } : undefined,
         sessionId: session,
+        questionId: activeQuestion?.id,
         ...ai.choice,
       });
       savedDrafts.clearIfUnchanged(draftKey, submittedDraft);

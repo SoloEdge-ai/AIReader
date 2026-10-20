@@ -64,6 +64,10 @@ import { InquiryActions } from "./features/chat/InquiryActions";
 import { QuestionCardControls } from "./features/notes/QuestionCardControls";
 
 export interface BookWorkspaceHandle {
+  bookId: string;
+  continueQuestion(note: Note): Promise<void>;
+  reviewQuestion(note: Note): Promise<void>;
+  captureQuestionPreviews(targets: QuestionMaterialInput["targets"], revision: number): Promise<QuestionMaterialInput["previews"]>;
   excerpt(selection: ReadingSelection, point?: InkPoint): void;
   dropExcerpt(selection: ReadingSelection, x: number, y: number): boolean;
   escape(): void;
@@ -95,6 +99,7 @@ export const BookWorkspace = forwardRef<
     questionSessionId?: string;
     onPrepareInquiry?: (inquiry: Inquiry) => Promise<void>;
     onContinueQuestion?: (note: Note) => Promise<void>;
+    onReviewQuestion?: (note: Note) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
     notes: BookNotes;
     workspaceSession: WorkspaceEditingSession;
@@ -517,13 +522,31 @@ export const BookWorkspace = forwardRef<
     if (card?.type === "upsert-card") { navigate(card.card.x - 40, card.card.y - 40); selectTarget(card.card.id); }
     if (created && !turn) props.onExpandNote(created);
   }
-  async function continueQuestion(note: Note) {
-    let current = note;
-    if (!note.question?.sessionId) {
-      const receipt = await questionCommand([{ type: "open-question", noteId: note.id, expectedRevision: note.revision }]);
+  async function boundQuestion(note: Note) {
+    if (note.bookId !== props.book.id) throw new Error("问题不属于此工作台");
+    if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
+    let current = props.notes.getSnapshot().notes.find((item) => item.id === note.id && !item.deletedAt);
+    if (!current?.question) throw new Error("问题不存在");
+    if (!current.question.sessionId) {
+      const receipt = await questionCommand([{ type: "open-question", noteId: current.id, expectedRevision: current.revision }]);
       current = receipt.noteChanges.find((item) => item.after.id === note.id)!.after;
     }
+    return current;
+  }
+  async function continueQuestion(note: Note) {
+    const current = await boundQuestion(note);
     if (mounted.current) await props.onContinueQuestion?.(current);
+  }
+  async function reviewQuestion(note: Note) {
+    const current = await boundQuestion(note);
+    if (mounted.current) await props.onReviewQuestion?.(current);
+  }
+  async function captureQuestionPreviews(targets: QuestionMaterialInput["targets"], expectedRevision: number) {
+    if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
+    const snapshot = state.value;
+    if (!snapshot || state.revision() !== expectedRevision) throw new Error("材料已变化，请重新读取材料");
+    return targets.filter((target) => target.kind !== "relation").flatMap((target) =>
+      captureMaterialPreviews([target.id], snapshot, props.annotations ?? [], pdfPages.current));
   }
   function prepareInquiry(action: Inquiry["action"], claimId?: string) {
     const ids = [...selectedIds];
@@ -582,6 +605,10 @@ export const BookWorkspace = forwardRef<
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
   useImperativeHandle(ref, () => ({ excerpt: add,
+    bookId: props.book.id,
+    continueQuestion,
+    reviewQuestion,
+    captureQuestionPreviews,
     placeNote,
     saveAnswer,
     createQuestion,
@@ -1455,6 +1482,7 @@ export const BookWorkspace = forwardRef<
                     return note?.question ? <QuestionCardControls note={note} notes={props.notes.notes}
                       onOpenNote={props.onExpandNote}
                       onContinue={() => continueQuestion(note)}
+                      onReview={() => reviewQuestion(note)}
                       onUpdate={async (status, currentConclusionId) => { await questionCommand([{ type: "update-question",
                         noteId: note.id, expectedRevision: note.revision, status, currentConclusionId }]); }} /> : undefined;
                   })()} />

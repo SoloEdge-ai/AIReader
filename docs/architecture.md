@@ -1,5 +1,7 @@
 # 架构与所有权
 
+问题目录与材料审阅由 Core `Questions` 协调，`QuestionRepository` 提供轻量问题／结论标题查询、访问与审阅回执；工作区仓库只投影卡片放置，聊天仓库只读取目标问题的最新轮次，避免全书库加载富文本／绘图／聊天正文。材料解析、冻结、图片权限仍由 `QuestionMaterials` 统一拥有，复用现有真实上下文与提交边界。Renderer 的 `features/questions` 只展示候选／冻结差异并提交明确选择，使用统一 FloatingWindow；`QuestionDraftStore` 原子检查替换／追加预算，App 与 BookWorkspace 沿用书籍编辑会话先保存再导航。详细边界见[审阅与导航决策](decisions/0010-material-review-and-question-navigation.md)。
+
 问题卡片复用 Note 的保存生命周期和工作区位置，不建立第二份正文或每卡片聊天实例。Core BookCommands 拥有问题元数据、会话绑定、结论引用与逆操作；QuestionMaterials 拥有历史轮次有效材料的复制及资源权限。Renderer 仅提交用户动作并恢复对应浮窗。详见[问题卡片决策](decisions/0009-question-cards.md)。
 
 状态：`codex/liquidtext-alignment` 实现分支；交付门槛见[对齐计划](plans/liquidtext-alignment.md)。
