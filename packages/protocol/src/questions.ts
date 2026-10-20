@@ -6,6 +6,7 @@ export const QuestionMetadataSchema = z.object({
   status: QuestionStateSchema,
   sessionId: id.optional(),
   sourceTurnId: id.optional(),
+  sourceQuestion: z.string().max(6000).optional(),
   materialCount: z.number().int().min(0).max(20).default(0),
   conclusionNoteIds: z.array(id).max(100),
   currentConclusionId: id.optional(),

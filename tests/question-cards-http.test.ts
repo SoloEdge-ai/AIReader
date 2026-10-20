@@ -107,6 +107,7 @@ test("question cards keep conclusions, sessions and frozen continuations isolate
       sourceTurnId: second.id, parentQuestionId: question.id, placement: placement("branch") }])).json();
     const child = branch.noteChanges[0].after;
     expect(child.question?.parentQuestionId).toBe(question.id);
+    expect(child.question?.sourceQuestion).toBe(second.question);
     expect(child.question?.sessionId).not.toBe(sessionId);
     const beforeBad = (await notes()).length;
     expect((await execute([{ type: "save-answer", turnId: second.id, questionId: child.id,
@@ -123,6 +124,7 @@ test("question cards keep conclusions, sessions and frozen continuations isolate
     expect(restoredQuestion.question?.currentConclusionId).not.toBe(conclusion.id);
     expect(restoredNotes.some((note) => note.id === restoredQuestion.question?.currentConclusionId)).toBe(true);
     expect(restoredNotes.find((note) => note.title === child.title)?.question?.parentQuestionId).toBe(restoredQuestion.id);
+    expect(restoredNotes.find((note) => note.title === child.title)?.question?.sourceQuestion).toBe(second.question);
     expect((await execute([{ type: "delete-note", noteId: question.id, expectedRevision: question.revision }])).status).toBe(200);
     expect((await notes()).some((note) => note.id === conclusion.id)).toBe(true);
     expect(core.library.chat.turn(book.id, first.id)?.answer).toBe(first.answer);

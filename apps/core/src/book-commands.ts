@@ -209,6 +209,7 @@ export class BookCommands {
             document: noteDocument({ type: "doc", content: [{ type: "paragraph" }] }, []),
             sourceReferences: [], revision: 1, createdAt: now, updatedAt: now,
             question: { status: "open", sessionId, sourceTurnId: turn?.id,
+              sourceQuestion: turn?.question,
               materialCount: (turn?.context.materials ?? []).reduce((count, material) => count + material.itemCount, 0),
               parentQuestionId: change.parentQuestionId, conclusionNoteIds: [] } };
           remember(note);

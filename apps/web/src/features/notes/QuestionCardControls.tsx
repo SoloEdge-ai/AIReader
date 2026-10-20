@@ -40,6 +40,7 @@ export function QuestionCardControls({ note, notes, onContinue, onUpdate, onOpen
           })}
         </select></label>
         <p>结论各自保留正文与来源；个人总结不会被替换。</p>
+        {question.sourceQuestion && <details><summary>起点问题全文</summary><p>{question.sourceQuestion}</p></details>}
         {!question.sessionId && <p>归档未包含原对话，继续时创建新会话。</p>}
         {question.parentQuestionId && <p>从另一问题分支，原问题与结论保持不变。
           {parent ? <button onClick={() => onOpenNote(parent)}>查看父问题</button> : "父问题已删除或不可用。"}</p>}
