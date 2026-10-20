@@ -338,6 +338,17 @@ export class WorkspaceArchives {
       if (a.assetId) referencedAssets.add(a.assetId);
     }
     for (const n of data.notes) {
+      if (n.question) {
+        if (n.origin || n.question.parentQuestionId === n.id || n.question.conclusionNoteIds.includes(n.id))
+          throw new Error("问题身份与来源或引用不匹配");
+        const parent = data.notes.find((note) => note.id === n.question!.parentQuestionId);
+        if (parent && !parent.question) throw new Error("父问题引用不是问题");
+        for (const id of n.question.conclusionNoteIds) {
+          const conclusion = data.notes.find((note) => note.id === id);
+          if (conclusion && (!conclusion.origin || conclusion.question))
+            throw new Error("问题结论引用不是独立回答笔记");
+        }
+      }
       if (
         n.bookId !== data.bookId ||
         (n.annotationId &&

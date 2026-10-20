@@ -76,7 +76,7 @@ export function App() {
   const [draggedExcerpt, setDraggedExcerpt] = useState<{ bookId: string; selection: ReadingSelection }>();
   const [questionDrafts] = useState(() => new QuestionDraftStore());
   const [chatSessions, setChatSessions] = useState<Record<string, string>>({});
-  const [requestedChat, setRequestedChat] = useState<{ bookId: string; sessionId: string; nonce: number }>();
+  const [requestedChat, setRequestedChat] = useState<{ bookId: string; sessionId: string; questionId: string; nonce: number }>();
   const [readerHost, setReaderHost] = useState<HTMLDivElement | null>(null);
   const questionDraftKey = active && chatSessions[active] ? `${active}:${chatSessions[active]}` : "";
   const activeQuestionDraft = useSyncExternalStore(questionDrafts.subscribe,
@@ -1026,13 +1026,16 @@ export function App() {
                 onPrepareInquiry={(inquiry) => prepareCanvasInquiry(book.id, inquiry)}
                 onContinueQuestion={async (note) => {
                   if (current.current !== note.bookId || !note.question?.sessionId) return;
+                  // Opening a question is navigation, not consent to send its own summary as evidence.
+                  workspace.current?.escape();
+                  setSelectedMaterialIds([]);
                   const sessionId = note.question.sessionId;
                   const key = `${note.bookId}:${sessionId}`;
                   const draft = questionDrafts.get(key);
                   if (!draft.question.trim()) questionDrafts.update(key, { question: note.title });
                   localStorage.setItem(`session-${note.bookId}`, sessionId);
                   setChatSessions((old) => ({ ...old, [note.bookId]: sessionId }));
-                  setRequestedChat({ bookId: note.bookId, sessionId, nonce: Date.now() });
+                  setRequestedChat({ bookId: note.bookId, sessionId, questionId: note.id, nonce: Date.now() });
                   await openChatPanel();
                 }}
                 key={active}

@@ -120,8 +120,39 @@ test("compare selected materials, keep a draft, save next to evidence and reopen
   await chat.getByRole("button", { name: "发送问题" }).click();
   await expect(chat.locator(".turn")).toHaveCount(2);
   await expect(chat.getByRole("button", { name: "保存到此处", exact: true })).toBeEnabled();
+  await chat.locator(".turn").last().getByLabel("回答详情", { exact: true }).click();
+  await chat.locator(".turn").last().getByRole("button", { name: "保存为问题", exact: true }).click();
+  const anotherQuestion = core.library.store.list<import("../packages/protocol/src").Note>("note", bookId)
+    .find((note) => note.question && note.id !== question.id)!;
+  const anotherCard = new Workspaces(core.library).get(bookId).cards.find((card) => card.noteId === anotherQuestion.id)!;
+  await chat.getByRole("button", { name: "关闭问答浮窗" }).click();
+  await page.locator(`[data-card-id="${anotherCard.id}"]`).getByRole("button", { name: "继续探究", exact: true }).click();
+  await expect(chat.getByLabel("当前探究问题", { exact: true })).toHaveValue(anotherQuestion.id);
+  await expect(chat.locator(".turn")).toHaveCount(2);
   await page.reload();
   await page.locator(".book-card").filter({ hasText: "Canvas inquiry fixture" }).click();
   await expect(page.locator(`[data-card-id="${questionCard.id}"]`).getByText("问题 · 已有结论", { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("create a blank question with a personal summary and continue without sending", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto("http://127.0.0.1:5173/");
+  await page.locator(".book-card").filter({ hasText: "Canvas inquiry fixture" }).click();
+  await page.getByRole("button", { name: /^工作区操作/ }).click();
+  await page.getByRole("menuitem", { name: "新建问题", exact: true }).click();
+  await page.getByRole("textbox", { name: "笔记标题", exact: true }).fill("独立的新问题");
+  await page.getByRole("textbox", { name: "笔记正文", exact: true }).fill("我的个人总结保持独立。");
+  await expect(page.locator(".expanded-note-footer [role=status]")).toHaveText("已保存");
+  await page.getByRole("button", { name: "关闭笔记浮窗", exact: true }).click();
+  const question = core.library.store.list<import("../packages/protocol/src").Note>("note", bookId)
+    .find((note) => note.title === "独立的新问题")!;
+  const card = new Workspaces(core.library).get(bookId).cards.find((card) => card.noteId === question.id)!;
+  await page.locator(`[data-card-id="${card.id}"]`).getByRole("button", { name: "继续探究", exact: true }).click();
+  const chat = page.getByLabel("AI 问答浮窗");
+  await expect(chat.getByLabel("当前探究问题", { exact: true })).toHaveValue(question.id);
+  await expect(chat.getByRole("textbox", { name: "问题", exact: true })).toHaveValue("独立的新问题");
+  await expect(chat.locator(".turn")).toHaveCount(0);
+  await expect(chat.getByLabel("待加入材料", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: "test-results/question-card-continuation.png" });
 });

@@ -450,9 +450,11 @@
 .floating-note .expanded-note-content { padding: 24px 30px 36px; }
 .floating-note:focus-within { z-index: 46; }
 
-.question-card-controls { display: grid; gap: 6px; margin: 8px 0; }
+.workspace-note-content:has(.question-card-controls) { overflow-y: auto; scrollbar-width: thin; }
+.question-card-controls { display: grid; flex-shrink: 0; gap: 6px; margin: 6px 0; }
 .question-card-controls > div { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; }
 .question-card-controls p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.question-card-conclusion { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .question-card-settings { display: grid; gap: 12px; padding: 8px; }
 .question-card-settings label { display: grid; gap: 6px; }
 .question-card-settings select { max-width: 100%; min-width: 0; }

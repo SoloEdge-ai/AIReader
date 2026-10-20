@@ -1453,6 +1453,7 @@ export const BookWorkspace = forwardRef<
                   questionControls={(() => {
                     const note = props.notes.notes.find((note) => note.id === card.noteId);
                     return note?.question ? <QuestionCardControls note={note} notes={props.notes.notes}
+                      onOpenNote={props.onExpandNote}
                       onContinue={() => continueQuestion(note)}
                       onUpdate={async (status, currentConclusionId) => { await questionCommand([{ type: "update-question",
                         noteId: note.id, expectedRevision: note.revision, status, currentConclusionId }]); }} /> : undefined;
@@ -2059,6 +2060,10 @@ export const BookWorkspace = forwardRef<
           onClick={() => { add(); close(); }}
         >
           <Icon name="plus" /> 笔记
+        </button>
+        <button role="menuitem" disabled={!state.value}
+          onClick={() => { void createQuestion().catch((error) => setInkError(String(error))); close(); }}>
+          <Icon name="plus" /> 新建问题
         </button>
         <button
           aria-label="撤销工作区修改"

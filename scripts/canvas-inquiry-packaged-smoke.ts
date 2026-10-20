@@ -1,4 +1,5 @@
 import { _electron as electron, expect } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,7 +10,7 @@ import { WorkspaceAssets } from "../apps/core/src/workspace-assets";
 import { Notes } from "../apps/core/src/notes";
 import { QuestionMaterials } from "../apps/core/src/question-materials";
 import { Preferences } from "../apps/core/src/preferences";
-import type { ChatTurn } from "../packages/protocol/src";
+import type { ChatTurn, Note } from "../packages/protocol/src";
 import type { BookWorkspace } from "../packages/protocol/src/workspace";
 
 const executable = resolve(process.argv[2] ?? "release/win-unpacked/AIReader.exe");
@@ -28,7 +29,7 @@ try {
     title: "原文依据", text: "Selected original evidence for a packaged inquiry.", comment: "",
     x: 30, y: 100, width: 250, height: 160, source: { fingerprint: book.fingerprint,
       anchors: [{ page: 1, rects: [[35, 610, 470, 640]] }] } }] });
-  const sessionId = "packaged-session";
+  const sessionId = randomUUID();
   library.chat.saveSession(book.id, { id: sessionId, title: "材料探究", updatedAt: new Date().toISOString() });
   const assets = new WorkspaceAssets(library, workspaces);
   const materials = new QuestionMaterials(library, workspaces, new Notes(library, assets), assets);
@@ -36,7 +37,7 @@ try {
     workspaceRevision: workspace.revision, targets: [{ kind: "card", id: "source-card" }], previews: [] });
   const citation = material.sections[0].citation;
   if (!citation) throw new Error("Generated fixture text could not be verified");
-  const turn: ChatTurn = { id: "packaged-turn", bookId: book.id, sessionId, question: "这段材料能说明什么？",
+  const turn: ChatTurn = { id: randomUUID(), bookId: book.id, sessionId, question: "这段材料能说明什么？",
     answer: `这段材料提供了本轮分析的原文依据。[[${citation.passageId}]]`, status: "complete",
     createdAt: new Date().toISOString(), citations: [citation], tools: [], materialIds: [material.id],
     inquiry: { action: "explain", targetIds: ["source-card"], bounds: { x: 30, y: 100, width: 250, height: 160 } },
@@ -71,17 +72,43 @@ try {
   await chat.getByRole("button", { name: "关闭问答浮窗" }).click();
   await expect(page.locator(`[data-card-id="${answer.id}"]`).getByText("使用材料 · 1 项")).toBeVisible();
   await expect(page.locator('[data-kind="material-use"]')).toHaveCount(1);
+  await page.getByRole("button", { name: "问答", exact: true }).click();
+  await chat.getByLabel("回答详情", { exact: true }).click();
+  await chat.getByRole("button", { name: "保存为问题", exact: true }).click();
+  await chat.getByRole("button", { name: "收为结论版本", exact: true }).click();
+  await expect(chat.getByRole("button", { name: "已收为结论", exact: true })).toBeVisible();
+  const question = await page.evaluate(async (id): Promise<Note> =>
+    (await (await fetch(`/api/books/${id}/notes`)).json()).find((note: Note) => note.question), book.id);
+  const questionBoard = await page.evaluate(async (id): Promise<BookWorkspace> =>
+    (await fetch(`/api/books/${id}/workspace`)).json(), book.id);
+  const questionCard = questionBoard.cards.find((card) => card.noteId === question.id)!;
+  await chat.getByRole("button", { name: "关闭问答浮窗" }).click();
+  const questionView = page.locator(`[data-card-id="${questionCard.id}"]`);
+  await questionView.getByRole("button", { name: "问题状态与结论", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "问题状态与结论", exact: true });
+  await settings.getByLabel("当前结论", { exact: true }).selectOption(answer.noteId!);
+  await expect(settings.getByRole("button", { name: "打开当前结论" })).toBeVisible();
+  await settings.getByLabel("问题状态", { exact: true }).selectOption("concluded");
+  await expect(questionView.getByText("问题 · 已有结论", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await questionView.getByRole("button", { name: "继续探究", exact: true }).click();
+  await expect(chat.locator(".turn")).toHaveCount(1);
+  await chat.getByLabel("回答详情", { exact: true }).click();
+  await chat.getByRole("button", { name: "沿用本轮冻结材料", exact: true }).click();
+  await expect(chat.getByText("本轮材料 · 1 项", { exact: true })).toBeVisible();
+  await chat.getByRole("button", { name: "关闭问答浮窗" }).click();
   await mkdir(".local/screenshots", { recursive: true });
   await page.screenshot({ path: ".local/screenshots/canvas-inquiry-packaged.png" });
   await desktop!.close(); desktop = undefined;
   ({ page, chat } = await launch());
+  await expect(page.locator(`[data-card-id="${questionCard.id}"]`).getByText("问题 · 已有结论", { exact: true })).toBeVisible();
   await expect(chat.getByRole("button", { name: "查看卡片" })).toBeVisible();
   const reopened = await page.evaluate(async (id): Promise<BookWorkspace> =>
     (await fetch(`/api/books/${id}/workspace`)).json(), book.id);
   if (reopened.cards.filter((card) => card.noteId === answer.noteId).length !== 1)
     throw new Error("Packaged answer placement did not survive restart uniquely");
   await desktop!.close(); desktop = undefined;
-  console.log("Packaged canvas inquiry: verified source, atomic save, material-use connection, close/reopen passed");
+  console.log("Packaged canvas inquiry: atomic save, material-use connection, question/conclusion selection, frozen continuation and close/reopen passed");
 } finally {
   await desktop?.close();
   if (libraryOpen) library.close();

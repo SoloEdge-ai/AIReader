@@ -44,6 +44,11 @@ test("question cards keep conclusions, sessions and frozen continuations isolate
     const sessionId = question.question!.sessionId!;
     expect(question.question?.status).toBe("open");
     expect((await (await request(`${path}/sessions`)).json()).some((s: { id: string }) => s.id === sessionId)).toBe(true);
+    const sessionCount = (await (await request(`${path}/sessions`)).json()).length;
+    expect((await execute([{ type: "create-question", title: "Must roll back",
+      placement: placement("question-card") }])).status).toBe(400);
+    expect((await notes()).length).toBe(1);
+    expect((await (await request(`${path}/sessions`)).json()).length).toBe(sessionCount);
     await execute([{ type: "workspace", changes: [{ type: "upsert-object", object: { id: "drawing", kind: "shape",
       shape: "rectangle", surface: { kind: "board" }, x: 10, y: 10, width: 50, height: 50,
       color: "#345d84", strokeWidth: 2 } }] }]);
@@ -71,6 +76,11 @@ test("question cards keep conclusions, sessions and frozen continuations isolate
     expect(question.question).toMatchObject({ status: "open", conclusionNoteIds: [conclusion.id] });
     expect(question.question?.currentConclusionId).toBeUndefined();
     expect(question.document).toEqual(created.noteChanges[0].after.document);
+    const undone: BookCommandReceipt = await (await execute([{ type: "undo", targetCommandId: saved.commandId }])).json();
+    expect((await notes()).find((note) => note.id === question.id)?.question?.conclusionNoteIds).toEqual([]);
+    expect((await notes()).some((note) => note.id === conclusion.id)).toBe(false);
+    expect((await execute([{ type: "undo", targetCommandId: undone.commandId }])).status).toBe(200);
+    question = (await notes()).find((note) => note.id === question.id)!;
     const selected: BookCommandReceipt = await (await execute([{ type: "update-question", noteId: question.id,
       expectedRevision: question.revision, status: "concluded", currentConclusionId: conclusion.id }])).json();
     question = selected.noteChanges[0].after;
@@ -120,6 +130,8 @@ test("question cards keep conclusions, sessions and frozen continuations isolate
     expect((await execute([{ type: "restore-note", noteId: question.id, expectedRevision: deleted.revision }])).status).toBe(200);
     expect((await workspace()).cards.some((card: { id: string }) => card.id === "question-card")).toBe(true);
     await core.close(); core = createCore(directory, "dist/web", config); await connect();
+    expect(await (await request(commands, { bookId: book.id, commandId: created.commandId,
+      expectedContentVersion: created.previousVersion, payloadHash: created.payloadHash, changes: created.changes })).json()).toEqual(created);
     expect((await notes()).find((note) => note.id === child.id)?.question?.parentQuestionId).toBe(question.id);
     const foreign = await (await request("books", await pdf.save())).json();
     expect((await request(`books/${foreign.id}/question-materials/reuse-turn`, reuseInput)).status).toBe(400);

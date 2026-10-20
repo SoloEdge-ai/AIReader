@@ -78,6 +78,7 @@ export class QuestionMaterials {
     if (!turn || !this.library.chat.sessions(bookId).some((session) => session.id === sessionId))
       throw new Error("轮次或目标会话不存在或不属于本书");
     const values = turn.context.materials ?? [];
+    if (!values.length) throw new Error("此轮没有可沿用的冻结材料，请从画布明确选择并加入");
     return values.map((source, index) => {
       const key = `${requestId}-${index}`;
       const digest = createHash("sha256").update(JSON.stringify({ turnId, sessionId, source })).digest("hex");

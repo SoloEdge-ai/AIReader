@@ -76,7 +76,7 @@ export function ChatPanel({
   onSaveAnswer?: (turn: ChatTurn) => Promise<void>;
   onCreateQuestion?: (turn: ChatTurn, parentQuestionId?: string) => Promise<void>;
   onSaveConclusion?: (turn: ChatTurn, questionId: string) => Promise<void>;
-  requestedSession?: { sessionId: string; nonce: number };
+  requestedSession?: { sessionId: string; questionId: string; nonce: number };
   onLocateAnswer?: (note: Note) => void;
   onStartRegion: (sessionId: string) => void;
   onSessionChange: (sessionId: string) => void;
@@ -148,7 +148,7 @@ export function ChatPanel({
     setError("");
   }
   useEffect(() => {
-    if (requestedSession) switchSession(requestedSession.sessionId);
+    if (requestedSession) { switchSession(requestedSession.sessionId); setQuestionId(requestedSession.questionId); }
   }, [requestedSession?.nonce]);
   async function reuseMaterials(turn: Pick<ChatTurn, "id">) {
     const key = `${book.id}:${session}`;
@@ -504,7 +504,7 @@ export function ChatPanel({
             onChange={(event) => setQuestionId(event.target.value)}>
             {sessionQuestions.map((note) => <option key={note.id} value={note.id}>{note.title}</option>)}
           </select></label><small>回答可收为独立结论；当前结论在问题卡片选择。</small>
-          {!turns.length && activeQuestion?.question?.sourceTurnId && <button
+          {!turns.length && activeQuestion?.question?.sourceTurnId && activeQuestion.question.materialCount > 0 && <button
             disabled={!!draft.preparing || draft.reusedTurnIds?.includes(activeQuestion.question.sourceTurnId)}
             onClick={() => void reuseMaterials({ id: activeQuestion.question!.sourceTurnId! }).catch((error) => setError(String(error)))}>沿用起点冻结材料</button>}
         </div>}
