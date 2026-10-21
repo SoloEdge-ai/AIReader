@@ -17,6 +17,7 @@ import {
   type QuestionMaterialInput,
   type QuestionMaterialSnapshot,
   type Inquiry,
+  type QuestionSummary,
   ToolPreferencesSchema,
   type ToolPreferences,
 } from "../../../packages/protocol/src";
@@ -45,6 +46,8 @@ import { ReaderToolPalette } from "./ReaderToolPalette";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { useReaderToolController } from "./ReaderToolController";
 import { useDesktopCloseHandshake } from "./features/desktop/useDesktopCloseHandshake";
+import { QuestionNavigator } from "./features/questions/QuestionNavigator";
+import { MaterialReviewPanel } from "./features/questions/MaterialReviewPanel";
 export function App() {
   const workspace = useRef<BookWorkspaceHandle>(null);
   const [workspaceToolbarHost, setWorkspaceToolbarHost] = useState<HTMLDivElement | null>(null);
@@ -77,6 +80,14 @@ export function App() {
   const [questionDrafts] = useState(() => new QuestionDraftStore());
   const [chatSessions, setChatSessions] = useState<Record<string, string>>({});
   const [requestedChat, setRequestedChat] = useState<{ bookId: string; sessionId: string; questionId: string; nonce: number }>();
+  const [materialReview, setMaterialReview] = useState<Note>();
+  const [questionNavRevision, setQuestionNavRevision] = useState(0);
+  const [pendingQuestionNavigation, setPendingQuestionNavigation] = useState<{
+    bookId: string; questionId: string; action: "continue" | "locate" | "review"; nonce: number;
+  }>();
+  const runningQuestionNavigation = useRef<number | undefined>(undefined);
+  const questionNavigationResult = useRef<{ nonce: number; resolve: () => void; reject: (error: Error) => void } | undefined>(undefined);
+  const questionNavigationSequence = useRef(0);
   const [readerHost, setReaderHost] = useState<HTMLDivElement | null>(null);
   const questionDraftKey = active && chatSessions[active] ? `${active}:${chatSessions[active]}` : "";
   const activeQuestionDraft = useSyncExternalStore(questionDrafts.subscribe,
@@ -358,6 +369,7 @@ export function App() {
         channel.onmessage = (e) => {
           if (!live) return;
           const event = JSON.parse(e.data) as CoreEvent;
+          if (["note", "workspace", "turn", "book"].includes(event.type)) setQuestionNavRevision((old) => old + 1);
           if (event.type === "book")
             setBooks((old) => [...old.filter((x) => x.id !== event.data.id), event.data]);
           if (event.type === "turn") setTurnEvents((old) => [...old.slice(-127), {
@@ -508,14 +520,20 @@ export function App() {
     setPrefs(p);
     void post("preferences", p).catch((e) => setError(e.message));
   };
-  async function openBook(b: Book) {
+  async function openBook(b: Book, fromQuestionNavigation = false) {
+    if (!fromQuestionNavigation) {
+      questionNavigationResult.current?.reject(new Error("已切换导航目标"));
+      questionNavigationResult.current = undefined;
+      setPendingQuestionNavigation(undefined);
+    }
     const request = ++openSequence.current;
     setNavigating(true);
     try {
-      if (!(await flushCurrentBook())) return;
+      if (!(await flushCurrentBook())) return false;
       const p = await api<ReaderPreferences>(`books/${b.id}/preferences`);
-      if (request !== openSequence.current) return;
+      if (request !== openSequence.current) return false;
       setQuestionCapture(undefined);
+      setMaterialReview(undefined);
       if (p.panel === "notes") {
         setNav("材料");
         layoutRef.current = { ...p, panel: "chat", navigation: true };
@@ -524,12 +542,75 @@ export function App() {
       setPage(b.progress);
       setActive(b.id);
       await post(`books/${b.id}/open`, {});
+      return true;
     } catch (e) {
       setError(String(e));
+      return false;
     } finally {
       if (request === openSequence.current) setNavigating(false);
     }
   }
+  async function continueQuestionInChat(note: Note) {
+    if (current.current !== note.bookId || !note.question?.sessionId) throw new Error("问题工作台已切换");
+    await post(`books/${note.bookId}/questions/${note.id}/visit`, {});
+    if (current.current !== note.bookId) throw new Error("问题工作台已切换");
+    workspace.current?.escape(); setSelectedMaterialIds([]);
+    const sessionId = note.question.sessionId, key = `${note.bookId}:${sessionId}`;
+    if (!questionDrafts.get(key).question.trim()) questionDrafts.update(key, { question: note.title });
+    localStorage.setItem(`session-${note.bookId}`, sessionId);
+    setChatSessions((old) => ({ ...old, [note.bookId]: sessionId }));
+    setRequestedChat({ bookId: note.bookId, sessionId, questionId: note.id, nonce: Date.now() });
+    setQuestionNavRevision((old) => old + 1);
+    await openChatPanel();
+  }
+  async function navigateQuestion(question: QuestionSummary, action: "continue" | "locate" | "review") {
+    const target = books.find((item) => item.id === question.bookId);
+    if (!target) throw new Error("书籍已不可用，请重新打开问题导航");
+    if (questionNavigationResult.current) throw new Error("正在打开问题，请稍候");
+    if (active !== target.id) {
+      if (!(await openBook(target, true))) throw new Error("当前草稿尚未保存，未打开问题");
+    } else if (!(await flushCurrentBook())) throw new Error("当前草稿尚未保存，未打开问题");
+    return new Promise<void>((resolve, reject) => {
+      const nonce = ++questionNavigationSequence.current;
+      questionNavigationResult.current = { nonce, resolve, reject };
+      setPendingQuestionNavigation({ bookId: target.id, questionId: question.id, action, nonce });
+    });
+  }
+  useEffect(() => {
+    const target = pendingQuestionNavigation;
+    if (!target) return;
+    if (target.bookId !== active) {
+      if (questionNavigationResult.current?.nonce === target.nonce) {
+        questionNavigationResult.current.reject(new Error("已切换导航目标")); questionNavigationResult.current = undefined;
+      }
+      setPendingQuestionNavigation(undefined); return;
+    }
+    if (!notes.loaded || workspace.current?.bookId !== target.bookId ||
+        canvasCatalog?.bookId !== target.bookId || runningQuestionNavigation.current === target.nonce) return;
+    runningQuestionNavigation.current = target.nonce;
+    const handle = workspace.current;
+    void (async () => {
+      const note = notes.getSnapshot().notes.find((item) => item.id === target.questionId && item.bookId === target.bookId);
+      if (!note?.question) throw new Error("问题已删除或不可用");
+      if (target.action === "continue") await handle.continueQuestion(note);
+      else if (target.action === "review") await handle.reviewQuestion(note);
+      else {
+        const card = canvasCatalog.catalog.cards.find((item) => item.noteId === note.id && item.placed !== false);
+        if (card) { handle.showPane("board"); handle.locateItem(card.id); }
+        else { readerTools.finish(); notes.setSelected(note.id); setExpandedNote({ bookId: note.bookId, id: note.id }); }
+        await post(`books/${note.bookId}/questions/${note.id}/visit`, {});
+        setQuestionNavRevision((old) => old + 1);
+      }
+    })().then(() => {
+      if (questionNavigationResult.current?.nonce === target.nonce) questionNavigationResult.current.resolve();
+    }).catch((error) => {
+      setError(String(error));
+      if (questionNavigationResult.current?.nonce === target.nonce) questionNavigationResult.current.reject(error);
+    }).finally(() => {
+      if (questionNavigationResult.current?.nonce === target.nonce) questionNavigationResult.current = undefined;
+      setPendingQuestionNavigation((old) => old?.nonce === target.nonce ? undefined : old);
+    });
+  }, [pendingQuestionNavigation, active, notes.loaded, canvasCatalog]);
   const jump = (n: number, anchor?: SourceAnchor) => {
     if (
       !book ||
@@ -657,6 +738,7 @@ export function App() {
               <Icon name="book" />
               AIReader
             </span>
+            <QuestionNavigator revision={questionNavRevision} onNavigate={navigateQuestion} />
             <button aria-label="设置" onClick={() => setSettings(true)}>
               <Icon name="settings" />
             </button>
@@ -813,6 +895,7 @@ export function App() {
             >
               <Icon name="chat" />
             </button>
+            <QuestionNavigator currentBookId={book.id} revision={questionNavRevision} onNavigate={navigateQuestion} />
             <button
               aria-label="笔记"
               aria-pressed={layout.navigation && nav === "材料"}
@@ -1024,19 +1107,13 @@ export function App() {
                 onQuestionMaterials={(selection, sessionId) => addQuestionMaterials(book.id, selection, sessionId)}
                 questionSessionId={chatSessions[book.id]}
                 onPrepareInquiry={(inquiry) => prepareCanvasInquiry(book.id, inquiry)}
-                onContinueQuestion={async (note) => {
-                  if (current.current !== note.bookId || !note.question?.sessionId) return;
-                  // Opening a question is navigation, not consent to send its own summary as evidence.
-                  workspace.current?.escape();
-                  setSelectedMaterialIds([]);
-                  const sessionId = note.question.sessionId;
-                  const key = `${note.bookId}:${sessionId}`;
-                  const draft = questionDrafts.get(key);
-                  if (!draft.question.trim()) questionDrafts.update(key, { question: note.title });
-                  localStorage.setItem(`session-${note.bookId}`, sessionId);
-                  setChatSessions((old) => ({ ...old, [note.bookId]: sessionId }));
-                  setRequestedChat({ bookId: note.bookId, sessionId, questionId: note.id, nonce: Date.now() });
-                  await openChatPanel();
+                onContinueQuestion={continueQuestionInChat}
+                onReviewQuestion={async (note) => {
+                  if (current.current !== note.bookId) throw new Error("问题工作台已切换");
+                  await post(`books/${note.bookId}/questions/${note.id}/visit`, {});
+                  if (current.current !== note.bookId) throw new Error("问题工作台已切换");
+                  setQuestionNavRevision((old) => old + 1);
+                  setMaterialReview(note);
                 }}
                 key={active}
                 id={active!}
@@ -1239,6 +1316,23 @@ export function App() {
           )}
         </div>
       )}
+      {materialReview && materialReview.bookId === active && <MaterialReviewPanel key={`${materialReview.bookId}:${materialReview.id}`}
+        question={materialReview} selectedIds={selectedMaterialIds.filter((id) =>
+          !canvasCatalog?.catalog.cards.some((card) => card.id === id && card.noteId === materialReview.id))}
+        onClose={() => setMaterialReview((old) => old?.id === materialReview.id ? undefined : old)}
+        onCapture={async (targets, revision) => {
+          if (workspace.current?.bookId !== materialReview.bookId) throw new Error("问题工作台已切换");
+          return workspace.current.captureQuestionPreviews(targets, revision);
+        }}
+        onApply={async (values, mode) => {
+          const sessionId = materialReview.question?.sessionId;
+          if (!sessionId) throw new Error("请重新打开问题");
+          questionDrafts.applyReviewedMaterials(`${materialReview.bookId}:${sessionId}`, values, mode);
+          if (current.current === materialReview.bookId) {
+            if (mode === "replace") { selectionPinned.current = false; clearSelection(); }
+            await continueQuestionInChat(materialReview);
+          }
+        }} />}
       {error && (
         <div className="error-toast" role="alert">
           {error}

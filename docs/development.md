@@ -1,8 +1,14 @@
 # 开发指南
 
+文档视口回归：`pnpm test:reader-ui liquidtext-reader.spec.ts --grep "keeps its bottom and width control"` 用生成 PDF 检查超高文档、收起工具栏、侧边调宽、取消与缩窗恢复。`node --import tsx scripts/document-viewport-packaged-smoke.ts release/win-unpacked/AIReader.exe` 在隔离书库检查实际打包 Core／renderer 的底边、侧边及键盘调宽、首选尺寸与重启；Windows CI 构建后运行同一脚本。
+
+材料审阅与全局问题导航回归：`pnpm exec vitest run tests/material-review-http.test.ts tests/inquiry-drafts.test.ts` 验证真实冻结差异／幂等回执／问题归属／访问持久化和草稿边界；`pnpm test:reader-ui material-review-navigation.spec.ts` 验证浏览器审阅确认与跨书恢复，两者均进入完整套件。`node --import tsx scripts/canvas-inquiry-packaged-smoke.ts release/win-unpacked/AIReader.exe` 已扩展为实际打包 Core 的差异审阅、明确替换、问题导航及再次重启；不使用用户数据目录。
+
 问题卡片回归：`pnpm exec vitest run tests/question-cards-http.test.ts` 验证真实书籍命令、会话隔离、结论版本、冻结图像复制、归档和重启；`tests/canvas-inquiry.spec.ts` 同时覆盖浏览器创建问题、手选结论与状态、继续、沿用和再次发送。问题正文仍走统一 Note 编辑器和退出保护，不能直接从 renderer 写问题元数据。
 
 Windows11 x64、Node24.19.0+、pnpm10.33.0。确认实际node --version；不能只检查配置。桌面使用Electron内置运行时。
+
+工作区刷新只读取快照并通过编辑代次防止覆盖草稿，不能取消已排队的自动保存；刷新开始时已有草稿，以及请求挂起时继续编辑，都必须验证最终 Core 持久化，不能只断言输入框保留文字。
 
 | 命令 | 用途 |
 |---|---|

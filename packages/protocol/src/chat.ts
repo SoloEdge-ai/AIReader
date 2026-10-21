@@ -22,6 +22,8 @@ export interface ToolRun {
   files?: string[];
 }
 export interface ChatTurn {
+  /** Frozen question identity; never inferred from the current chat selection. */
+  questionId?: string;
   inquiry?: import("./inquiry").Inquiry;
   images?: ChatImage[];
   materialIds?: string[];

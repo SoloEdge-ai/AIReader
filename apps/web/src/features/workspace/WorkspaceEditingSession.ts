@@ -74,7 +74,9 @@ export class WorkspaceEditingSession {
   reload = async (preserveHistory = false) => {
     // A newer explicit refresh supersedes the mount-time load as well.
     this.loadRequest++;
-    clearTimeout(this.timer);
+    // Refresh must not cancel a draft's queued save, including edits made
+    // while the snapshot request is in flight. Generation guards below keep
+    // stale snapshots from replacing those edits.
     if (this.pending) await this.pending;
     if (this.generation !== this.saved) {
       this.publish({ error: "工作区草稿尚未保存，请先重试或导出草稿，避免覆盖修改" });
@@ -88,7 +90,6 @@ export class WorkspaceEditingSession {
       const initial = await api<BookWorkspace>(`books/${this.bookId}/workspace`);
       if (!this.live || request !== this.reloadRequest) return;
       if (this.generation !== startedGeneration) {
-        clearTimeout(this.timer);
         this.publish({ error: "刷新期间工作区已发生编辑，草稿已保留，请保存或处理冲突后重试刷新" });
         return;
       }
@@ -119,30 +120,34 @@ export class WorkspaceEditingSession {
     if (!this.draft || !this.committed) return true;
     const save = async () => {
       try {
-        while (this.saved !== this.generation) {
-          if (!this.inFlight) {
-            const changes = difference(this.committed!, this.draft!);
-            if (!changes.length) { this.saved = this.generation; break; }
-            this.inFlight = {
-              generation: this.generation,
-              batch: { bookId: this.bookId, commandId: crypto.randomUUID(),
-                expectedVersion: this.committed!.revision, changes },
-            };
+        do {
+          while (this.saved !== this.generation) {
+            if (!this.inFlight) {
+              const changes = difference(this.committed!, this.draft!);
+              if (!changes.length) { this.saved = this.generation; break; }
+              this.inFlight = {
+                generation: this.generation,
+                batch: { bookId: this.bookId, commandId: crypto.randomUUID(),
+                  expectedVersion: this.committed!.revision, changes },
+              };
+            }
+            this.publish({ status: "保存中…", error: "" });
+            const receipt = await submitWorkspaceCommand(this.inFlight.batch);
+            this.committed = { ...apply(this.committed!, receipt.changes), revision: receipt.contentVersion };
+            this.saved = this.inFlight.generation;
+            this.inFlight = undefined;
           }
-          this.publish({ status: "保存中…", error: "" });
-          const receipt = await submitWorkspaceCommand(this.inFlight.batch);
-          this.committed = { ...apply(this.committed!, receipt.changes), revision: receipt.contentVersion };
-          this.saved = this.inFlight.generation;
-          this.inFlight = undefined;
-        }
-        const camera = this.draft?.camera;
-        if (this.viewSaved !== this.viewGeneration && camera) {
-          const sent = this.viewGeneration;
-          await api(`books/${this.bookId}/workspace/camera`, {
-            method: "PUT", body: JSON.stringify(camera),
-          });
-          this.viewSaved = sent;
-        }
+          const camera = this.draft?.camera;
+          if (this.viewSaved !== this.viewGeneration && camera) {
+            const sent = this.viewGeneration;
+            await api(`books/${this.bookId}/workspace/camera`, {
+              method: "PUT", body: JSON.stringify(camera),
+            });
+            this.viewSaved = sent;
+          }
+          // A camera request can still be in flight when another caller adds
+          // content and joins this flush. Its promise must include those edits.
+        } while (this.saved !== this.generation || Boolean(this.draft?.camera) && this.viewSaved !== this.viewGeneration);
         this.publish({ status: "已保存" });
         return true;
       } catch (error) {

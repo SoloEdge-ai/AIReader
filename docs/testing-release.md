@@ -1,5 +1,9 @@
 # 测试与发布
 
+文档底边与调宽回归见[本次记录](verification/2026-10-20-document-viewport.md)。`liquidtext-reader.spec.ts` 覆盖 3440×1343 和 1000×640 的真实阅读布局；`document-viewport-packaged-smoke.ts` 在 Windows 打包后验证相同缺陷、尺寸保存与重启。这里的浏览器窗口尺寸不代表系统 DPI 矩阵或用户实际 PDF 压力验收。
+
+阶段 B2 本轮结果与 PR #30 正式安装分开记录在[材料差异与导航验收](verification/2026-10-20-material-review-navigation.md)。新增 HTTP 测试必须校验实际 Codex 请求只包含审阅确认版本，旧问题／结论保持不变，图片比较不能只检查元数据；浏览器覆盖全局与未放置问题、跨书保存、原会话及草稿恢复。打包问答脚本新增审阅／导航／重启，沿用 Windows CI 已有入口。
+
 阶段 B 首个切片检查见[问题卡片记录](verification/2026-10-20-question-cards.md)。新增真实 HTTP 问题回归进入完整行为测试；阅读器浏览器场景扩展为保存问题、结论选择、状态、冻结材料续问和重开。不要将前一阶段 PR 或安装检查写成本分支的发布结果。
 
 行为边界：Core HTTP、真实临时SQLite/文件、PDF提取/渲染、上下文、模拟外部Codex。几何按纯输入输出验证。不得用内部mock掩盖事务或来源问题。

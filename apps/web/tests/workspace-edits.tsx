@@ -28,6 +28,11 @@ function Editor({ bookId }: { bookId: string }) {
         { id: "draft-card", kind: "note", title: "Draft", text: event.target.value, comment: "", x: 20, y: 40, width: 300, height: 240 },
       ] }))} />}
     <button onClick={() => void state.flush()}>重试保存</button>
+    <button onClick={() => {
+      state.change((value) => ({ ...value, camera: { x: (value.camera?.x ?? 0) + 20,
+        y: value.camera?.y ?? 0, zoom: value.camera?.zoom ?? 1 } }));
+      void state.flush();
+    }}>移动并保存视野</button>
     <button onClick={() => void state.reload(true)}>刷新工作区</button>
     <button onClick={() => void saveWithoutCanvas()}>保存未挂载画布的书籍草稿</button>
     <span aria-label="书籍保存结果">{combinedSave}</span>

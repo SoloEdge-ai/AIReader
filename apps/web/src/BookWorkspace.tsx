@@ -64,6 +64,10 @@ import { InquiryActions } from "./features/chat/InquiryActions";
 import { QuestionCardControls } from "./features/notes/QuestionCardControls";
 
 export interface BookWorkspaceHandle {
+  bookId: string;
+  continueQuestion(note: Note): Promise<void>;
+  reviewQuestion(note: Note): Promise<void>;
+  captureQuestionPreviews(targets: QuestionMaterialInput["targets"], revision: number): Promise<QuestionMaterialInput["previews"]>;
   excerpt(selection: ReadingSelection, point?: InkPoint): void;
   dropExcerpt(selection: ReadingSelection, x: number, y: number): boolean;
   escape(): void;
@@ -95,6 +99,7 @@ export const BookWorkspace = forwardRef<
     questionSessionId?: string;
     onPrepareInquiry?: (inquiry: Inquiry) => Promise<void>;
     onContinueQuestion?: (note: Note) => Promise<void>;
+    onReviewQuestion?: (note: Note) => Promise<void>;
     beforeExport?: () => Promise<boolean>;
     notes: BookNotes;
     workspaceSession: WorkspaceEditingSession;
@@ -170,8 +175,9 @@ export const BookWorkspace = forwardRef<
   const [showOverview, setShowOverview] = useState(false);
   const [documentWidth, setDocumentWidth] = useState(0);
   const [narrow, setNarrow] = useState(false);
+  const [documentBounds, setDocumentBounds] = useState<{ width: number; height: number; topInset: number }>();
   const spatial = props.deskLayout === "spatial" && !narrow && props.readerPaneMode === "split";
-  const documentObject = useDocumentObject(props.documentRect, props.onDocumentRect);
+  const documentObject = useDocumentObject(props.documentRect, props.onDocumentRect, documentBounds);
   const documentZoom = props.pdfZoom;
   const [narrowPane, setNarrowPane] = useState<"pdf" | "board">("pdf");
   const [splitDraft, setSplitDraft] = useState(props.splitRatio);
@@ -256,8 +262,14 @@ export const BookWorkspace = forwardRef<
   useEffect(() => {
     const root = splitRoot.current;
     if (!root) return;
-    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < 840));
+    const tools = root.querySelector<HTMLElement>(".board-pane > .reader-pane-header");
+    const observer = new ResizeObserver(() => {
+      setNarrow(root.clientWidth < 840);
+      setDocumentBounds({ width: root.clientWidth, height: root.clientHeight,
+        topInset: (tools?.offsetHeight ?? 0) + 12 });
+    });
     observer.observe(root);
+    if (tools) observer.observe(tools);
     return () => observer.disconnect();
   }, []);
   useEffect(() => setSplitDraft(props.splitRatio), [props.splitRatio]);
@@ -517,13 +529,31 @@ export const BookWorkspace = forwardRef<
     if (card?.type === "upsert-card") { navigate(card.card.x - 40, card.card.y - 40); selectTarget(card.card.id); }
     if (created && !turn) props.onExpandNote(created);
   }
-  async function continueQuestion(note: Note) {
-    let current = note;
-    if (!note.question?.sessionId) {
-      const receipt = await questionCommand([{ type: "open-question", noteId: note.id, expectedRevision: note.revision }]);
+  async function boundQuestion(note: Note) {
+    if (note.bookId !== props.book.id) throw new Error("问题不属于此工作台");
+    if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
+    let current = props.notes.getSnapshot().notes.find((item) => item.id === note.id && !item.deletedAt);
+    if (!current?.question) throw new Error("问题不存在");
+    if (!current.question.sessionId) {
+      const receipt = await questionCommand([{ type: "open-question", noteId: current.id, expectedRevision: current.revision }]);
       current = receipt.noteChanges.find((item) => item.after.id === note.id)!.after;
     }
+    return current;
+  }
+  async function continueQuestion(note: Note) {
+    const current = await boundQuestion(note);
     if (mounted.current) await props.onContinueQuestion?.(current);
+  }
+  async function reviewQuestion(note: Note) {
+    const current = await boundQuestion(note);
+    if (mounted.current) await props.onReviewQuestion?.(current);
+  }
+  async function captureQuestionPreviews(targets: QuestionMaterialInput["targets"], expectedRevision: number) {
+    if (!(await props.notes.flush()) || !(await state.flush())) throw new Error("请先保存当前草稿");
+    const snapshot = state.value;
+    if (!snapshot || state.revision() !== expectedRevision) throw new Error("材料已变化，请重新读取材料");
+    return targets.filter((target) => target.kind !== "relation").flatMap((target) =>
+      captureMaterialPreviews([target.id], snapshot, props.annotations ?? [], pdfPages.current));
   }
   function prepareInquiry(action: Inquiry["action"], claimId?: string) {
     const ids = [...selectedIds];
@@ -582,6 +612,10 @@ export const BookWorkspace = forwardRef<
     await props.onRegionAction?.(region, action, includePersonalMarks);
   }
   useImperativeHandle(ref, () => ({ excerpt: add,
+    bookId: props.book.id,
+    continueQuestion,
+    reviewQuestion,
+    captureQuestionPreviews,
     placeNote,
     saveAnswer,
     createQuestion,
@@ -1455,6 +1489,7 @@ export const BookWorkspace = forwardRef<
                     return note?.question ? <QuestionCardControls note={note} notes={props.notes.notes}
                       onOpenNote={props.onExpandNote}
                       onContinue={() => continueQuestion(note)}
+                      onReview={() => reviewQuestion(note)}
                       onUpdate={async (status, currentConclusionId) => { await questionCommand([{ type: "update-question",
                         noteId: note.id, expectedRevision: note.revision, status, currentConclusionId }]); }} /> : undefined;
                   })()} />
@@ -1823,9 +1858,8 @@ export const BookWorkspace = forwardRef<
             onKeyDown={(event) => {
               if (!spatial || event.target !== event.currentTarget || !event.key.startsWith("Arrow")) return;
               event.preventDefault();
-              props.onDocumentRect({ ...documentObject.rect,
-                x: Math.max(0, Math.min(10000, documentObject.rect.x + (event.key === "ArrowRight" ? 24 : event.key === "ArrowLeft" ? -24 : 0))),
-                y: Math.max(0, Math.min(10000, documentObject.rect.y + (event.key === "ArrowDown" ? 24 : event.key === "ArrowUp" ? -24 : 0))) });
+              documentObject.moveBy(event.key === "ArrowRight" ? 24 : event.key === "ArrowLeft" ? -24 : 0,
+                event.key === "ArrowDown" ? 24 : event.key === "ArrowUp" ? -24 : 0);
             }}>
             <span><Icon name="book" /> 原文 <small>第 {props.page} 页</small></span>
             <div className="reader-pane-actions">
@@ -1867,15 +1901,22 @@ export const BookWorkspace = forwardRef<
               onAnnotationTarget: (id) => selectTarget(id),
             }} />
           </div>
-          {spatial && <div className="desk-document-resize" role="separator" tabIndex={0}
+          {spatial && <><div className="desk-document-width-resize" role="separator" tabIndex={0}
+            aria-label="调整文档宽度" title="拖动调整文档宽度；方向键微调" aria-orientation="vertical"
+            aria-valuemin={360} aria-valuemax={Math.min(1600, (documentBounds?.width ?? 1624) - 24)} aria-valuenow={Math.round(documentObject.rect.width)}
+            {...documentObject.resizeWidth} onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+              event.preventDefault(); documentObject.resizeBy("e", event.key === "ArrowRight" ? 20 : -20, 0);
+            }} />
+          <div className="desk-document-resize" role="separator" tabIndex={0}
             aria-label="调整文档大小" aria-orientation="vertical" aria-valuenow={documentObject.rect.width}
             {...documentObject.resize} onKeyDown={(event) => {
               if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
               event.preventDefault();
-              props.onDocumentRect({ ...documentObject.rect,
-                width: Math.max(360, Math.min(1600, documentObject.rect.width + (event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0))),
-                height: Math.max(320, Math.min(2000, documentObject.rect.height + (event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0))) });
-            }} />}
+              documentObject.resizeBy(["ArrowLeft", "ArrowRight"].includes(event.key) ? "e" : "s",
+                event.key === "ArrowRight" ? 20 : event.key === "ArrowLeft" ? -20 : 0,
+                event.key === "ArrowDown" ? 20 : event.key === "ArrowUp" ? -20 : 0);
+            }} /></>}
         </section>
         {!narrow && !spatial && paneMode === "split" && <div className="reader-pane-separator" role="separator" tabIndex={0}
           aria-label="调整原文与工作台宽度" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={70}

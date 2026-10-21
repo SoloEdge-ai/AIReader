@@ -39,6 +39,15 @@ export class ChatRepository {
     return this.store.getForBook<ChatTurn>("turn", turnId, bookId);
   }
 
+  latestQuestionTurn(bookId: string, questionId: string, fallbackIds: string[]): ChatTurn | undefined {
+    const row = this.store.db.prepare(`SELECT value FROM records WHERE kind='turn' AND book_id=?
+      AND (json_extract(value,'$.questionId')=? OR id IN (SELECT value FROM json_each(?)))
+      ORDER BY CASE WHEN json_extract(value,'$.questionId')=? THEN 0 ELSE 1 END,
+      json_extract(value,'$.createdAt') DESC,rowid DESC LIMIT 1`)
+      .get(bookId, questionId, JSON.stringify(fallbackIds), questionId) as { value: string } | undefined;
+    return row ? JSON.parse(row.value) : undefined;
+  }
+
   saveTurn(turn: ChatTurn): ChatTurn {
     // Stream callbacks hold the turn created at request start. Tool runs may
     // have changed its persisted row since then; that list has one owner.

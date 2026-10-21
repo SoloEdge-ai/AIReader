@@ -1,5 +1,5 @@
 import { _electron as electron, expect } from "@playwright/test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -12,6 +12,7 @@ import { QuestionMaterials } from "../apps/core/src/question-materials";
 import { Preferences } from "../apps/core/src/preferences";
 import type { ChatTurn, Note } from "../packages/protocol/src";
 import type { BookWorkspace } from "../packages/protocol/src/workspace";
+import { bookCommandPayload, type BookChange } from "../packages/protocol/src/book-commands";
 
 const executable = resolve(process.argv[2] ?? "release/win-unpacked/AIReader.exe");
 const directory = await mkdtemp(join(tmpdir(), "aireader-inquiry-packaged-"));
@@ -107,8 +108,35 @@ try {
     (await fetch(`/api/books/${id}/workspace`)).json(), book.id);
   if (reopened.cards.filter((card) => card.noteId === answer.noteId).length !== 1)
     throw new Error("Packaged answer placement did not survive restart uniquely");
+  const source = reopened.cards.find((card) => card.id === "source-card")!;
+  const payload = { bookId: book.id, expectedContentVersion: reopened.revision,
+    changes: [{ type: "workspace", changes: [{ type: "upsert-card", card: { ...source, comment: "New personal comment for review." } }] }] satisfies BookChange[] };
+  await page.evaluate(async (value) => {
+    const response = await fetch(`/api/v2/books/${value.bookId}/commands`, { method: "POST", body: JSON.stringify(value) });
+    if (!response.ok) throw new Error(await response.text());
+  }, { ...payload, commandId: randomUUID(), payloadHash: createHash("sha256").update(bookCommandPayload(payload)).digest("hex") });
+  await chat.getByRole("button", { name: "关闭问答浮窗", exact: true }).click();
+  await page.getByRole("button", { name: "问题导航", exact: true }).click();
+  const navigator = page.getByLabel("全局问题导航", { exact: true });
+  await navigator.getByLabel("筛选问题状态").selectOption("all");
+  await navigator.locator(`[data-question-id="${question.id}"]`).getByRole("button", { name: "检查材料更新", exact: true }).click();
+  const review = page.getByLabel("材料更新差异清单", { exact: true });
+  await review.getByRole("button", { name: /^冻结最新材料并生成差异/ }).click();
+  await expect(review.locator('[data-material-status="updated"]')).toHaveCount(1);
+  await review.locator('[data-material-status="updated"] summary').click();
+  await expect(review.getByText("New personal comment for review.", { exact: true })).toBeVisible();
+  await page.screenshot({ path: ".local/screenshots/material-review-packaged.png" });
+  await review.getByRole("button", { name: "替换为这批最新材料", exact: true }).click();
+  await expect(chat.getByText("本轮材料 · 1 项", { exact: true })).toBeVisible();
+  await expect(chat.locator(".turn")).toHaveCount(1);
+  await chat.getByRole("button", { name: "关闭问答浮窗", exact: true }).click();
   await desktop!.close(); desktop = undefined;
-  console.log("Packaged canvas inquiry: atomic save, material-use connection, question/conclusion selection, frozen continuation and close/reopen passed");
+  ({ page, chat } = await launch());
+  await chat.getByRole("button", { name: "关闭问答浮窗", exact: true }).click();
+  await page.getByRole("button", { name: "问题导航", exact: true }).click();
+  await expect(page.getByLabel("全局问题导航", { exact: true }).getByRole("button", { name: "继续上次问题", exact: true })).toBeVisible();
+  await desktop!.close(); desktop = undefined;
+  console.log("Packaged canvas inquiry: atomic save, question/conclusion selection, material difference review, explicit draft replacement, navigation and restart passed");
 } finally {
   await desktop?.close();
   if (libraryOpen) library.close();

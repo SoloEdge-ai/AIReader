@@ -51,6 +51,16 @@ export interface LegacyWorkspaceReceipt {
 export class WorkspaceRepository {
   constructor(private readonly db: DatabaseSync) {}
 
+  /** Lightweight global navigation; do not load drawings or full workspace snapshots. */
+  notePlacements(): { bookId: string; id: string; noteId: string; placed: boolean }[] {
+    return this.db.prepare(`SELECT book_id,id,json_extract(value,'$.noteId') AS note_id,
+      json_extract(value,'$.placed') AS placed FROM workspace_entities
+      WHERE kind='card' AND json_extract(value,'$.kind')='note'
+      AND json_type(value,'$.noteId')='text'`).all().map((row) => ({
+        bookId: String(row.book_id), id: String(row.id), noteId: String(row.note_id), placed: row.placed !== 0,
+      }));
+  }
+
   /** The pre-v2 command and immutable asset metadata still live in records. */
   private record<T>(kind: string, id: string, bookId: string): T | undefined {
     const row = this.db.prepare("SELECT value FROM records WHERE kind=? AND id=? AND book_id=?")

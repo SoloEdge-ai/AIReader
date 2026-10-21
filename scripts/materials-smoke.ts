@@ -35,7 +35,11 @@ try {
   await page.mouse.move(source.x + 200, source.y + 190, { steps: 8 });
   await page.mouse.up();
   await expect(page.getByRole("button", { name: "将选中对象加入提问" })).toBeVisible();
+  const frozenResponse = page.waitForResponse((response) => response.request().method() === "POST" &&
+    new URL(response.url()).pathname === `/api/books/${book.id}/question-materials`);
   await page.getByRole("button", { name: "将选中对象加入提问" }).click();
+  const frozen = await frozenResponse;
+  expect(frozen.status(), await frozen.text()).toBe(201);
   await expect(page.locator(".question-material-item")).toHaveCount(1);
   await page.locator(".question-material-item summary").click();
   await expect.poll(() => page.locator(".question-material-item img").evaluate((image: HTMLImageElement) =>
@@ -57,7 +61,11 @@ try {
   await page.locator(".notes-panel").getByRole("button", { name: "新建笔记" }).click();
   await page.getByLabel("笔记标题", { exact: true }).fill("待验证的个人想法");
   await page.locator(".tiptap").fill("这条笔记属于用户，不是原书观点。");
+  const noteFrozenResponse = page.waitForResponse((response) => response.request().method() === "POST" &&
+    new URL(response.url()).pathname === `/api/books/${book.id}/question-materials`);
   await page.locator(".notes-panel").getByRole("button", { name: "加入提问", exact: true }).click();
+  const noteFrozen = await noteFrozenResponse;
+  expect(noteFrozen.status(), await noteFrozen.text()).toBe(201);
   await expect(page.locator(".question-material-item")).toHaveCount(2);
   await expect(page.locator(".question-material-list")).toContainText("待验证的个人想法");
   await page.getByRole("button", { name: "关闭笔记浮窗" }).click();

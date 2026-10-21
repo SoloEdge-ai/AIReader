@@ -37,8 +37,8 @@ test.beforeAll(async () => {
   expect((await fetch(origin + `/api/books/${bookId}/notes`, { method: "POST", headers, body: "{}" })).status).toBe(201);
 });
 test.afterAll(async () => {
-  core?.close();
-  if (directory) await rm(directory, { recursive: true, force: true });
+  await core?.shutdown();
+  if (directory) await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 test("material navigation and chat remain visible beside the same PDF", async ({ page }) => {
@@ -52,6 +52,9 @@ test("material navigation and chat remain visible beside the same PDF", async ({
   await expect(page.locator(".floating-chat .chat")).toBeVisible();
   await expect(page.locator(".reading .pdf-page").first()).toBeVisible();
   await page.screenshot({ path: "test-results/materials-and-chat.png" });
+  // Seed the legacy preference with no active reader still saving newer UI
+  // preferences; this scenario tests reopening that persisted format.
+  await page.goto("http://127.0.0.1:5173/");
   await page.evaluate(async (id) => {
     const url = `http://127.0.0.1:43120/api/books/${id}/preferences`;
     const previous = await (await fetch(url, { credentials: "include" })).json();
@@ -217,15 +220,18 @@ test("chat receives book-scoped events, recovers a missed final event and stops 
   await page.context().setOffline(false);
   await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
     .toContainText("断线期间保存的最终答案", { timeout: 12_000 });
-  const closed = new Promise<void>((resolve) => core.server.once("close", resolve));
-  core.close();
-  await closed;
-  core = createCore(directory, resolve("dist/web"));
-  await new Promise<void>((done) => core.server.listen(43120, "127.0.0.1", done));
-  const afterRestart = { ...missed, answer: "Core 重启后读回的答案" };
-  core.library.store.put("turn", turn.id, bookId, afterRestart);
-  await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
-    .toContainText("Core 重启后读回的答案", { timeout: 15_000 });
+  await test.step("stop Core transports and storage before restarting", async () => {
+    await core.shutdown();
+    core = createCore(directory, resolve("dist/web"));
+    // Prepare the recovered state before reconnecting clients can read it.
+    const afterRestart = { ...missed, answer: "Core 重启后读回的答案" };
+    core.library.store.put("turn", turn.id, bookId, afterRestart);
+    await new Promise<void>((done) => core.server.listen(43120, "127.0.0.1", done));
+  });
+  await test.step("reconnect and read the recovered answer", async () => {
+    await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
+      .toContainText("Core 重启后读回的答案", { timeout: 15_000 });
+  });
 });
 
 test("annotation comments are explicit and deleting either entity preserves the other", async ({ page }) => {
@@ -709,6 +715,21 @@ test("book editing session saves a Note before its placement without a mounted r
   expect(notes.find((note: { id: string }) => note.id === card.noteId)?.title).toBe("同一书籍的笔记");
 });
 
+test("workspace refresh leaves a dirty draft's scheduled save active", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+  const input = page.getByLabel("卡片正文");
+  await expect(input).toBeVisible();
+  await page.clock.install({ time: new Date("2026-10-21T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-10-21T00:00:01Z"));
+  await input.fill("刷新通知不能取消尚未触发的自动保存");
+  await page.getByRole("button", { name: "刷新工作区", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("草稿尚未保存");
+  await page.clock.runFor(600);
+  await expect.poll(() => new Workspaces(core.library).get(bookId).cards
+    .find((card) => card.id === "draft-card")?.text).toBe("刷新通知不能取消尚未触发的自动保存");
+  await expect(page.getByRole("status")).toHaveText("已保存");
+});
+
 test("workspace refresh cannot overwrite edits made while its response is pending", async ({ page }) => {
   await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
   const input = page.getByLabel("卡片正文");
@@ -728,6 +749,9 @@ test("workspace refresh cannot overwrite edits made while its response is pendin
     release();
     await expect(page.getByRole("alert")).toContainText("刷新期间");
     await expect(input).toHaveValue("刷新过程中继续写入的内容");
+    await expect.poll(() => new Workspaces(core.library).get(bookId).cards
+      .find((card) => card.id === "draft-card")?.text).toBe("刷新过程中继续写入的内容");
+    await expect(page.getByRole("status")).toHaveText("已保存");
   } finally { release(); }
 });
 
@@ -758,4 +782,24 @@ test("an older mount load cannot overwrite a newer explicit workspace refresh", 
     await delivered;
     await expect(page.getByLabel("卡片正文")).toHaveValue("新快照保留");
   } finally { releaseFirst(); }
+});
+
+test("joining a pending camera save also saves content edited while that request is in flight", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+  const input = page.getByLabel("卡片正文");
+  await expect(input).toBeVisible();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Network.enable");
+  await cdp.send("Network.emulateNetworkConditions", { offline: false, latency: 1500, downloadThroughput: -1, uploadThroughput: -1 });
+  try {
+    const camera = page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname.endsWith("/workspace/camera"));
+    await page.getByRole("button", { name: "移动并保存视野", exact: true }).click();
+    await camera;
+    await input.fill("相机请求期间新增的正文也必须提交");
+    await page.getByRole("button", { name: "重试保存", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("已保存", { timeout: 10000 });
+    const origin = "http://127.0.0.1:43120";
+    const saved = await (await page.request.get(`${origin}/api/books/${bookId}/workspace`, { headers: { Origin: origin } })).json();
+    expect(saved.cards.find((card: { id: string }) => card.id === "draft-card")?.text).toBe("相机请求期间新增的正文也必须提交");
+  } finally { await cdp.detach(); }
 });

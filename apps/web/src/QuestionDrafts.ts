@@ -132,6 +132,18 @@ export class QuestionDraftStore {
     return true;
   }
 
+  applyReviewedMaterials(key: string, values: QuestionMaterialSnapshot[], mode: "append" | "replace") {
+    const draft = this.get(key);
+    if (draft.preparing) throw new Error("材料仍在准备，请完成后再应用审阅");
+    if (mode === "append" && draft.attachment) throw new Error("请先移除当前原文选区，或明确替换本轮材料");
+    const materials = mode === "replace" ? values : [...draft.materials, ...values.filter((value) => !draft.materials.some((old) => old.id === value.id))];
+    const images = mode === "replace" ? [] : draft.images;
+    if (questionMaterialCount(materials, images.length) > MAX_QUESTION_MATERIALS || questionMaterialImageCount(materials, images.length) > MAX_CHAT_IMAGES)
+      throw new Error("应用后超过 20 项材料或 4 张图片，请缩小选择或替换本轮材料");
+    this.update(key, { materials, images, attachment: undefined, scope: "materials", materialError: undefined,
+      ...(mode === "replace" ? { materialExclusions: [], reusedTurnIds: [], pendingMaterialIds: [], inquiry: undefined } : {}) });
+  }
+
   private emit() {
     for (const listener of this.listeners) listener();
   }
