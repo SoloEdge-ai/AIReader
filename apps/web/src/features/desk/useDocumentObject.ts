@@ -9,9 +9,10 @@ const constraints = { inset: 12, topInset: 12, minimumWidth: 360, minimumHeight:
 /** Document geometry is relative to the reading surface, independent of the board camera.
  * Pointer motion is temporary; only release saves preferences. */
 export function useDocumentObject(saved: DocumentRect | undefined,
-  onCommit: (rect: DocumentRect) => void, bounds?: WindowBounds) {
+  onCommit: (rect: DocumentRect) => void, bounds?: WindowBounds & { topInset: number }) {
+  const displayConstraints = { ...constraints, topInset: bounds?.topInset ?? constraints.topInset };
   const preferred = saved ?? initialDocumentRect;
-  const rect = bounds ? clampWindow(preferred, bounds, constraints) : preferred;
+  const rect = bounds ? clampWindow(preferred, bounds, displayConstraints) : preferred;
   const [draft, setDraft] = useState<DocumentRect>();
   const pointer = useRef<{ id: number; x: number; y: number; rect: DocumentRect;
     edge?: ResizeEdge; saved: DocumentRect; target: HTMLElement } | undefined>(undefined);
@@ -30,7 +31,7 @@ export function useDocumentObject(saved: DocumentRect | undefined,
     window.addEventListener("blur", cancel);
     return () => { window.removeEventListener("blur", cancel); window.removeEventListener("keydown", escape, true); cancel(); };
   }, []);
-  useEffect(() => { cancel(); }, [bounds?.width, bounds?.height]);
+  useEffect(() => { cancel(); }, [bounds?.width, bounds?.height, bounds?.topInset]);
   function commit(next: DocumentRect, operation: "move" | ResizeEdge, original = preferred) {
     onCommit(persistedWindow(next, original, operation));
   }
@@ -39,8 +40,8 @@ export function useDocumentObject(saved: DocumentRect | undefined,
     if (!active || active.id !== event.pointerId) return;
     const dx = event.clientX - active.x, dy = event.clientY - active.y;
     if (!bounds) return;
-    return active.edge ? resizeWindow(active.rect, active.edge, dx, dy, bounds, constraints)
-      : moveWindow(active.rect, dx, dy, bounds, constraints);
+    return active.edge ? resizeWindow(active.rect, active.edge, dx, dy, bounds, displayConstraints)
+      : moveWindow(active.rect, dx, dy, bounds, displayConstraints);
   }
   function handlers(edge?: ResizeEdge) {
     return {
@@ -62,8 +63,8 @@ export function useDocumentObject(saved: DocumentRect | undefined,
     };
   }
   return { rect: draft ?? rect, move: handlers(), resize: handlers("se"), resizeWidth: handlers("e"),
-    moveBy: (dx: number, dy: number) => { if (bounds) commit(moveWindow(rect, dx, dy, bounds, constraints), "move"); },
+    moveBy: (dx: number, dy: number) => { if (bounds) commit(moveWindow(rect, dx, dy, bounds, displayConstraints), "move"); },
     resizeBy: (edge: ResizeEdge, dx: number, dy: number) => {
-      if (bounds) commit(resizeWindow(rect, edge, dx, dy, bounds, constraints), edge);
+      if (bounds) commit(resizeWindow(rect, edge, dx, dy, bounds, displayConstraints), edge);
     } };
 }

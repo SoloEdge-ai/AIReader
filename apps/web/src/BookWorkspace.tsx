@@ -175,7 +175,7 @@ export const BookWorkspace = forwardRef<
   const [showOverview, setShowOverview] = useState(false);
   const [documentWidth, setDocumentWidth] = useState(0);
   const [narrow, setNarrow] = useState(false);
-  const [documentBounds, setDocumentBounds] = useState<{ width: number; height: number }>();
+  const [documentBounds, setDocumentBounds] = useState<{ width: number; height: number; topInset: number }>();
   const spatial = props.deskLayout === "spatial" && !narrow && props.readerPaneMode === "split";
   const documentObject = useDocumentObject(props.documentRect, props.onDocumentRect, documentBounds);
   const documentZoom = props.pdfZoom;
@@ -262,11 +262,14 @@ export const BookWorkspace = forwardRef<
   useEffect(() => {
     const root = splitRoot.current;
     if (!root) return;
-    const observer = new ResizeObserver(([entry]) => {
-      setNarrow(entry.contentRect.width < 840);
-      setDocumentBounds({ width: entry.contentRect.width, height: entry.contentRect.height });
+    const tools = root.querySelector<HTMLElement>(".board-pane > .reader-pane-header");
+    const observer = new ResizeObserver(() => {
+      setNarrow(root.clientWidth < 840);
+      setDocumentBounds({ width: root.clientWidth, height: root.clientHeight,
+        topInset: (tools?.offsetHeight ?? 0) + 12 });
     });
     observer.observe(root);
+    if (tools) observer.observe(tools);
     return () => observer.disconnect();
   }, []);
   useEffect(() => setSplitDraft(props.splitRatio), [props.splitRatio]);

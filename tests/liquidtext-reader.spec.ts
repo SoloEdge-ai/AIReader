@@ -716,6 +716,21 @@ test("reading chrome collapses without losing the document and persists per book
   await expect(page.getByRole('button', { name: '新建笔记', exact: true })).toBeVisible();
 });
 
+test("spatial PDF at the top edge leaves board controls clickable", async ({ page }) => {
+  new Preferences(core.library).saveForBook(bookId, { deskLayout: "spatial", chromeCollapsed: false,
+    navigation: false, panel: "none", documentRect: { x: 12, y: 12, width: 1400, height: 1800 } });
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await openBook(page);
+  const document = (await page.locator(".pdf-pane").boundingBox())!;
+  const tools = (await page.locator(".board-pane > .reader-pane-header").boundingBox())!;
+  expect(document.y).toBeGreaterThanOrEqual(tools.y + tools.height);
+  await page.getByRole("button", { name: "切换桌面布局", exact: true }).click({ timeout: 3000 });
+  await expect(page.locator(".reader-split")).toHaveClass(/desk-adjacent/);
+  await page.getByRole("button", { name: "切换桌面布局", exact: true }).click();
+  await expect(page.locator(".reader-split")).toHaveClass(/desk-spatial/);
+  await expect(page.getByRole("separator", { name: "调整文档大小", exact: true })).toBeInViewport({ ratio: 1 });
+});
+
 for (const height of [720, 1800]) test(`spatial PDF height ${height} keeps its bottom and width control reachable`, async ({ page }) => {
   new Preferences(core.library).saveForBook(bookId, { deskLayout: "spatial", chromeCollapsed: true,
     navigation: false, panel: "none", documentRect: { x: 170, y: 24, width: 1400, height } });

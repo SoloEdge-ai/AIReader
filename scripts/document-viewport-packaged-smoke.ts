@@ -16,7 +16,7 @@ try {
   const book = await library.import(Buffer.from(await pdf.save()), "Document viewport fixture.pdf");
   await library.waitForBook(book.id);
   new Preferences(library).saveForBook(book.id, { deskLayout: "spatial", chromeCollapsed: true, panel: "none", navigation: false,
-    documentRect: { x: 170, y: 24, width: 1400, height: 1800 } });
+    documentRect: { x: 170, y: 12, width: 1400, height: 1800 } });
   library.close(); libraryOpen = false;
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (key !== "ELECTRON_RUN_AS_NODE" && value !== undefined) env[key] = value;
@@ -57,8 +57,15 @@ try {
   await expect(widthControl).toBeInViewport({ ratio: 1 });
   await expect(pdfPane.getByRole("separator", { name: "调整文档大小", exact: true })).toBeInViewport({ ratio: 1 });
   expect((await preferences()).documentRect.height).toBe(1800);
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await page.getByRole("button", { name: "展开阅读工具栏", exact: true }).click();
+  await page.getByRole("button", { name: "切换桌面布局", exact: true }).click();
+  await expect(page.locator(".reader-split")).toHaveClass(/desk-adjacent/);
+  await page.getByRole("button", { name: "切换桌面布局", exact: true }).click();
+  await expect(page.locator(".reader-split")).toHaveClass(/desk-spatial/);
+  await expect(pdfPane.getByRole("separator", { name: "调整文档大小", exact: true })).toBeInViewport({ ratio: 1 });
   await desktop!.close(); desktop = undefined;
-  console.log("Packaged document viewport: visible bottom, side/keyboard width resize, untouched height, viewport shrink and restart passed.");
+  console.log("Packaged document viewport: visible bottom, side/keyboard width resize, untouched height, viewport shrink, restart and clickable board tools passed.");
 } finally {
   await desktop?.close(); if (libraryOpen) library.close();
   await rm(directory, { recursive: true, force: true });
