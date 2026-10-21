@@ -37,8 +37,8 @@ test.beforeAll(async () => {
   expect((await fetch(origin + `/api/books/${bookId}/notes`, { method: "POST", headers, body: "{}" })).status).toBe(201);
 });
 test.afterAll(async () => {
-  core?.close();
-  if (directory) await rm(directory, { recursive: true, force: true });
+  await core?.shutdown();
+  if (directory) await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 test("material navigation and chat remain visible beside the same PDF", async ({ page }) => {
@@ -220,15 +220,18 @@ test("chat receives book-scoped events, recovers a missed final event and stops 
   await page.context().setOffline(false);
   await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
     .toContainText("断线期间保存的最终答案", { timeout: 12_000 });
-  const closed = new Promise<void>((resolve) => core.server.once("close", resolve));
-  core.close();
-  await closed;
-  core = createCore(directory, resolve("dist/web"));
-  await new Promise<void>((done) => core.server.listen(43120, "127.0.0.1", done));
-  const afterRestart = { ...missed, answer: "Core 重启后读回的答案" };
-  core.library.store.put("turn", turn.id, bookId, afterRestart);
-  await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
-    .toContainText("Core 重启后读回的答案", { timeout: 15_000 });
+  await test.step("stop Core transports and storage before restarting", async () => {
+    await core.shutdown();
+    core = createCore(directory, resolve("dist/web"));
+    // Prepare the recovered state before reconnecting clients can read it.
+    const afterRestart = { ...missed, answer: "Core 重启后读回的答案" };
+    core.library.store.put("turn", turn.id, bookId, afterRestart);
+    await new Promise<void>((done) => core.server.listen(43120, "127.0.0.1", done));
+  });
+  await test.step("reconnect and read the recovered answer", async () => {
+    await expect(page.locator(".turn").filter({ hasText: "事件同步测试" }))
+      .toContainText("Core 重启后读回的答案", { timeout: 15_000 });
+  });
 });
 
 test("annotation comments are explicit and deleting either entity preserves the other", async ({ page }) => {
