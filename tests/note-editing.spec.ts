@@ -715,6 +715,21 @@ test("book editing session saves a Note before its placement without a mounted r
   expect(notes.find((note: { id: string }) => note.id === card.noteId)?.title).toBe("同一书籍的笔记");
 });
 
+test("workspace refresh leaves a dirty draft's scheduled save active", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
+  const input = page.getByLabel("卡片正文");
+  await expect(input).toBeVisible();
+  await page.clock.install({ time: new Date("2026-10-21T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-10-21T00:00:01Z"));
+  await input.fill("刷新通知不能取消尚未触发的自动保存");
+  await page.getByRole("button", { name: "刷新工作区", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("草稿尚未保存");
+  await page.clock.runFor(600);
+  await expect.poll(() => new Workspaces(core.library).get(bookId).cards
+    .find((card) => card.id === "draft-card")?.text).toBe("刷新通知不能取消尚未触发的自动保存");
+  await expect(page.getByRole("status")).toHaveText("已保存");
+});
+
 test("workspace refresh cannot overwrite edits made while its response is pending", async ({ page }) => {
   await page.goto(`http://127.0.0.1:5173/tests/workspace-edits.html?book=${bookId}`);
   const input = page.getByLabel("卡片正文");
@@ -734,6 +749,9 @@ test("workspace refresh cannot overwrite edits made while its response is pendin
     release();
     await expect(page.getByRole("alert")).toContainText("刷新期间");
     await expect(input).toHaveValue("刷新过程中继续写入的内容");
+    await expect.poll(() => new Workspaces(core.library).get(bookId).cards
+      .find((card) => card.id === "draft-card")?.text).toBe("刷新过程中继续写入的内容");
+    await expect(page.getByRole("status")).toHaveText("已保存");
   } finally { release(); }
 });
 

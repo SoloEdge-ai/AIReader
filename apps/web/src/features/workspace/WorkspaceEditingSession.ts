@@ -74,7 +74,9 @@ export class WorkspaceEditingSession {
   reload = async (preserveHistory = false) => {
     // A newer explicit refresh supersedes the mount-time load as well.
     this.loadRequest++;
-    clearTimeout(this.timer);
+    // Refresh must not cancel a draft's queued save, including edits made
+    // while the snapshot request is in flight. Generation guards below keep
+    // stale snapshots from replacing those edits.
     if (this.pending) await this.pending;
     if (this.generation !== this.saved) {
       this.publish({ error: "工作区草稿尚未保存，请先重试或导出草稿，避免覆盖修改" });
@@ -88,7 +90,6 @@ export class WorkspaceEditingSession {
       const initial = await api<BookWorkspace>(`books/${this.bookId}/workspace`);
       if (!this.live || request !== this.reloadRequest) return;
       if (this.generation !== startedGeneration) {
-        clearTimeout(this.timer);
         this.publish({ error: "刷新期间工作区已发生编辑，草稿已保留，请保存或处理冲突后重试刷新" });
         return;
       }
